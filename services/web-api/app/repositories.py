@@ -49,7 +49,8 @@ class CaseRepository:
         r = await self._pool.fetchrow("SELECT * FROM risk_case WHERE case_id=$1", case_id)
         if not r:
             return None
-        return _case_row(r) | {"context_json": r["context_json"], "version": r["version"],
+        return _case_row(r) | {"context_json": json.loads(r["context_json"] or "{}"),
+                               "version": r["version"],
                                "trace_id": r["trace_id"]}
 
     async def register(self, subject_ref: str, risk_score: int, source_type: str) -> dict:

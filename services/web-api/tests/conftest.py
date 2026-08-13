@@ -104,3 +104,13 @@ async def aggregation(case_repo, pool):
     repo, pub = case_repo
     return AggregationService(pool=pool, cases=repo, external=FakeExternal(),
                               core=CoreClient(MCP_CORE_URL), retry=0, timeout=5.0), repo, pub
+
+
+@pytest.fixture
+async def disposition(case_repo, pool):
+    """DispositionService 装配（AA-SK-03 确定性内核，真实 CoreClient 实链路）"""
+    from app.skills.disposition import DispositionService
+    from app.skills.mcp_adapters import CoreClient
+    repo, pub = case_repo
+    return DispositionService(pool=pool, cases=repo, core=CoreClient(MCP_CORE_URL),
+                              pub=pub), repo, pub

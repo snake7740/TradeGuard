@@ -80,4 +80,5 @@ async def submit_review(request: Request, case_id: str, body: ReviewIn):
 
 
 # TODO(US-E4-05)：API-W-07 复核确认后自动创建处置审批工单（DA-T-07）——
-# 当前仅完成状态迁移与事件发布，工单创建随 E4 处置闭环落地。
+# 当前仅完成状态迁移与事件发布；建单通道已由 E5 落地（mcp-core create_approval_request，
+# API-M-11，tg_app 写角色），随 Sprint 5-6 E4 复核闭环接入。

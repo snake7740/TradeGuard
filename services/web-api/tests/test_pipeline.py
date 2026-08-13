@@ -157,3 +157,20 @@ async def test_all_sources_fail_escalates(aggregation, monkeypatch):
     assert (await repo.get(reg["case_id"]))["status"] == "AGGREGATING"
     trail = await repo.audit_trail(reg["case_id"])
     assert any(a["action"] == "signals.all_fail" for a in trail)
+
+
+async def test_ba_br07_disabled_auto_channel_blocks_auto_release(aggregation, app_pool, pool):
+    """BA-BR-07：驳回回滚禁用自动通道后，同档低风险聚合不再自动放行，转调查"""
+    svc, repo, pub = aggregation
+    subject = _subject("br07")
+    await _seed_txs(app_pool, subject, 1, amount=800.0)   # 低风险档（同 SC-01 场景）
+    reg = await repo.register(subject, risk_score=50, source_type="TEST")
+    await pool.execute(
+        "UPDATE risk_case SET context_json=$2::jsonb WHERE case_id=$1",
+        reg["case_id"], '{"auto_channel": "disabled"}')
+
+    result = await svc.run(reg["case_id"])
+
+    assert result["risk_score"] < 40                      # 同 SC-01 低风险档
+    assert result["route"] == "investigate"               # 自动通道被禁用（BA-BR-07）
+    assert (await repo.get(reg["case_id"]))["status"] == "INVESTIGATING"

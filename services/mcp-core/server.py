@@ -95,15 +95,47 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
         if existed:
             return json.dumps({"code": "E-IDEMPOTENT-CONFLICT", "first_result": dict(existed)}, default=str)
         exec_id = uuid.uuid4().hex
-        await conn.execute(
-            """INSERT INTO disposition_record (exec_id, case_id, action, amount, idempotency_key, approval_ref, status)
-               VALUES ($1,$2,$3,$4,$5,$6,'submitted')""",
-            exec_id, case_id, action, amount, idempotency_key, approval_ref)
-        await conn.execute(
-            """INSERT INTO audit_log (log_id, actor, action, target, basis)
-               VALUES ($1, 'AA-AG-04', 'disposition.submit', $2, $3)""",
-            uuid.uuid4().hex, case_id, f"action={action},approval_ref={approval_ref}")
-        return json.dumps({"exec_id": exec_id, "status": "submitted"}, ensure_ascii=False)
+        receipt = json.dumps({"approval_ref": approval_ref, "action": action,
+                              "amount": amount}, ensure_ascii=False, default=str)
+        async with conn.transaction():
+            await conn.execute(
+                """INSERT INTO disposition_record (exec_id, case_id, action, amount, idempotency_key, approval_ref, status)
+                   VALUES ($1,$2,$3,$4,$5,$6,'submitted')""",
+                exec_id, case_id, action, amount, idempotency_key, approval_ref)
+            # 执行成功置 executed + 执行凭证（SC-02：审批记录与执行凭证关联落库）
+            await conn.execute(
+                "UPDATE disposition_record SET status='executed', receipt=$2::jsonb WHERE exec_id=$1",
+                exec_id, receipt)
+            await conn.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis)
+                   VALUES ($1, 'AA-AG-04', 'disposition.submit', $2, $3)""",
+                uuid.uuid4().hex, case_id, f"action={action},approval_ref={approval_ref}")
+        return json.dumps({"exec_id": exec_id, "status": "executed"}, ensure_ascii=False)
+    finally:
+        await conn.close()
+
+
+@mcp.tool()
+async def create_approval_request(case_id: str, action: str, amount: float | None, reason: str) -> str:
+    """API-M-11：创建处置审批工单（AA-AG-04，DA-T-07，tg_app 写角色 DA-INV-05）
+    处置门控 E-DISP-AUTH 触发时建单（SC-02）：decision=pending，携带请求动作/金额，
+    批准后 AA-SK-03 据此执行；人类经 API-W-09 回填决策（tg_web UPDATE）。"""
+    if action not in ("block", "freeze", "reduce", "release"):
+        return json.dumps({"code": "E-BAD-ACTION", "message": f"非法处置动作 {action}"})
+    approval_id = uuid.uuid4().hex
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            await conn.execute(
+                """INSERT INTO approval_record (approval_id, case_id, decision, opinion,
+                                                requested_action, requested_amount)
+                   VALUES ($1, $2, 'pending', $3, $4, $5)""",
+                approval_id, case_id, reason[:500], action, amount)
+            await conn.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis)
+                   VALUES ($1, 'AA-AG-04', 'approval.create', $2, $3)""",
+                uuid.uuid4().hex, case_id, f"approval={approval_id},action={action}")
+        return json.dumps({"approval_id": approval_id, "status": "pending"}, ensure_ascii=False)
     finally:
         await conn.close()
 

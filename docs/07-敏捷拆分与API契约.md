@@ -110,7 +110,7 @@
 | 里程碑 | Sprint | 内容 | 出口标准（对齐 06 §5） | 状态 |
 |---|---|---|---|---|
 | M1 最小闭环 | S1（E1+E2）、S2（E3） | 底座 + 数据 + 聚合放行 | SC-01 通过；契约测试绿 | S1 ✅（2026-08-13）；S2 ✅（2026-08-13） |
-| M2 审批链路 | S3–S4（E5） | 处置 + 审批回滚 + 时效 | SC-02/03/07/09/10 通过；状态机/幂等单测全绿 | 待启动 |
+| M2 审批链路 | S3–S4（E5） | 处置 + 审批回滚 + 时效 | SC-02/03/07/09/10 通过；状态机/幂等单测全绿 | S3–S4 ✅（2026-08-13） |
 | M3 调查与知识 | S5–S6（E4+E6+E7-01~03） | 调查、审计、知识、门户 | SC-05/08 通过；集成测试全绿 | 待启动 |
 | 决赛 | S7（E7-04~05） | 可观测 + 演示剧本 | 11/11 场景通过 + KPI 报告 | 待启动 |
 
@@ -119,6 +119,8 @@
 > **US-E1-02 LLM 解锁记录（2026-08-13 实测）**：真实 DashScope Key 经安全链路注入（`scripts/set-dashscope-key.ps1` SecureString 录入 → `secrets/dashscope.env`（gitignore）→ 环境变量注入，全程不落明文仓库件）。模型取证：专属 MaaS 端点 `/api/v1/models` 确认 **qwen3.8-max** 可用（MoE 旗舰/1M 上下文/function-calling），OpenAI 兼容路径 `/compatible-mode/v1/chat/completions` 实测连通。注入方式：`scripts/update-agentteams-llm.sh`（sed env + KEEP_ALL installer + 防御回写），随后经 `agt update manager --name default --model qwen3.8-max` 交 controller 按 CRD 重建 Manager。排障根因：controller 创建 Manager 的正解形态是 `agentteams-net` 桥接网络 + `AGENTTEAMS_RUNTIME=k8s`（Manager 自行从 MinIO 拉取 workspace 并 touch `.initialized`），此前手工重建误用共享网络命名空间 + local 模式导致死等崩溃循环。验收取证：`agt llm-preflight` passed；Manager Status=running/Restarts=0；Matrix 登录 + sync loop；经 Higress 网关 key-auth 实测 `model=qwen3.8-max` 返回正常；qwenpaw `active_model.json`=agentteams-gateway/qwen3.8-max（Key ENC 加密存储）；控制台 18888 HTTP 200。Worker 创建 ✅：`agt create worker --model qwen3.8-max --soul-file`（SOUL 按 02 §3 身份清单）创建 aa-ag-02~05 四 Worker，`agt get workers` 全部 Running/model=qwen3.8-max/runtime=copaw，SOUL.md 已注入各 Worker 容器；Matrix 房间实测：发消息→Manager 经 qwen3.8-max 生成完整中文回复入房（分派链路可用）。至此 **US-E1-02 全部完成**（5 Agent：1 Manager + 4 Worker，Sprint 1 收官）。
 >
 > **Sprint 2 执行记录（2026-08-13 实测，E3 信号聚合闭环）**：四 Story 全完成，测试 89/89 绿（基线 46 + 新增 43）。US-E3-02 ✅：`tests/test_acl_contract.py` 对运行中 mcp-external-mock 经官方 streamable-http 通道实测 9 例（缺 query_reason 拒收 BA-BR-10 / 成功载荷 schema / 确定性）。US-E3-03 ✅：AA-SK-01 内核落 `services/web-api/app/skills/aggregation.py`（纯函数可测：velocity 统计/降噪合并/加权评分/分级裁决 + AggregationService 编排），覆盖率 97%（≥60% 要求）；信号落库经 mcp-core 新工具 API-M-10 `record_case_signals`（tg_app 写角色，DA-INV-05 权限矩阵不破）。US-E3-04 ✅：分级裁决四路由（noise 降噪归档 / auto_release 低风险自动放行 / investigate 转调查 / all_fail 转人工）；新增状态迁移 AGGREGATING→DISPOSING（BA-CAP-05 低风险自动通道，边界守卫在聚合裁决层，应用层状态机 + DB 白名单表双守护同步 19 条）。SC-11 ✅：12 笔高频簇 velocity_json 与流水统计一致且 velocity 加分 ≥30；SC-01 ✅：低风险小额（风险分 23<40、涉案 800<5000）自动放行至 DISPOSED，DispositionExecuted 事件 + 审计 actor=AA-AG-04 依据含风险分，幂等重入仅 1 条处置记录。环境排障沉淀：① mcp SDK 全栈统一 1.9.4（1.2.1 无 streamable_http）；② streamable-http 挂载点需尾斜杠 `/mcp/`（无斜杠 307）；③ 宿主系统代理会拦截 httpx 回环连接返回 502，入口注入 NO_PROXY 旁路；④ FastMCP 对形似 JSON 的字符串参数会预解析，工具入参用 list[dict] 而非 JSON 字符串。
+>
+> **Sprint 3-4 执行记录（2026-08-13 实测，E5 处置执行与审批回滚）**：六 Story 全完成，测试 95/95 绿（基线 89 + 新增 6，SC-02/03/07/09/10 各一例 + BA-BR-07 聚合守卫一例）。AA-SK-03 内核落 `services/web-api/app/skills/disposition.py`（覆盖率 92%，≥60% 要求）：submit 四路由（refused_mid_risk / approval_required / idempotent_hit / executed）+ approve/reject 闭环 + scan_pending_escalations（BA-BR-13，web-api lifespan 后台任务 30s 轮询）。US-E5-01 ✅：SC-07 同幂等键重投返回首次凭证且仅 1 条 executed 记录；US-E5-02 ✅：SC-02 风险分 82 无凭证冻结触 E-DISP-AUTH，建单经 mcp-core 新工具 API-M-11 `create_approval_request`（tg_app 写角色，DA-INV-05 内建单），案转 PENDING_APPROVAL；US-E5-03 ✅：API-W-09 委托内核编排——批准→ApprovalApproved→自动执行至 DISPOSED（执行凭证 receipt 含 approval_ref 关联）；驳回→ApprovalRejected→RollbackToReview 回退 MANUAL_REVIEW + context_json.auto_channel=disabled（BA-BR-07，聚合裁决层持久守卫，同档低风险亦不再自动放行）；US-E5-04 ✅：SC-10 风险分 55 自动放行被拒 E-DISP-SCOPE，无处置记录仅审计 disposition.refused；US-E5-05 ✅：SC-09 超 30 分钟未决工单 escalated_at 打标 + approval.escalate 审计（actor=system:timer-BA-BR-13）+ ApprovalEscalated 事件，二次扫描幂等；US-E5-06 ✅：沿用 Sprint 1 状态机/乐观锁 46 例基线（E5 未新增迁移）。DB 扩展：db/init/05-approval-extension.sql（approval_record +requested_action/requested_amount/escalated_at，运行库已执行）。mcp-core execute_disposition 同事务内置 executed+receipt（SC-02 审批与凭证关联落库）。
 
 依赖提示：E4 依赖 E3 的信号结构；E5 依赖 E2 的 DDL；E7-02/03 依赖 E3/E5 产生的真实事件数据。
 
@@ -164,6 +166,7 @@
 | API-M-08 | `query_sentiment` | AA-MCP-02 | 只读（模拟） | 是 |
 | API-M-09 | `query_complaint` | AA-MCP-02 | 只读（模拟） | 是 |
 | API-M-10 | `record_case_signals` | AA-MCP-01 | 写（tg_app，信号只增+评分回写） | 是（同案重复聚合仅追加信号） |
+| API-M-11 | `create_approval_request` | AA-MCP-01 | 写（tg_app，审批建单 DA-T-07） | 否（每次建单新工单，调用方幂等由编排层保证） |
 
 **契约纪律**：任何接口/工具变更必须先改 openapi.yaml 再改代码（与 03 §9.4 领域事件纪律同级）；错误码统一见 [08 §6](./08-数据模型与数据字典.md#6-错误码表)。
 

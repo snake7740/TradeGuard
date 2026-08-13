@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -188,7 +189,7 @@ class AggregationService:
 
     async def run(self, case_id: str) -> dict:
         case = await self.pool.fetchrow(
-            "SELECT case_id, subject_ref, status, version FROM risk_case WHERE case_id=$1", case_id)
+            "SELECT case_id, subject_ref, status, version, context_json FROM risk_case WHERE case_id=$1", case_id)
         if not case:
             raise LookupError(case_id)
         version = case["version"]
@@ -250,6 +251,12 @@ class AggregationService:
         # 6. 裁决路由
         amount = velocity["velocity_24h"]["amount"]
         route = triage(score, amount, signals)
+        # BA-BR-07：驳回回滚禁用自动通道后，同档低风险也不再自动放行，转调查
+        ctx = case["context_json"]
+        if isinstance(ctx, str):
+            ctx = json.loads(ctx or "{}")
+        if route == "auto_release" and (ctx or {}).get("auto_channel") == "disabled":
+            route = "investigate"
         if route == "noise":
             out = await self.cases.transition(case_id, CaseEvent.NOISE_DISMISSED,
                                               self.ACTOR_AGG, version,

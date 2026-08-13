@@ -68,3 +68,9 @@ class CoreClient(McpToolClient):
         return await self.call_tool("execute_disposition", case_id=case_id, action=action,
                                     amount=amount, idempotency_key=idempotency_key,
                                     approval_ref=approval_ref)
+
+    async def create_approval_request(self, case_id: str, action: str,
+                                      amount: float | None, reason: str) -> dict:
+        """API-M-11：处置审批工单创建（E-DISP-AUTH 门控建单，SC-02）"""
+        return await self.call_tool("create_approval_request", case_id=case_id, action=action,
+                                    amount=amount, reason=reason)

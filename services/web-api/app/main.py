@@ -9,6 +9,8 @@
 路由不直接持有连接池之外的基础设施，便于测试替身。
 契约纪律：先改 docs/openapi/tradeguard-openapi.yaml 再改本目录。
 """
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -21,7 +23,11 @@ from .core.config_service import ConfigService
 from .core.events import InMemoryPublisher
 from .repositories import ApprovalRepository, CaseRepository, KbRepository
 from .skills.aggregation import AggregationService
+from .skills.disposition import DispositionService, scan_pending_escalations
 from .skills.mcp_adapters import CoreClient, ExternalSourcesClient
+
+logger = logging.getLogger("tradeguard.web")
+ESCALATION_SCAN_INTERVAL = float(os.getenv("ESCALATION_SCAN_INTERVAL", "30"))  # BA-BR-13 轮询周期（秒）
 
 PG_DSN = os.getenv("PG_DSN", "postgresql://tg_web:tg_web_dev@localhost:5432/tradeguard")
 # MCP 客户端（httpx）自动读取代理配置：回环/服务名地址需旁路，否则被代理拦截返回 502
@@ -43,9 +49,29 @@ async def lifespan(app: FastAPI):
     app.state.aggregation = AggregationService(
         pool=app.state.pool, cases=app.state.cases,
         external=ExternalSourcesClient(MCP_EXTERNAL_URL), core=CoreClient(MCP_CORE_URL))
+    # AA-SK-03 处置执行确定性内核（US-E5-01~04）：建单经 AA-MCP-01（tg_app），决策回填走 tg_web
+    app.state.disposition = DispositionService(
+        pool=app.state.pool, cases=app.state.cases,
+        core=CoreClient(MCP_CORE_URL), pub=app.state.publisher)
     app.state.config = ConfigService(pool=app.state.pool)   # US-E1-03 阈值热加载
     await app.state.config.start()
+
+    async def _escalation_loop():
+        # BA-BR-13 审批时效升级扫描（SC-09）：定时标记超时未决工单，异常吞掉防任务退出
+        while True:
+            try:
+                await scan_pending_escalations(app.state.pool, app.state.publisher)
+            except Exception:  # noqa: BLE001 —— 后台巡检不中断服务
+                logger.exception("BA-BR-13 升级扫描异常，等待下轮")
+            await asyncio.sleep(ESCALATION_SCAN_INTERVAL)
+
+    escalation_task = asyncio.create_task(_escalation_loop())
     yield
+    escalation_task.cancel()
+    try:
+        await escalation_task
+    except asyncio.CancelledError:
+        pass
     await app.state.config.stop()
     await app.state.pool.close()
 

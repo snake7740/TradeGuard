@@ -701,6 +701,38 @@ components:
       required: [case_id]
       properties:
         case_id: { $ref: '#/components/schemas/CaseId' }
+    McpRecordCaseSignalsReq:
+      x-mcp-tool: record_case_signals
+      x-mcp-server: AA-MCP-01
+      description: API-M-10（Sprint 2）：信号只增落 DA-T-04 + 评分回写 risk_case（tg_app 写角色 DA-INV-05）
+      type: object
+      required: [case_id, risk_score, signals]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        risk_score: { type: integer, minimum: 0, maximum: 100 }
+        signals:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: 标准化信号数组（FastMCP 直传，非 JSON 字符串）
+    McpCreateApprovalRequestReq:
+      x-mcp-tool: create_approval_request
+      x-mcp-server: AA-MCP-01
+      description: API-M-11（Sprint 3-4）：处置审批建单 DA-T-07（tg_app 写角色 DA-INV-05，SC-02）
+      type: object
+      required: [case_id, action, reason]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        action: { type: string, enum: [block, freeze, reduce, release] }
+        amount:
+          type: number
+          nullable: true
+          description: 涉案金额（release/block 可为空）
+        reason: { type: string, maxLength: 500, description: 建单事由（含风险分与规则依据） }
+    McpCreateApprovalRequestResp:
+      type: object
+      properties:
+        approval_id: { type: string }
+        status: { type: string, enum: [pending] }
     McpQueryCreditReq:
       x-mcp-tool: query_credit
       x-mcp-server: AA-MCP-02
