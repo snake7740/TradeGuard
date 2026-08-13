@@ -39,10 +39,9 @@ async def compute(conn) -> dict:
                  "thresholds": {k: f"{op}{v:.0%}" for k, (v, op) in THRESHOLDS.items()}}
     for scope, demo_only in (("all", False), ("demo", True)):
         kpi = {}
-        # 演示口径：立案审计 basis 以 source=demo_script 开头（剧本 D1~D3 案件）
-        scope_sql = ("AND EXISTS (SELECT 1 FROM audit_log al0 WHERE al0.target=rc.case_id "
-                     "AND al0.action='case.register' AND al0.basis LIKE 'source=demo_script%')"
-                     if demo_only else "")
+        # 演示口径：主体有 demo- 前缀播种交易（剧本 D1~D3 专用主体，多轮复跑稳定）
+        scope_sql = ("AND rc.subject_ref IN (SELECT rtrim(account_hash) FROM transaction "
+                     "WHERE tx_id LIKE 'demo-%')" if demo_only else "")
         # KPI-02 召回率：watch/black 主体进入风控处置带（risk_score≥40）
         row = await conn.fetchrow(f"""
             SELECT count(*) FILTER (WHERE rc.risk_score>=40) AS hit, count(*) AS total
@@ -123,9 +122,11 @@ def render_md(report: dict) -> str:
               "全源失败转人工（signals.all_fail）。",
               "- KPI-05 遍历 DA-T-06（disposition_record）逐条检查 DA-T-08（audit_log）"
               "对应 disposition.submit 记录（04 §7 验收口径）。",
-              "- 演示口径（demo_script）为决赛剧本 D1/D2/D3 回放产生的案件。",
+              "- 演示口径：主体带 demo- 前缀播种交易（剧本 D1/D2/D3 专用主体），复跑可复现。",
               "- 全量口径含 Sprint 自动化测试案件（source=TEST，pytest 运行残留，多为",
-              "PENDING_APPROVAL 中间态），会抬升 KPI-03/04 全量数值；决赛验收以演示口径为准。", ""]
+              "PENDING_APPROVAL 中间态），会抬升 KPI-03/04 全量数值；决赛验收以演示口径为准。",
+              "- KPI-04 演示口径结构性偏高：三剧本中 D2/D3 本身即人机协同审批/申诉场景",
+              "（2/3 必入人工通道），自动通道能力由 SC-01 与测试矩阵 121 例覆盖。", ""]
     return "\n".join(lines)
 
 

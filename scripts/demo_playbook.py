@@ -58,11 +58,15 @@ def headers(operator: str | None = None) -> dict:
     return h
 
 
-async def seed_subject(app, list_flag: str, txs: list[tuple[float, int]]) -> str:
-    """播种演示主体（tg_app 为 account/transaction 写角色，02-roles.sql）"""
-    subject = uuid.uuid4().hex.ljust(64)
+async def seed_subject(app, list_flag: str, txs: list[tuple[float, int]],
+                       fixed_hash: str | None = None) -> str:
+    """播种演示主体（tg_app 为 account/transaction 写角色，02-roles.sql）。
+    fixed_hash 可选：固定主体哈希使外部 mock 信号确定（complaint 命中推高
+    评分至审批线上方），保障剧本可重复回放；账户 INSERT 幂等（复跑友好）。"""
+    subject = fixed_hash or uuid.uuid4().hex
     await app.execute(
-        "INSERT INTO account (account_hash, risk_level, list_flag) VALUES ($1, $2, $3)",
+        "INSERT INTO account (account_hash, risk_level, list_flag) VALUES ($1, $2, $3) "
+        "ON CONFLICT (account_hash) DO NOTHING",
         subject, 3 if list_flag != "none" else 0, list_flag)
     now = datetime.now(timezone.utc)
     for i, (amount, minutes_ago) in enumerate(txs):
@@ -70,7 +74,7 @@ async def seed_subject(app, list_flag: str, txs: list[tuple[float, int]]) -> str
             """INSERT INTO transaction (tx_id, account_hash, amount, mcc, channel, ts)
                VALUES ($1, $2, $3, '5411', 'CNP', $4)""",
             f"demo-{uuid.uuid4().hex[:12]}", subject, amount, now - timedelta(minutes=minutes_ago))
-    return subject.strip()
+    return subject
 
 
 async def register_case(client: httpx.AsyncClient, scenario: str, subject: str) -> str:
@@ -194,7 +198,10 @@ async def d2_investigate_freeze_approve(client, app, web):
 async def d3_false_positive_rollback(client, app, web):
     """剧本 D3：误报申诉回滚（核验不一致 → 反向处置 → 人工申诉归档）"""
     print("\n▶ 剧本 D3 误报申诉回滚（SC-03/07 变体回放）")
-    subject = await seed_subject(app, "none", [(50.0, 2 + i) for i in range(12)])
+    # 固定主体哈希：外部 mock 按主体确定性出信号，该哈希实证命中投诉否认交易
+    # （complaint 0.9 → 评分 77 ≥ 70 审批线 BA-BR-02），保障误报剧本可重复回放
+    subject = await seed_subject(app, "none", [(50.0, 2 + i) for i in range(12)],
+                                 fixed_hash="c10f355d11154dde8d41333fb879f31d")
     case_id = await register_case(client, "D3", subject)
 
     await client.post(f"{BASE}/api/cases/{case_id}/aggregate", headers=headers())

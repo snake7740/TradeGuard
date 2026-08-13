@@ -40,14 +40,17 @@ class RecordingPublisher:
 
 @pytest.fixture(autouse=True, scope="session")
 def _clean_kb_tables():
-    """会话级知识库清场：kb_document/kb_embedding 无 DELETE 授权（只增语义，
-    02-roles.sql），跨轮污染会扰乱相似度检索断言，故经超级用户 TRUNCATE 保底。"""
+    """会话级清场：kb_document/kb_embedding 无 DELETE 授权（只增语义，
+    02-roles.sql），跨轮污染会扰乱相似度检索断言，故经超级用户 TRUNCATE 保底。
+    同步清理演示剧本/历史轮次残留的 pending 审批工单：SC-09 时效扫描是全表
+    扫描，残留超期工单会被一并升级导致断言串扰。"""
     import asyncio
 
     async def _truncate():
         conn = await asyncpg.connect(TG_SUPER_DSN)
         try:
             await conn.execute("TRUNCATE kb_embedding, kb_document")
+            await conn.execute("DELETE FROM approval_record WHERE decision='pending'")
         finally:
             await conn.close()
 
