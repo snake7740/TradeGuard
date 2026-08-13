@@ -14,6 +14,7 @@ import json
 import uuid
 
 from ..core.state_machine import CaseEvent
+from ..core.tracing import skill_span
 from .knowledge import search_kb
 
 ACTOR_INV = "agent:AA-AG-03"      # 调查取证 Agent（02 §3）
@@ -59,6 +60,10 @@ class InvestigationService:
         self.pub = pub
 
     async def run(self, case_id: str) -> dict:
+        async with skill_span("AA-SK-02", "AA-AG-03", case_id):
+            return await self._run(case_id)
+
+    async def _run(self, case_id: str) -> dict:
         case = await self.cases.get(case_id)
         if not case:
             raise LookupError(case_id)

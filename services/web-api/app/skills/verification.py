@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 
 from ..core.state_machine import CaseEvent
+from ..core.tracing import skill_span
 
 ACTOR_VER = "agent:AA-AG-05"        # 合规审计 Agent（02 §3）
 ACTOR_VER_AUDIT = "AA-AG-05"
@@ -43,6 +44,10 @@ class VerificationService:
         self.pub = pub
 
     async def verify(self, case_id: str, exec_id: str) -> dict:
+        async with skill_span("AA-SK-04", "AA-AG-05", case_id, exec_id=exec_id):
+            return await self._verify(case_id, exec_id)
+
+    async def _verify(self, case_id: str, exec_id: str) -> dict:
         case = await self.cases.get(case_id)
         if not case:
             raise LookupError(case_id)

@@ -28,3 +28,5 @@ db/backup/
 
 # 日志
 *.log
+logs/
+**/logs/

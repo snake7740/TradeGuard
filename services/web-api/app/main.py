@@ -18,7 +18,7 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import alerts, approvals, audit, cases, config, events_stream, health, kb
+from .api import alerts, approvals, audit, cases, config, events_stream, health, kb, observability
 from .api_guards import apply_api_guards
 from .core.config_service import ConfigService
 from .core.events import InMemoryPublisher
@@ -90,10 +90,10 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="TradeGuard web-api", version="0.3.0", lifespan=lifespan,
-                  description="API-W-01~19 契约实现（docs/openapi/tradeguard-openapi.yaml）")
+    app = FastAPI(title="TradeGuard web-api", version="0.4.0", lifespan=lifespan,
+                  description="API-W-01~20 契约实现（docs/openapi/tradeguard-openapi.yaml）")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-    for module in (health, alerts, cases, approvals, audit, kb, events_stream, config):
+    for module in (health, alerts, cases, approvals, audit, kb, events_stream, config, observability):
         app.include_router(module.router)
     return apply_api_guards(app)   # US-E7-01：bearer 鉴权 + 写操作审计（池由 lifespan 注入）
 

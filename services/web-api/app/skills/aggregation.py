@@ -22,6 +22,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from ..core.state_machine import CaseEvent
+from ..core.tracing import skill_span
 
 # ---------- 规则常量（可追溯：BA-BR-01/14，02 §4 AA-SK-01） ----------
 
@@ -31,6 +32,7 @@ VELOCITY_1H_THRESHOLD = 10   # BA-BR-14 阈值（正式值经 Nacos 热更新，
 VELOCITY_24H_THRESHOLD = 50
 AUTO_SCORE_MAX = 40          # BA-BR-01：风险分 <40 可自动处置
 AUTO_AMOUNT_MAX = 5000       # BA-BR-01：单笔涉案 <5000 元可自动处置
+BLACK_FLAG_SCORE = 75        # BA-BR-04：黑名单主体立案即高风险（≥BA-BR-02 审批线 70，SC-04）
 EXTERNAL_SOURCES = ("credit", "sentiment", "complaint")
 
 ZERO_VELOCITY = {
@@ -188,6 +190,10 @@ class AggregationService:
         self.timeout = timeout
 
     async def run(self, case_id: str) -> dict:
+        async with skill_span("AA-SK-01", "AA-AG-02", case_id):
+            return await self._run(case_id)
+
+    async def _run(self, case_id: str) -> dict:
         case = await self.pool.fetchrow(
             "SELECT case_id, subject_ref, status, version, context_json FROM risk_case WHERE case_id=$1", case_id)
         if not case:
@@ -246,6 +252,20 @@ class AggregationService:
 
         # 4-5. 评分 + 落库（经 AA-MCP-01，tg_app 写角色 DA-INV-05）
         score = score_signals(signals, velocity)
+        # BA-BR-04（SC-04）：黑名单主体立案即高风险，处置建议拦截，
+        # 无论金额均经 BA-BR-02 审批门控入人工通道（评分垫高至 ≥审批线）
+        black = await self.pool.fetchval(
+            "SELECT list_flag FROM account WHERE account_hash=$1", case["subject_ref"])
+        recommended_action = None
+        if black == "black":
+            score = max(score, BLACK_FLAG_SCORE)
+            recommended_action = "block"
+            await self.pool.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                   VALUES ($1, $2, 'signals.black_flag', $3,
+                           'list_flag=black 立案即高风险，处置建议=block（BA-BR-04，SC-04）',
+                           (SELECT trace_id FROM risk_case WHERE case_id=$4))""",
+                uuid.uuid4().hex, self.ACTOR_AGG, case_id, case_id)
         await self.core.record_case_signals(case_id, score, signals)
 
         # 6. 裁决路由
@@ -257,6 +277,8 @@ class AggregationService:
             ctx = json.loads(ctx or "{}")
         if route == "auto_release" and (ctx or {}).get("auto_channel") == "disabled":
             route = "investigate"
+        if recommended_action and route == "noise":
+            route = "investigate"   # 黑名单主体不得降噪归档，必须入人工通道（SC-04）
         if route == "noise":
             out = await self.cases.transition(case_id, CaseEvent.NOISE_DISMISSED,
                                               self.ACTOR_AGG, version,
@@ -277,7 +299,10 @@ class AggregationService:
         out = await self.cases.transition(case_id, CaseEvent.SIGNALS_AGGREGATED,
                                           self.ACTOR_AGG, version,
                                           basis=f"risk_score={score} 转调查（中/高风险分段）")
-        return self._result(case_id, out["status"], route, score, velocity, signals, degraded)
+        result = self._result(case_id, out["status"], route, score, velocity, signals, degraded)
+        if recommended_action:
+            result["recommended_action"] = recommended_action   # SC-04 处置建议随裁决输出
+        return result
 
     async def _fetch_tx(self, subject_ref: str) -> list[dict]:
         """AA-MCP-01 query_transactions 等价读路径（近 24h 流水）"""

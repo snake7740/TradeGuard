@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 
 from ..core.state_machine import CaseEvent
+from ..core.tracing import skill_span
 
 AUTO_SCORE_MAX = 40      # BA-BR-01 自动通道风险分上限（与 aggregation 同源常量语义）
 HIGH_RISK_SCORE = 70     # BA-BR-02 高风险强制审批线
@@ -51,6 +52,12 @@ class DispositionService:
         路由：refused_mid_risk（BA-BR-01 中风险段）/ approval_required（E-DISP-AUTH
         建单转待审批）/ idempotent_hit（DA-INV-03 幂等重放）/ executed（执行成功）。
         """
+        async with skill_span("AA-SK-03", "AA-AG-04", case_id,
+                              action=action, approval_ref=approval_ref or ""):
+            return await self._submit(case_id, action, amount, idempotency_key, approval_ref)
+
+    async def _submit(self, case_id: str, action: str, amount: float | None,
+                      idempotency_key: str, approval_ref: str | None = None) -> dict:
         case = await self.cases.get(case_id)
         if not case:
             raise LookupError(case_id)

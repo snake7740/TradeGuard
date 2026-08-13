@@ -247,9 +247,11 @@ async def record_case_signals(case_id: str, risk_score: int, signals: list[dict]
                 "UPDATE risk_case SET risk_score=$2, updated_at=now() WHERE case_id=$1",
                 case_id, risk_score)
             await conn.execute(
-                """INSERT INTO audit_log (log_id, actor, action, target, basis)
-                   VALUES ($1, 'AA-AG-02', 'signals.record', $2, $3)""",
-                uuid.uuid4().hex, case_id, f"signals={len(sigs)},risk_score={risk_score}")
+                """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                   VALUES ($1, 'AA-AG-02', 'signals.record', $2, $3, $4)""",
+                uuid.uuid4().hex, case_id, f"signals={len(sigs)},risk_score={risk_score}",
+                await conn.fetchval(
+                    "SELECT trace_id FROM risk_case WHERE case_id=$1", case_id))
         return json.dumps({"ok": True, "recorded": len(sigs), "risk_score": risk_score})
     finally:
         await conn.close()
@@ -268,9 +270,11 @@ async def submit_kb_application(case_id: str, category: str, title: str, content
                VALUES ($1, $2, $3, $4, 'pending', 'AA-AG-05')""",
             doc_id, category, title, content)
         await conn.execute(
-            """INSERT INTO audit_log (log_id, actor, action, target, basis)
-               VALUES ($1, 'AA-AG-05', 'kb.apply', $2, $3)""",
-            uuid.uuid4().hex, doc_id, f"case={case_id},category={category}")
+            """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+               VALUES ($1, 'AA-AG-05', 'kb.apply', $2, $3, $4)""",
+            uuid.uuid4().hex, doc_id, f"case={case_id},category={category}",
+            await conn.fetchval(
+                "SELECT trace_id FROM risk_case WHERE case_id=$1", case_id))
         return json.dumps({"doc_id": doc_id, "status": "pending"}, ensure_ascii=False)
     finally:
         await conn.close()
