@@ -16,7 +16,8 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import alerts, approvals, audit, cases, events_stream, health, kb
+from .api import alerts, approvals, audit, cases, config, events_stream, health, kb
+from .core.config_service import ConfigService
 from .core.events import InMemoryPublisher
 from .repositories import ApprovalRepository, CaseRepository, KbRepository
 
@@ -31,7 +32,10 @@ async def lifespan(app: FastAPI):
     app.state.cases = CaseRepository(app.state.pool, app.state.publisher)
     app.state.approvals = ApprovalRepository(app.state.pool)
     app.state.kb = KbRepository(app.state.pool)
+    app.state.config = ConfigService(pool=app.state.pool)   # US-E1-03 阈值热加载
+    await app.state.config.start()
     yield
+    await app.state.config.stop()
     await app.state.pool.close()
 
 
@@ -39,7 +43,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="TradeGuard web-api", version="0.2.0", lifespan=lifespan,
                   description="API-W-01~15 契约实现（docs/openapi/tradeguard-openapi.yaml）")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-    for module in (health, alerts, cases, approvals, audit, kb, events_stream):
+    for module in (health, alerts, cases, approvals, audit, kb, events_stream, config):
         app.include_router(module.router)
     return app
 

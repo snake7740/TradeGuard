@@ -306,6 +306,28 @@ paths:
             text/event-stream:
               schema: { $ref: '#/components/schemas/SseEvent' }
 
+  /api/config/thresholds:
+    get:
+      tags: [系统]
+      operationId: getThresholdConfig
+      summary: BA-BR 阈值动态配置读取（US-E1-03，SC-06）
+      description: |
+        Nacos（group=TRADEGUARD, dataId=ba-br-thresholds）优先，不可用时降级 sys_config 种子。
+        web-api 每 5s 热加载，配置变更不重启生效（US-E1-03 验收标准）。
+      responses:
+        '200':
+          description: 当前阈值与来源
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source: { type: string, enum: [nacos, db] }
+                  updated_at: { type: string, format: date-time }
+                  values:
+                    type: object
+                    additionalProperties: { type: string }
+
 components:
   securitySchemes:
     bearerAuth:
