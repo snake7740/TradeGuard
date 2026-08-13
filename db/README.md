@@ -6,10 +6,10 @@
 
 | 文件 | 职责 |
 |---|---|
-| 01-schema.sql | 12 张表 DDL（DA-T-01~12）+ 索引 + BA-BR 阈值种子 |
+| 01-schema.sql | 12 张业务表 DDL（DA-T-01~12）+ 索引 + BA-BR 阈值种子 |
 | 02-roles.sql | 权限矩阵账号 tg_web / tg_app（03 §6 读写矩阵落地，DA-INV-05） |
 | 03-umodel-fallback.sql | UnifiedModel Sprint 0 退化路径：fn_related_graph 图函数 |
-| 04-invariants.sql | 不变量守护触发器（DA-INV-01 状态迁移白名单 + DA-INV-06 知识发布人工门控） |
+| 04-invariants.sql | 不变量守护：DA-T-13 状态迁移白名单表 + DA-INV-01 触发器 + DA-INV-06 知识发布人工门控 |
 
 ## 设计思路
 
