@@ -19,12 +19,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import alerts, approvals, audit, cases, config, events_stream, health, kb
+from .api_guards import apply_api_guards
 from .core.config_service import ConfigService
 from .core.events import InMemoryPublisher
 from .repositories import ApprovalRepository, CaseRepository, KbRepository
 from .skills.aggregation import AggregationService
 from .skills.disposition import DispositionService, scan_pending_escalations
+from .skills.investigation import InvestigationService
 from .skills.mcp_adapters import CoreClient, ExternalSourcesClient
+from .skills.verification import VerificationService, scan_verification_overdue
 
 logger = logging.getLogger("tradeguard.web")
 ESCALATION_SCAN_INTERVAL = float(os.getenv("ESCALATION_SCAN_INTERVAL", "30"))  # BA-BR-13 轮询周期（秒）
@@ -50,19 +53,29 @@ async def lifespan(app: FastAPI):
         pool=app.state.pool, cases=app.state.cases,
         external=ExternalSourcesClient(MCP_EXTERNAL_URL), core=CoreClient(MCP_CORE_URL))
     # AA-SK-03 处置执行确定性内核（US-E5-01~04）：建单经 AA-MCP-01（tg_app），决策回填走 tg_web
+    core = CoreClient(MCP_CORE_URL)
     app.state.disposition = DispositionService(
         pool=app.state.pool, cases=app.state.cases,
-        core=CoreClient(MCP_CORE_URL), pub=app.state.publisher)
+        core=core, pub=app.state.publisher)
+    # AA-SK-02 欺诈调查确定性内核（US-E4-01~03）：图谱/黑名单/证据固化，移交审批
+    app.state.investigation = InvestigationService(
+        pool=app.state.pool, cases=app.state.cases,
+        core=core, pub=app.state.publisher)
+    # AA-SK-04 核验审计确定性内核（US-E6-01/02）：一致归档/不一致反向处置
+    app.state.verification = VerificationService(
+        pool=app.state.pool, cases=app.state.cases,
+        core=core, pub=app.state.publisher)
     app.state.config = ConfigService(pool=app.state.pool)   # US-E1-03 阈值热加载
     await app.state.config.start()
 
     async def _escalation_loop():
-        # BA-BR-13 审批时效升级扫描（SC-09）：定时标记超时未决工单，异常吞掉防任务退出
+        # BA-BR-13 审批时效升级（SC-09）+ BA-BR-08 核验超时提醒：定时扫描，异常吞掉防任务退出
         while True:
             try:
                 await scan_pending_escalations(app.state.pool, app.state.publisher)
+                await scan_verification_overdue(app.state.pool, app.state.publisher)
             except Exception:  # noqa: BLE001 —— 后台巡检不中断服务
-                logger.exception("BA-BR-13 升级扫描异常，等待下轮")
+                logger.exception("BA-BR-13/08 定时扫描异常，等待下轮")
             await asyncio.sleep(ESCALATION_SCAN_INTERVAL)
 
     escalation_task = asyncio.create_task(_escalation_loop())
@@ -77,12 +90,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="TradeGuard web-api", version="0.2.0", lifespan=lifespan,
-                  description="API-W-01~15 契约实现（docs/openapi/tradeguard-openapi.yaml）")
+    app = FastAPI(title="TradeGuard web-api", version="0.3.0", lifespan=lifespan,
+                  description="API-W-01~19 契约实现（docs/openapi/tradeguard-openapi.yaml）")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     for module in (health, alerts, cases, approvals, audit, kb, events_stream, config):
         app.include_router(module.router)
-    return app
+    return apply_api_guards(app)   # US-E7-01：bearer 鉴权 + 写操作审计（池由 lifespan 注入）
 
 
 app = create_app()

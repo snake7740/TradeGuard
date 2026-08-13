@@ -18,13 +18,15 @@
 
 ## 确定性执行步骤
 
-1. **结果核验**：`query_disposition_result(execution_id)` 实际状态 == disposition_record 预期；
-2. **留痕完整性**：`query_audit_trail(case_id)` 覆盖 register→transition→disposition 全链，缺口即 trace_complete=false；
-3. **分支**：一致 → `VerificationPassed` → VERIFIED → `CaseArchived`；
-   不一致 → `VerificationFailed` → ROLLBACK → 反向处置（幂等键加 `:rollback` 后缀）→ `RollbackExecuted` → MANUAL_REVIEW + P0 告警；
-4. **超时守护**：10 分钟未核验触发提醒（BA-BR-08 计时器）；
-5. **报告**：audit_report 落 DA-T-05。
+1. **结果核验**：`disposition_record.status` 实际状态 == executed 预期（同库直读，tg_web 只读基线）；
+2. **留痕完整性**：audit_log 覆盖 case.register→disposition.submit 最小动作集（TRACE_REQUIRED），缺口即 trace_complete=false；
+3. **分支**：一致 → 审计报告经 API-M-12 落 DA-T-05 → `VerificationPassed` → VERIFIED → `CaseArchived` → ARCHIVED → 复盘提入库申请（AA-SK-05，pending）；
+   不一致 → `VerificationFailed` → ROLLBACK → 反向处置（幂等键 `{case_id}:{action}:rollback`，freeze/block/reduce→release）→ `RollbackExecuted` → MANUAL_REVIEW + verification.p0 审计升级；
+4. **超时守护**：scan_verification_overdue 十分钟未核验审计提醒 + VerificationOverdue 事件（BA-BR-08，web-api lifespan 30s 轮询，NOT EXISTS 幂等）；
+5. **报告**：audit_report 落 DA-T-05（claim 前缀"审计报告："）+ 审计 verification.run（含 trace_id）。
+
+落地入口：API-W-19 `/api/cases/{case_id}/verify`（body.exec_id）。
 
 ## 验收锚点
 
-SC-08（审计回放）、SC-04（核验不一致反向处置）、BA-BR-08 计时。
+SC-08（审计回放）、SC-04（核验不一致反向处置）、BA-BR-08 计时。测试载体：services/web-api/tests/test_verification.py（3 例，verification.py 覆盖率 93%，110/110 全绿）。

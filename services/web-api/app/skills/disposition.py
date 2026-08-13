@@ -67,6 +67,11 @@ class DispositionService:
         result = await self.core.execute_disposition(
             case_id, action, amount, idempotency_key, approval_ref)
 
+        if result.get("code") == "E-EVIDENCE-MISSING":
+            # DA-INV-04：冻结类处置缺证据链拒写（BA-BR-03，US-E4-03；mcp-core 已审计 refused）
+            return {"case_id": case_id, "route": "evidence_missing",
+                    "code": "E-EVIDENCE-MISSING"}
+
         if result.get("code") == "E-DISP-AUTH":
             # SC-02：拒执行 + 建审批工单（tg_app，API-M-11）+ 转待审批
             appr = await self.core.create_approval_request(
@@ -143,6 +148,25 @@ class DispositionService:
                WHERE case_id=$1""", rec["case_id"])
         return {"case_id": rec["case_id"], "approval_id": approval_id,
                 "decision": "rejected", "case_status": out["status"]}
+
+    async def review_confirm(self, case_id: str, operator: str, comment: str = "") -> dict:
+        """复核确认自动建单（US-E4-05，API-W-07 confirm 分支）：
+        ReviewConfirmed（human_only）→ 建处置审批工单（API-M-11）→ 返回工单号。
+        定性仍须人工审批（02 §3.3 人机边界），本方法只建工单不执行处置。"""
+        case = await self.cases.get(case_id)
+        if not case:
+            raise LookupError(case_id)
+        out = await self.cases.transition(
+            case_id, CaseEvent.REVIEW_CONFIRMED, operator, case["version"],
+            basis=f"人工复核确认：{comment}" if comment else "人工复核确认欺诈（BA-BP-05）")
+        appr = await self.core.create_approval_request(
+            case_id, "freeze", None,
+            reason=f"人工复核确认欺诈（{operator}）：{comment}（US-E4-05，BA-BR-01）")
+        await self.pool.execute(
+            "UPDATE approval_record SET opinion=$2 WHERE approval_id=$1",
+            appr["approval_id"], comment or "复核确认转审批")
+        return {"case_id": case_id, "status": out["status"], "version": out["version"],
+                "approval_id": appr["approval_id"]}
 
     async def _load(self, approval_id: str):
         rec = await self.pool.fetchrow(

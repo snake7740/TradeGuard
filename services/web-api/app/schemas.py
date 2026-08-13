@@ -25,6 +25,11 @@ class DecideIn(BaseModel):
     approver: str = Field("human:approver", pattern=r"^human:[a-z_]+$")
 
 
+class VerifyIn(BaseModel):
+    """API-W-19 结果核验入参（AA-SK-04，US-E6-01/02）"""
+    exec_id: str = Field(..., description="待核验处置执行凭证（DA-T-06）")
+
+
 class KbPublishIn(BaseModel):
     """API-W-12/13 知识发布确认/驳回（DA-INV-06 人工门控）"""
     operator: str = Field("human:kb_admin", pattern=r"^human:[a-z_]+$")

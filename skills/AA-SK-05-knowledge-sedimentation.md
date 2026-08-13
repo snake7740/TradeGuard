@@ -1,6 +1,6 @@
 # AA-SK-05 knowledge-sedimentation · 复盘与知识沉淀
 
-> 承载：AA-AG-05（合规审计 Agent）｜ 确定性内核：services/web-api/app/skills/retrospective.py
+> 承载：AA-AG-05（合规审计 Agent）｜ 确定性内核：services/web-api/app/skills/knowledge.py（向量化/检索）+ verification.py `_retrospective`（复盘申请）
 
 ## 九属性契约（02 §4）
 
@@ -18,12 +18,14 @@
 
 ## 确定性执行步骤
 
-1. **复盘摘要**：汇总信号/图谱/处置/核验四段，生成 retrospective（模板化，LLM 可润色）；
+1. **复盘摘要**：汇总信号/证据/处置/核验四段（VerificationService._retrospective，归档后自动触发），生成 retrospective；
 2. **特征提取**：pattern_candidate = {手法类型, 信号指纹, 图特征, 命中规则 BR 列表}；
-3. **入库申请**：`submit_kb_application(case_id, pattern)` → kb_document status=pending（DA-T-09）；
-4. **人工门控**：发布仅 human:* 可置 published（DB 触发器 tg.actor 守护，DA-INV-06）；
-5. **向量化**：发布后切块写 kb_embedding（pgvector HNSW），失败入重试队列。
+3. **入库申请**：API-M-05 `submit_kb_application(case_id, category, title, content)` → kb_document status=pending（DA-T-09，tg_app 写角色）；
+4. **人工门控**：发布仅 human:* 可置 published——应用层守卫 + 事务内 `set_config('tg.actor')` + DB 触发器 kb_human_gate 三重守护（DA-INV-06，绕过直置被拒 E-KB-HUMAN-GATE）；
+5. **向量化**：publish_and_index 发布后定长 200 字切块，确定性哈希 embedding（字符一/二/三元组→1024维 L2 归一）写 kb_embedding（ON CONFLICT DO NOTHING，tg_web 仅 INSERT 权限）；检索 SIMILARITY_MIN=0.22，仅 published 可见；向量化失败不回滚发布，申请单保留可重试。
+
+落地入口：API-W-12 `/api/kb/applications/{doc_id}/publish`（委托 publish_and_index）。
 
 ## 验收锚点
 
-SC-05（人工发布门控）、SC-06（配置驱动）、BA-BR-11。
+SC-05（人工发布门控 + 检索命中附 doc_id）、SC-06（配置驱动）、BA-BR-11。测试载体：services/web-api/tests/test_knowledge.py（3 例，knowledge.py 覆盖率 92%，110/110 全绿）。

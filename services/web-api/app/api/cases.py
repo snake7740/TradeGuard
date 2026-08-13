@@ -1,10 +1,12 @@
-"""事件工作台路由（API-W-02~07/17，案件工作台 SC-01/04/10 载体）"""
+"""事件工作台路由（API-W-02~07/17~19，案件工作台 SC-01/04/10 载体）"""
 from fastapi import APIRouter, HTTPException, Request
 
 from ..core.state_machine import CaseEvent, InvalidTransition
 from ..repositories import OptimisticLockError
-from ..schemas import ReviewIn
+from ..schemas import ReviewIn, VerifyIn
 from ..skills.aggregation import AggregationStateError
+from ..skills.investigation import InvestigationStateError
+from ..skills.verification import VerificationStateError
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
@@ -61,24 +63,52 @@ async def list_evidence(request: Request, case_id: str):
     return {"items": await request.app.state.cases.evidence(case_id)}
 
 
+@router.post("/{case_id}/investigate")
+async def investigate_case(request: Request, case_id: str):
+    """API-W-18：触发欺诈调查（AA-SK-02 确定性内核，US-E4-01~03 载体）
+    假设匹配（规则兜底 + KB 引用 doc_id）→ 图谱 2 跳扩展（BA-BR-06 加分）→
+    影响面统计 → 证据固化（DA-T-05）→ InvestigationCompleted 移交审批。"""
+    try:
+        return await request.app.state.investigation.run(case_id)
+    except LookupError:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "case not found"})
+    except InvestigationStateError as e:
+        raise HTTPException(409, detail={"code": e.code, "message": str(e)})
+
+
+@router.post("/{case_id}/verify")
+async def verify_case(request: Request, case_id: str, body: VerifyIn):
+    """API-W-19：触发结果核验（AA-SK-04 确定性内核，US-E6-01/02 载体）
+    一致→VERIFIED→ARCHIVED（复盘入库申请）；不一致→反向处置→MANUAL_REVIEW+P0。"""
+    try:
+        return await request.app.state.verification.verify(case_id, body.exec_id)
+    except LookupError:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "case/exec not found"})
+    except VerificationStateError as e:
+        raise HTTPException(409, detail={"code": e.code, "message": str(e)})
+
+
 @router.post("/{case_id}/review")
 async def submit_review(request: Request, case_id: str, body: ReviewIn):
     """API-W-07：中风险人工复核（SC-10，BA-BP-05）
-    状态机人类触发入口：confirm→PENDING_APPROVAL（冻结需审批 BA-BR-01）；
-    dismiss→ARCHIVED（排除欺诈归档）。actor 守卫 human_only（02 §7）。"""
-    event = CaseEvent.REVIEW_CONFIRMED if body.decision == "confirm" else CaseEvent.REVIEW_DISMISSED
+    状态机人类触发入口：confirm→委托 DispositionService.review_confirm（US-E4-05
+    自动建处置审批工单）；dismiss→ARCHIVED（排除欺诈归档）。actor 守卫 human_only（02 §7）。"""
     case = await request.app.state.cases.get(case_id)
     if not case:
         raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "case not found"})
+    if body.decision == "confirm":
+        try:
+            return await request.app.state.disposition.review_confirm(
+                case_id, body.operator, body.comment)
+        except InvalidTransition as e:
+            raise HTTPException(409, detail={"code": e.code, "message": e.message})
+        except OptimisticLockError as e:
+            raise HTTPException(409, detail={"code": e.code, "message": str(e)})
     try:
         return await request.app.state.cases.transition(
-            case_id, event, body.operator, case["version"], basis=body.comment)
+            case_id, CaseEvent.REVIEW_DISMISSED, body.operator, case["version"],
+            basis=body.comment)
     except InvalidTransition as e:
         raise HTTPException(409, detail={"code": e.code, "message": e.message})
     except OptimisticLockError as e:
         raise HTTPException(409, detail={"code": e.code, "message": str(e)})
-
-
-# TODO(US-E4-05)：API-W-07 复核确认后自动创建处置审批工单（DA-T-07）——
-# 当前仅完成状态迁移与事件发布；建单通道已由 E5 落地（mcp-core create_approval_request，
-# API-M-11，tg_app 写角色），随 Sprint 5-6 E4 复核闭环接入。

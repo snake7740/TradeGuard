@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 PG_DSN = os.getenv("TG_TEST_DSN", "postgresql://tg_web:tg_web_dev@localhost:5433/tradeguard")
 TG_APP_DSN = os.getenv("TG_TEST_APP_DSN", "postgresql://tg_app:tg_app_dev@localhost:5433/tradeguard")
+TG_SUPER_DSN = os.getenv("TG_TEST_SUPER_DSN", "postgresql://postgres:tradeguard_dev@localhost:5433/tradeguard")
 # MCP 客户端（httpx）会自动读取系统代理配置，连回环地址也被转发到代理导致 502；
 # 故在导入期注入 NO_PROXY 旁路（setdefault 不覆盖用户显式配置）。尾斜杠 /mcp/ 为
 # streamable-http 挂载点（无斜杠 307 重定向）。
@@ -35,6 +36,22 @@ class RecordingPublisher:
 
     async def unsubscribe(self, *a, **kw):  # pragma: no cover
         pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _clean_kb_tables():
+    """会话级知识库清场：kb_document/kb_embedding 无 DELETE 授权（只增语义，
+    02-roles.sql），跨轮污染会扰乱相似度检索断言，故经超级用户 TRUNCATE 保底。"""
+    import asyncio
+
+    async def _truncate():
+        conn = await asyncpg.connect(TG_SUPER_DSN)
+        try:
+            await conn.execute("TRUNCATE kb_embedding, kb_document")
+        finally:
+            await conn.close()
+
+    asyncio.run(_truncate())
 
 
 @pytest.fixture
@@ -114,3 +131,23 @@ async def disposition(case_repo, pool):
     repo, pub = case_repo
     return DispositionService(pool=pool, cases=repo, core=CoreClient(MCP_CORE_URL),
                               pub=pub), repo, pub
+
+
+@pytest.fixture
+async def investigation(case_repo, pool):
+    """InvestigationService 装配（AA-SK-02，真实 CoreClient：图谱/证据/加分实链路）"""
+    from app.skills.investigation import InvestigationService
+    from app.skills.mcp_adapters import CoreClient
+    repo, pub = case_repo
+    return InvestigationService(pool=pool, cases=repo, core=CoreClient(MCP_CORE_URL),
+                                pub=pub), repo, pub
+
+
+@pytest.fixture
+async def verification(case_repo, pool):
+    """VerificationService 装配（AA-SK-04/05，核验→归档→复盘入库申请闭环）"""
+    from app.skills.verification import VerificationService
+    from app.skills.mcp_adapters import CoreClient
+    repo, pub = case_repo
+    return VerificationService(pool=pool, cases=repo, core=CoreClient(MCP_CORE_URL),
+                               pub=pub), repo, pub

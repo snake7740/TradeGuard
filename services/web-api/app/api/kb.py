@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from ..schemas import KbPublishIn
+from ..skills.knowledge import publish_and_index
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
@@ -16,8 +17,18 @@ async def list_applications(request: Request, status: str = "pending"):
 
 @router.post("/applications/{doc_id}/publish")
 async def publish_document(request: Request, doc_id: str, body: KbPublishIn):
-    """API-W-12：确认发布（DA-INV-06：仅 human:* 操作者可置 published，入参 Schema 强制）"""
-    return await _decide(request, doc_id, body, "published", "kb.publish")
+    """API-W-12：确认发布（DA-INV-06 双守护 + US-E6-04 向量化入库，SC-05）
+    发布与审计同事务（tg.actor 声明供 DB 触发器校验），事务后向量化 kb_embedding。"""
+    try:
+        return await publish_and_index(
+            request.app.state.pool, doc_id, body.operator, body.comment)
+    except PermissionError:
+        raise HTTPException(403, detail={"code": "E-KB-HUMAN-GATE",
+                                         "message": "发布仅限人类操作者（DA-INV-06）"})
+    except LookupError:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "doc not found"})
+    except ValueError as e:
+        raise HTTPException(409, detail={"code": "E-KB-NOT-PENDING", "message": str(e)})
 
 
 @router.post("/applications/{doc_id}/reject")
@@ -27,6 +38,7 @@ async def reject_document(request: Request, doc_id: str, body: KbPublishIn):
 
 
 async def _decide(request: Request, doc_id: str, body: KbPublishIn, status: str, action: str):
+    """驳回通道（发布已改由 publish_and_index 编排，含向量化）"""
     pool = request.app.state.pool
     doc = await pool.fetchrow("SELECT status FROM kb_document WHERE doc_id=$1", doc_id)
     if not doc:
@@ -44,5 +56,4 @@ async def _decide(request: Request, doc_id: str, body: KbPublishIn, status: str,
             """INSERT INTO audit_log (log_id, actor, action, target, basis)
                VALUES ($1, $2, $3, $4, $5)""",
             uuid.uuid4().hex, body.operator, action, doc_id, body.comment or f"->{status}")
-    # TODO(US-E6-05)：发布后触发 kb_embedding 向量化入库（DA-T-10 HNSW，UnifiedModel embedding）
     return {"doc_id": doc_id, "status": status, "reviewer": body.operator}

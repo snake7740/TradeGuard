@@ -25,6 +25,14 @@ async def _investigating_case(repo, score: int) -> str:
     return case_id
 
 
+async def _with_evidence(svc, case_id: str):
+    """DA-INV-04 前置：冻结须附证据链（BA-BR-03），经 API-M-12 固化（tg_app 写角色）"""
+    out = await svc.core.record_case_evidence(
+        case_id, [{"claim": "持卡人否认交易且设备指纹关联多账户",
+                   "source_ref": "AA-AG-03:test-evidence", "confidence": 0.9}])
+    assert out["recorded"] >= 1
+
+
 async def _audit_actions(pool, case_id: str) -> list[str]:
     rows = await pool.fetch(
         "SELECT action FROM audit_log WHERE target=$1 OR basis LIKE '%'||$1||'%'", case_id)
@@ -41,6 +49,7 @@ async def test_sc07_disposition_idempotent_replay(pool, disposition):
     """SC-07：相同幂等键重投返回首次执行凭证，不产生第二条 disposition 记录"""
     svc, repo, pub = disposition
     case_id = await _investigating_case(repo, score=82)
+    await _with_evidence(svc, case_id)
     # 高风险冻结需审批凭证：先建单并经人类批准（走合法链取得 approval_ref）
     gate = await svc.submit(case_id, "freeze", None, f"{case_id}:freeze")
     assert gate["route"] == "approval_required" and gate["code"] == "E-DISP-AUTH"
@@ -66,6 +75,7 @@ async def test_sc02_high_risk_gate_and_full_approval_chain(pool, disposition):
     """SC-02：风险分 82 无凭证冻结被拒 E-DISP-AUTH → 建单 → 批准 → 冻结成功关联落库"""
     svc, repo, pub = disposition
     case_id = await _investigating_case(repo, score=82)
+    await _with_evidence(svc, case_id)
 
     # When：不带 approval_ref 执行冻结
     gate = await svc.submit(case_id, "freeze", None, f"{case_id}:freeze")
@@ -98,6 +108,7 @@ async def test_sc03_reject_rolls_back_to_manual_review(pool, disposition):
     """SC-03：驳回→回退人工复核且自动通道禁用，ApprovalRejected 发布、意见留痕"""
     svc, repo, pub = disposition
     case_id = await _investigating_case(repo, score=82)
+    await _with_evidence(svc, case_id)
     gate = await svc.submit(case_id, "freeze", None, f"{case_id}:freeze")
 
     await svc.reject(gate["approval_id"], "human:approver", "证据不足，驳回")
@@ -138,6 +149,7 @@ async def test_sc09_approval_timeout_escalates(pool, disposition):
     """SC-09：待审批工单超 30 分钟 → 升级标记 + 审计 + ApprovalEscalated 事件，不重复升级"""
     svc, repo, pub = disposition
     case_id = await _investigating_case(repo, score=82)
+    await _with_evidence(svc, case_id)
     gate = await svc.submit(case_id, "freeze", None, f"{case_id}:freeze")
     # 模拟工单已滞留 31 分钟（BA-BR-13 阈值 30 分钟）
     await pool.execute(

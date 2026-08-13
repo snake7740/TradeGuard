@@ -78,9 +78,22 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
         return json.dumps({"code": "E-BAD-ACTION", "message": f"非法处置动作 {action}"})
     conn = await _conn()
     try:
-        case = await conn.fetchrow("SELECT risk_score FROM risk_case WHERE case_id=$1", case_id)
+        case = await conn.fetchrow("SELECT risk_score, trace_id FROM risk_case WHERE case_id=$1", case_id)
         if not case:
             return json.dumps({"code": "E-NOT-FOUND", "message": "case 不存在"})
+        # DA-INV-04：冻结必须附证据链，缺一即拒（BA-BR-03，US-E4-03；先于审批门控：
+        # 证据链是受理前提，缺证据的冻结不应进入建单通道）
+        if action == "freeze":
+            has_ev = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM case_evidence WHERE case_id=$1)", case_id)
+            if not has_ev:
+                await conn.execute(
+                    """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                       VALUES ($1, 'AA-AG-04', 'disposition.refused_evidence', $2, $3, $4)""",
+                    uuid.uuid4().hex, case_id,
+                    f"action=freeze 证据链为空拒绝写入（DA-INV-04，BA-BR-03）", case["trace_id"])
+                return json.dumps({"code": "E-EVIDENCE-MISSING",
+                                   "message": "冻结必须附书面理由与证据链（BA-BR-03）"})
         # 高风险处置必须携带审批凭证（SC-02）
         if case["risk_score"] >= HIGH_RISK_SCORE and action != "release" and not approval_ref:
             approved = await conn.fetchrow(
@@ -107,9 +120,10 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
                 "UPDATE disposition_record SET status='executed', receipt=$2::jsonb WHERE exec_id=$1",
                 exec_id, receipt)
             await conn.execute(
-                """INSERT INTO audit_log (log_id, actor, action, target, basis)
-                   VALUES ($1, 'AA-AG-04', 'disposition.submit', $2, $3)""",
-                uuid.uuid4().hex, case_id, f"action={action},approval_ref={approval_ref}")
+                """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                   VALUES ($1, 'AA-AG-04', 'disposition.submit', $2, $3, $4)""",
+                uuid.uuid4().hex, case_id, f"action={action},approval_ref={approval_ref}",
+                case["trace_id"])
         return json.dumps({"exec_id": exec_id, "status": "executed"}, ensure_ascii=False)
     finally:
         await conn.close()
@@ -125,6 +139,8 @@ async def create_approval_request(case_id: str, action: str, amount: float | Non
     approval_id = uuid.uuid4().hex
     conn = await _conn()
     try:
+        trace = await conn.fetchval(
+            "SELECT trace_id FROM risk_case WHERE case_id=$1", case_id)
         async with conn.transaction():
             await conn.execute(
                 """INSERT INTO approval_record (approval_id, case_id, decision, opinion,
@@ -132,10 +148,77 @@ async def create_approval_request(case_id: str, action: str, amount: float | Non
                    VALUES ($1, $2, 'pending', $3, $4, $5)""",
                 approval_id, case_id, reason[:500], action, amount)
             await conn.execute(
-                """INSERT INTO audit_log (log_id, actor, action, target, basis)
-                   VALUES ($1, 'AA-AG-04', 'approval.create', $2, $3)""",
-                uuid.uuid4().hex, case_id, f"approval={approval_id},action={action}")
+                """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                   VALUES ($1, 'AA-AG-04', 'approval.create', $2, $3, $4)""",
+                uuid.uuid4().hex, case_id, f"approval={approval_id},action={action}", trace)
         return json.dumps({"approval_id": approval_id, "status": "pending"}, ensure_ascii=False)
+    finally:
+        await conn.close()
+
+
+@mcp.tool()
+async def record_case_evidence(case_id: str, claims: list[dict]) -> str:
+    """API-M-12：证据链固化（DA-T-05 只增，BA-BR-03，US-E4-03，tg_app 写角色 DA-INV-05）
+    claims 元素含 claim/source_ref/confidence；同 claim+source_ref 幂等不重复插入。
+    签名用 list[dict]：FastMCP 对形似 JSON 的字符串参数会预解析（同 record_case_signals）。"""
+    conn = await _conn()
+    try:
+        trace = await conn.fetchval(
+            "SELECT trace_id FROM risk_case WHERE case_id=$1", case_id)
+        recorded = 0
+        async with conn.transaction():
+            for c in claims:
+                dup = await conn.fetchval(
+                    """SELECT EXISTS(SELECT 1 FROM case_evidence
+                                     WHERE case_id=$1 AND claim=$2 AND source_ref=$3)""",
+                    case_id, c["claim"][:500], c["source_ref"][:200])
+                if dup:
+                    continue
+                await conn.execute(
+                    """INSERT INTO case_evidence (evidence_id, case_id, claim, source_ref, confidence)
+                       VALUES ($1, $2, $3, $4, $5)""",
+                    uuid.uuid4().hex, case_id, c["claim"][:500], c["source_ref"][:200],
+                    float(c["confidence"]))
+                recorded += 1
+            if recorded:
+                await conn.execute(
+                    """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                       VALUES ($1, 'AA-AG-03', 'evidence.fix', $2, $3, $4)""",
+                    uuid.uuid4().hex, case_id, f"claims={recorded}（DA-T-05 只增）", trace)
+        return json.dumps({"ok": True, "recorded": recorded})
+    finally:
+        await conn.close()
+
+
+@mcp.tool()
+async def apply_risk_bonus(case_id: str, points: int, basis: str) -> str:
+    """API-M-13：关联网络命中加分（BA-BR-06，US-E4-02，tg_app 写角色）
+    幂等：同案同 basis 仅生效一次（context_json.risk_bonus_<md5前8位> 打标），
+    风险分封顶 100；加分与依据落审计（BA-BR-09）。"""
+    import hashlib
+    mark = "br06_" + hashlib.md5(basis.encode()).hexdigest()[:8]
+    conn = await _conn()
+    try:
+        case = await conn.fetchrow(
+            "SELECT risk_score, context_json, trace_id FROM risk_case WHERE case_id=$1", case_id)
+        if not case:
+            return json.dumps({"code": "E-NOT-FOUND", "message": "case 不存在"})
+        ctx = json.loads(case["context_json"] or "{}")
+        if ctx.get(mark):
+            return json.dumps({"applied": False, "risk_score": case["risk_score"],
+                               "reason": "同案同依据已加分（幂等）"})
+        new_score = min(case["risk_score"] + points, 100)
+        ctx[mark] = True
+        async with conn.transaction():
+            await conn.execute(
+                """UPDATE risk_case SET risk_score=$2, context_json=$3::jsonb, updated_at=now()
+                   WHERE case_id=$1""", case_id, new_score, json.dumps(ctx, ensure_ascii=False))
+            await conn.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                   VALUES ($1, 'AA-AG-03', 'risk.bonus', $2, $3, $4)""",
+                uuid.uuid4().hex, case_id,
+                f"+{points} -> {new_score}（{basis}）", case["trace_id"])
+        return json.dumps({"applied": True, "risk_score": new_score})
     finally:
         await conn.close()
 

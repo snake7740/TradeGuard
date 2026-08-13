@@ -185,7 +185,10 @@ paths:
       tags: [事件工作台]
       operationId: submitReview
       summary: 中风险人工复核结论（SC-10 载体，BA-BR-01 中风险分段）
-      description: 写 DA-T-03 状态 + 审计留痕（BA-BR-09），仅风控值班员角色。
+      description: |
+        写 DA-T-03 状态 + 审计留痕（BA-BR-09），仅风控值班员角色。
+        confirm→ReviewConfirmed（human_only）+ 自动建处置审批工单（API-M-11，US-E4-05）；
+        dismiss→排除欺诈归档 ARCHIVED。
       parameters:
         - { $ref: '#/components/parameters/CaseIdPath' }
       requestBody:
@@ -201,6 +204,67 @@ paths:
               schema: { $ref: '#/components/schemas/CaseSummary' }
         '409':
           description: 状态冲突（非 MANUAL_REVIEW 状态）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/cases/{case_id}/investigate:
+    post:
+      tags: [事件工作台]
+      operationId: investigateCase
+      summary: 触发欺诈调查（API-W-18，AA-SK-02 确定性内核，US-E4-01~03 载体）
+      description: |
+        假设匹配（规则兜底 + DA-KB-01 检索引用 doc_id，未命中显式声明）→
+        fn_related_graph 2 跳扩展（BA-BR-06 命中黑名单 +30 幂等，API-M-13）→
+        影响面统计 → 证据固化 DA-T-05（API-M-12）→ InvestigationCompleted 转 PENDING_APPROVAL。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 调查完成（假设/图谱/影响面/证据固化）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvestigationResult' }
+        '404':
+          description: 事件不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 状态冲突（非 INVESTIGATING）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/cases/{case_id}/verify:
+    post:
+      tags: [事件工作台]
+      operationId: verifyCase
+      summary: 触发结果核验（API-W-19，AA-SK-04 确定性内核，US-E6-01/02 载体）
+      description: |
+        一致→VerificationPassed→VERIFIED→CaseArchived→ARCHIVED，审计报告落 DA-T-05，
+        复盘摘要提入库申请（AA-SK-05，pending）；不一致→VerificationFailed→反向处置
+        （幂等键 :rollback 后缀）→RollbackExecuted→MANUAL_REVIEW + P0 审计升级。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyRequest' }
+      responses:
+        '200':
+          description: 核验完成
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerificationResult' }
+        '404':
+          description: 事件或执行凭证不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 状态冲突（非 DISPOSED）
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -555,6 +619,53 @@ components:
         conclusion: { type: string, enum: [release, block, escalate] }
         opinion: { type: string, minLength: 5 }
 
+    VerifyRequest:
+      type: object
+      required: [exec_id]
+      properties:
+        exec_id: { type: string, description: 待核验处置执行凭证（DA-T-06） }
+
+    InvestigationResult:
+      type: object
+      description: AA-SK-02 调查结果（US-E4-01~03）
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        case_status: { $ref: '#/components/schemas/CaseStatus' }
+        hypothesis:
+          type: object
+          properties:
+            pattern: { type: string, description: 定性假设（跑分/盗卡/团伙盗刷/待定） }
+            rule_basis: { type: string, description: 规则兜底依据 }
+            citations:
+              type: array
+              items: { type: object, properties: { doc_id: { type: string }, title: { type: string }, similarity: { type: number } } }
+            kb_note: { type: string, description: 未命中时显式声明"无库内匹配" }
+        graph:
+          type: object
+          properties:
+            nodes: { type: integer }
+            edges: { type: integer }
+            edge_types: { type: array, items: { type: string } }
+            black_hits: { type: array, items: { type: string } }
+        impact:
+          type: object
+          properties:
+            accounts: { type: integer }
+            amount_24h: { type: number }
+        evidence_fixed: { type: boolean }
+
+    VerificationResult:
+      type: object
+      description: AA-SK-04 核验结果（US-E6-01/02）
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        consistency_check: { type: boolean }
+        trace_complete: { type: boolean }
+        case_status: { $ref: '#/components/schemas/CaseStatus' }
+        audit_report: { type: string, description: 核验一致时的审计报告（落 DA-T-05） }
+        kb_application: { type: string, description: 复盘入库申请 doc_id（pending） }
+        rollback_exec_id: { type: string, description: 核验不一致时的反向处置凭证 }
+
     DecideRequest:
       type: object
       required: [decision, opinion]
@@ -733,6 +844,33 @@ components:
       properties:
         approval_id: { type: string }
         status: { type: string, enum: [pending] }
+    McpRecordCaseEvidenceReq:
+      x-mcp-tool: record_case_evidence
+      x-mcp-server: AA-MCP-01
+      description: API-M-12（Sprint 5-6）：证据链固化 DA-T-05（只增，BA-BR-03，US-E4-03）
+      type: object
+      required: [case_id, claims]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        claims:
+          type: array
+          items:
+            type: object
+            required: [claim, source_ref, confidence]
+            properties:
+              claim: { type: string, maxLength: 500 }
+              source_ref: { type: string, maxLength: 200 }
+              confidence: { type: number, minimum: 0, maximum: 1 }
+    McpApplyRiskBonusReq:
+      x-mcp-tool: apply_risk_bonus
+      x-mcp-server: AA-MCP-01
+      description: API-M-13（Sprint 5-6）：BA-BR-06 关联网络命中加分（同案同 basis 幂等，US-E4-02）
+      type: object
+      required: [case_id, points, basis]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        points: { type: integer, default: 30, description: BA-BR-06 加分值 }
+        basis: { type: string, description: 加分依据（幂等键组成部分） }
     McpQueryCreditReq:
       x-mcp-tool: query_credit
       x-mcp-server: AA-MCP-02

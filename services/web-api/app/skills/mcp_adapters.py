@@ -47,7 +47,8 @@ class ExternalSourcesClient(McpToolClient):
 
 
 class CoreClient(McpToolClient):
-    """AA-MCP-01：聚合结果落库（API-M-10）与处置执行（API-M-03）"""
+    """AA-MCP-01：聚合落库（API-M-10）/处置执行（API-M-03）/建单（API-M-11）/
+    证据固化（API-M-12）/关联加分（API-M-13）/核验回查（API-M-04/06）/入库申请（API-M-05）"""
 
     async def record_case_signals(self, case_id: str, risk_score: int, signals: list[dict]) -> dict:
         """AA-SK-01 步骤 6：信号 insert DA-T-04（只增）+ risk_score 回写 DA-T-03"""
@@ -74,3 +75,26 @@ class CoreClient(McpToolClient):
         """API-M-11：处置审批工单创建（E-DISP-AUTH 门控建单，SC-02）"""
         return await self.call_tool("create_approval_request", case_id=case_id, action=action,
                                     amount=amount, reason=reason)
+
+    async def record_case_evidence(self, case_id: str, claims: list[dict]) -> dict:
+        """API-M-12：证据链固化 DA-T-05（只增，BA-BR-03，US-E4-03）"""
+        return await self.call_tool("record_case_evidence", case_id=case_id, claims=claims)
+
+    async def apply_risk_bonus(self, case_id: str, points: int, basis: str) -> dict:
+        """API-M-13：BA-BR-06 关联网络命中加分（同案同依据幂等）"""
+        return await self.call_tool("apply_risk_bonus", case_id=case_id,
+                                    points=points, basis=basis)
+
+    async def query_disposition_result(self, exec_id: str) -> dict:
+        """API-M-04：处置结果回查（AA-SK-04 核验依据）"""
+        return await self.call_tool("query_disposition_result", exec_id=exec_id)
+
+    async def query_audit_trail(self, case_id: str) -> list:
+        """API-M-06：审计链回放（只读，SC-08）"""
+        return await self.call_tool("query_audit_trail", case_id=case_id)
+
+    async def submit_kb_application(self, case_id: str, category: str,
+                                    title: str, content: str) -> dict:
+        """API-M-05：知识入库申请（AA-SK-05，仅 pending，发布须人工，DA-INV-06）"""
+        return await self.call_tool("submit_kb_application", case_id=case_id,
+                                    category=category, title=title, content=content)

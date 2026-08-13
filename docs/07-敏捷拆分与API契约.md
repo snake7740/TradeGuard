@@ -111,7 +111,7 @@
 |---|---|---|---|---|
 | M1 最小闭环 | S1（E1+E2）、S2（E3） | 底座 + 数据 + 聚合放行 | SC-01 通过；契约测试绿 | S1 ✅（2026-08-13）；S2 ✅（2026-08-13） |
 | M2 审批链路 | S3–S4（E5） | 处置 + 审批回滚 + 时效 | SC-02/03/07/09/10 通过；状态机/幂等单测全绿 | S3–S4 ✅（2026-08-13） |
-| M3 调查与知识 | S5–S6（E4+E6+E7-01~03） | 调查、审计、知识、门户 | SC-05/08 通过；集成测试全绿 | 待启动 |
+| M3 调查与知识 | S5–S6（E4+E6+E7-01~03） | 调查、审计、知识、门户 | SC-05/08 通过；集成测试全绿 | S5–S6 ✅（2026-08-13） |
 | 决赛 | S7（E7-04~05） | 可观测 + 演示剧本 | 11/11 场景通过 + KPI 报告 | 待启动 |
 
 > **Sprint 1 执行记录（2026-08-13 实测）**：R-22 测试补债 ✅（46/46 绿：18 迁移参数化 + 5 非法迁移 + 6 human_only 守卫 + 乐观锁冲突 + DB 触发器双守护负路径 + 审计链回放）；US-E1-03 ✅（Nacos v3 admin API：3 配置文档 + 3 服务实例注册，scripts/nacos_register.py；web-api ConfigService 5s 热加载，实测改阈值 70→75 不重启 7s 生效，新增 API-W-16 /api/config/thresholds）；US-E1-04 ✅（scripts/backup.sh + backup-restore-drill.ps1，恢复演练 10 表行数全对账，dump 604K）；E2 演示档 ✅（5000 账户/105916 交易/67 watch 账户/5 团伙，单账户峰值 55 笔支撑 SC-11）；US-E1-02 后半当日解锁（见下方 LLM 解锁记录）。环境修正：宿主 5432 被本机 PostgreSQL 占用，compose 宿主映射改 5433。Skill 体系落库：skills/AA-SK-01~05 官方技能可执行定义 + SKILL-DISPATCH 调度矩阵。
@@ -121,6 +121,8 @@
 > **Sprint 2 执行记录（2026-08-13 实测，E3 信号聚合闭环）**：四 Story 全完成，测试 89/89 绿（基线 46 + 新增 43）。US-E3-02 ✅：`tests/test_acl_contract.py` 对运行中 mcp-external-mock 经官方 streamable-http 通道实测 9 例（缺 query_reason 拒收 BA-BR-10 / 成功载荷 schema / 确定性）。US-E3-03 ✅：AA-SK-01 内核落 `services/web-api/app/skills/aggregation.py`（纯函数可测：velocity 统计/降噪合并/加权评分/分级裁决 + AggregationService 编排），覆盖率 97%（≥60% 要求）；信号落库经 mcp-core 新工具 API-M-10 `record_case_signals`（tg_app 写角色，DA-INV-05 权限矩阵不破）。US-E3-04 ✅：分级裁决四路由（noise 降噪归档 / auto_release 低风险自动放行 / investigate 转调查 / all_fail 转人工）；新增状态迁移 AGGREGATING→DISPOSING（BA-CAP-05 低风险自动通道，边界守卫在聚合裁决层，应用层状态机 + DB 白名单表双守护同步 19 条）。SC-11 ✅：12 笔高频簇 velocity_json 与流水统计一致且 velocity 加分 ≥30；SC-01 ✅：低风险小额（风险分 23<40、涉案 800<5000）自动放行至 DISPOSED，DispositionExecuted 事件 + 审计 actor=AA-AG-04 依据含风险分，幂等重入仅 1 条处置记录。环境排障沉淀：① mcp SDK 全栈统一 1.9.4（1.2.1 无 streamable_http）；② streamable-http 挂载点需尾斜杠 `/mcp/`（无斜杠 307）；③ 宿主系统代理会拦截 httpx 回环连接返回 502，入口注入 NO_PROXY 旁路；④ FastMCP 对形似 JSON 的字符串参数会预解析，工具入参用 list[dict] 而非 JSON 字符串。
 >
 > **Sprint 3-4 执行记录（2026-08-13 实测，E5 处置执行与审批回滚）**：六 Story 全完成，测试 95/95 绿（基线 89 + 新增 6，SC-02/03/07/09/10 各一例 + BA-BR-07 聚合守卫一例）。AA-SK-03 内核落 `services/web-api/app/skills/disposition.py`（覆盖率 92%，≥60% 要求）：submit 四路由（refused_mid_risk / approval_required / idempotent_hit / executed）+ approve/reject 闭环 + scan_pending_escalations（BA-BR-13，web-api lifespan 后台任务 30s 轮询）。US-E5-01 ✅：SC-07 同幂等键重投返回首次凭证且仅 1 条 executed 记录；US-E5-02 ✅：SC-02 风险分 82 无凭证冻结触 E-DISP-AUTH，建单经 mcp-core 新工具 API-M-11 `create_approval_request`（tg_app 写角色，DA-INV-05 内建单），案转 PENDING_APPROVAL；US-E5-03 ✅：API-W-09 委托内核编排——批准→ApprovalApproved→自动执行至 DISPOSED（执行凭证 receipt 含 approval_ref 关联）；驳回→ApprovalRejected→RollbackToReview 回退 MANUAL_REVIEW + context_json.auto_channel=disabled（BA-BR-07，聚合裁决层持久守卫，同档低风险亦不再自动放行）；US-E5-04 ✅：SC-10 风险分 55 自动放行被拒 E-DISP-SCOPE，无处置记录仅审计 disposition.refused；US-E5-05 ✅：SC-09 超 30 分钟未决工单 escalated_at 打标 + approval.escalate 审计（actor=system:timer-BA-BR-13）+ ApprovalEscalated 事件，二次扫描幂等；US-E5-06 ✅：沿用 Sprint 1 状态机/乐观锁 46 例基线（E5 未新增迁移）。DB 扩展：db/init/05-approval-extension.sql（approval_record +requested_action/requested_amount/escalated_at，运行库已执行）。mcp-core execute_disposition 同事务内置 executed+receipt（SC-02 审批与凭证关联落库）。
+>
+> **Sprint 5-6 执行记录（2026-08-13 实测，E4+E6+E7-01~03）**：E4/E6/E7-01 全完成，测试 110/110 绿（基线 95 + 新增 15，连续两轮稳定全绿；覆盖率 investigation 95%/verification 93%/knowledge 92%/api_guards 84%，TOTAL 87%，均≥ 60% 要求）。US-E4-01~03 ✅：AA-SK-02 内核落 `services/web-api/app/skills/investigation.py`——假设匹配（规则兜底：跑分/盗卡/团伙盗刷，无命中返回待定转人工）+ DA-KB-01 检索引用 doc_id（未命中显式声明"无库内匹配"，不虚构引用）+ fn_related_graph 2 跳扩展 + BA-BR-06 黑名单命中 +30（幂等，API-M-13 context_json 打标）+ 影响面统计（图内账户数/近24h涉险金额）+ 证据固化 DA-T-05（API-M-12 同 claim+source_ref 幂等）→ InvestigationCompleted 转 PENDING_APPROVAL。DA-INV-04 ✅：冻结缺证据链拒写 E-EVIDENCE-MISSING（mcp-core 守卫先于审批门控：证据是受理前提，审计 disposition.refused_evidence）；US-E4-05 ✅：复核确认自动建单（DispositionService.review_confirm → ReviewConfirmed human_only + API-M-11 建 freeze 工单，清 cases.py TODO）。US-E6-01/02 ✅：AA-SK-04 内核落 `verification.py`——一致→VerificationPassed→VERIFIED→CaseArchived→ARCHIVED，审计报告落 DA-T-05 + 复盘提入库申请（AA-SK-05 pending）；不一致→VerificationFailed→反向处置（幂等键 :rollback 后缀）→RollbackExecuted→MANUAL_REVIEW + verification.p0 审计升级；BA-BR-08 十分钟核验超时扫描（幂等，并入 lifespan 30s 轮询）。US-E6-04 ✅：向量化流水线落 `knowledge.py`——确定性哈希 embedding（字符一/二/三元组→1024维 L2 归一，无外部依赖，生产替换 UnifiedModel 仅换端口）+ 200 字切块 + SIMILARITY_MIN=0.22（同主题实测≈0.29/异主题≤0.09 实证分隔）；kb_embedding 写入 ON CONFLICT DO NOTHING（tg_web 仅 INSERT 权限，02-roles.sql）。SC-05 ✅：Agent 申请 pending 检索不可见→人工发布（应用层 human:* 守卫 + 事务内 tg.actor + DB 触发器三重守护，绕过直置被拒 E-KB-HUMAN-GATE）→向量化→检索命中附 doc_id；SC-08 ✅：全链审计回放（立案→聚合→调查→审批→执行→核验→归档 10 动作序列完整，ts 单调，逐条 actor/basis/trace_id 非空；mcp-core disposition.submit/approval.create 审计补 trace_id）。US-E7-01 ✅：`api_guards.py` bearer 鉴权（TG_API_TOKEN 配置时强制，/api/health 与 SSE 豁免，未配置开发直通）+ 写操作审计 api.request（X-Operator 取操作者，异常不阻断）。新路由 API-W-18/19（/investigate /verify）已入 openapi.yaml；测试基建：会话级 KB 清场（超级用户 TRUNCATE，只增表无 DELETE 授权）+ kb_document 播种改走 tg_app（INSERT 权限归属）。
 
 依赖提示：E4 依赖 E3 的信号结构；E5 依赖 E2 的 DDL；E7-02/03 依赖 E3/E5 产生的真实事件数据。
 
@@ -151,6 +153,8 @@
 | API-W-15 | `/api/health` | GET | 健康检查 | US-E1-01 |
 | API-W-16 | `/api/config/thresholds` | GET/PUT | 阈值配置（Nacos 热加载） | US-E1-03 |
 | API-W-17 | `/api/cases/{case_id}/aggregate` | POST | 触发信号聚合（AA-SK-01） | SC-01/SC-11 |
+| API-W-18 | `/api/cases/{case_id}/investigate` | POST | 触发欺诈调查（AA-SK-02） | US-E4-01~03 |
+| API-W-19 | `/api/cases/{case_id}/verify` | POST | 触发结果核验（AA-SK-04） | US-E6-01/02 |
 
 ### 5.2 MCP 工具契约（API-M-x，Schema 见 openapi.yaml `x-mcp-tool`）
 
@@ -167,6 +171,8 @@
 | API-M-09 | `query_complaint` | AA-MCP-02 | 只读（模拟） | 是 |
 | API-M-10 | `record_case_signals` | AA-MCP-01 | 写（tg_app，信号只增+评分回写） | 是（同案重复聚合仅追加信号） |
 | API-M-11 | `create_approval_request` | AA-MCP-01 | 写（tg_app，审批建单 DA-T-07） | 否（每次建单新工单，调用方幂等由编排层保证） |
+| API-M-12 | `record_case_evidence` | AA-MCP-01 | 写（tg_app，证据只增 DA-T-05） | 是（同 claim+source_ref 不重复插入） |
+| API-M-13 | `apply_risk_bonus` | AA-MCP-01 | 写（tg_app，BA-BR-06 关联网络加分） | 是（同案同 basis 仅生效一次，context_json 打标） |
 
 **契约纪律**：任何接口/工具变更必须先改 openapi.yaml 再改代码（与 03 §9.4 领域事件纪律同级）；错误码统一见 [08 §6](./08-数据模型与数据字典.md#6-错误码表)。
 
