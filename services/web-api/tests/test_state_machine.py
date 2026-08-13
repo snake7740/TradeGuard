@@ -1,6 +1,7 @@
 """状态机单元测试（R-22 补债，US-E5-06 验收基线，06 §3）
 
-覆盖：18 条合法迁移全量参数化 + 非法迁移拒绝 + human_only actor 守卫（Right-BICEP）。
+覆盖：19 条合法迁移全量参数化 + 非法迁移拒绝 + human_only actor 守卫（Right-BICEP）。
+Sprint 2 新增：AGGREGATING+DispositionSubmitted→DISPOSING（BA-CAP-05 低风险自动通道）。
 """
 import pytest
 
@@ -13,15 +14,16 @@ HUMAN = "human:approver-01"
 
 
 @pytest.mark.parametrize("t", TRANSITIONS, ids=lambda t: f"{t.source.value}+{t.event.value}->{t.target.value}")
-def test_all_18_transitions_positive(t):
+def test_all_transitions_positive(t):
     """Right：迁移表每条 (from,event) 都到达定义的目标状态"""
     actor = HUMAN if t.human_only else AGENT
     assert next_state(t.source, t.event, actor) == t.target
 
 
-def test_transition_count_is_18():
-    """与 02 §7 stateDiagram + BA-BP 展开逐条对账（防迁移表悄悄增删）"""
-    assert len(TRANSITIONS) == 18
+def test_transition_count_is_19():
+    """与 02 §7 stateDiagram + BA-BP 展开逐条对账（防迁移表悄悄增删）
+    18 条主路径 + 1 条 BA-CAP-05 低风险自动通道（SC-01）"""
+    assert len(TRANSITIONS) == 19
     assert len({t.source for t in TRANSITIONS}) >= 10
 
 

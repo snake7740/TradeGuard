@@ -23,7 +23,7 @@
 3. **降噪合并**：同 `(subject, signal_type, 1h 窗口)` 重复信号合并为 1 条，severity 取 max、count 累计；
 4. **velocity 特征**：统计主体 1h/24h 交易笔数与金额填入 `velocity_json`（BA-BR-14：1h≥10 笔或 24h≥50 笔 +30 分）；
 5. **评分**：基础分 = Σ(signal severity × 权重[交易0.4/征信0.2/投诉0.25/舆情0.15]) + velocity 加分，封顶 100；
-6. **落库**：信号 insert DA-T-04（只增），评分结果经 `SignalsAggregated` 事件交状态机 → INVESTIGATING；低风险（<40）走 `NoiseDismissed` → ARCHIVED。
+6. **落库与裁决**：信号经 AA-MCP-01 `record_case_signals`（API-M-10，tg_app 写角色）insert DA-T-04（只增）+ 评分回写，随后四路由：零信号降噪 `NoiseDismissed` → ARCHIVED；低风险（分<40 且涉案<5000，BA-BR-01）自动放行 DispositionSubmitted → DISPOSING → AA-AG-04 幂等执行 release → DISPOSED（BA-CAP-05）；其余 `SignalsAggregated` → INVESTIGATING 交 AA-AG-03；全源失败转人工（E-AGG-ALL-FAIL）。
 
 ## 验收锚点
 

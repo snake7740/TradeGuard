@@ -20,8 +20,15 @@ from .api import alerts, approvals, audit, cases, config, events_stream, health,
 from .core.config_service import ConfigService
 from .core.events import InMemoryPublisher
 from .repositories import ApprovalRepository, CaseRepository, KbRepository
+from .skills.aggregation import AggregationService
+from .skills.mcp_adapters import CoreClient, ExternalSourcesClient
 
 PG_DSN = os.getenv("PG_DSN", "postgresql://tg_web:tg_web_dev@localhost:5432/tradeguard")
+# MCP 客户端（httpx）自动读取代理配置：回环/服务名地址需旁路，否则被代理拦截返回 502
+os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,mcp-core,mcp-external-mock")
+os.environ.setdefault("no_proxy", "localhost,127.0.0.1,mcp-core,mcp-external-mock")
+MCP_CORE_URL = os.getenv("MCP_CORE_URL", "http://127.0.0.1:8101/mcp/")
+MCP_EXTERNAL_URL = os.getenv("MCP_EXTERNAL_URL", "http://127.0.0.1:8102/mcp/")
 
 
 @asynccontextmanager
@@ -32,6 +39,10 @@ async def lifespan(app: FastAPI):
     app.state.cases = CaseRepository(app.state.pool, app.state.publisher)
     app.state.approvals = ApprovalRepository(app.state.pool)
     app.state.kb = KbRepository(app.state.pool)
+    # AA-SK-01 确定性聚合内核（US-E3-03/04）：外部源经 AA-MCP-02，落库经 AA-MCP-01（tg_app 写角色）
+    app.state.aggregation = AggregationService(
+        pool=app.state.pool, cases=app.state.cases,
+        external=ExternalSourcesClient(MCP_EXTERNAL_URL), core=CoreClient(MCP_CORE_URL))
     app.state.config = ConfigService(pool=app.state.pool)   # US-E1-03 阈值热加载
     await app.state.config.start()
     yield

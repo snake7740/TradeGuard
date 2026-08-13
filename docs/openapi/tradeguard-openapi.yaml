@@ -121,6 +121,34 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/RiskSignal' }
 
+  /api/cases/{case_id}/aggregate:
+    post:
+      tags: [事件工作台]
+      operationId: aggregateCase
+      summary: 触发信号聚合（API-W-17，AA-SK-01 确定性内核，SC-01/SC-11 载体）
+      description: |
+        立案→聚合（四源采集+防腐层翻译+降噪合并+velocity BA-BR-14+加权评分）→分级裁决：
+        零信号降噪 ARCHIVED；低风险小额（风险分<40 且涉案<5000，BA-BR-01）自动放行 DISPOSED（BA-CAP-05）；
+        其余转调查 INVESTIGATING；全源失败 E-AGG-ALL-FAIL 转人工。信号经 AA-MCP-01 落 DA-T-04（tg_app 写角色 DA-INV-05）。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 聚合完成
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AggregateResult' }
+        '404':
+          description: 事件不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 状态冲突（非 REGISTERED/AGGREGATING 或全源失败转人工）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/cases/{case_id}/evidence:
     get:
       tags: [事件工作台]
@@ -445,6 +473,39 @@ components:
             velocity_1h: { type: object, description: "近 1 小时 {count, amount}" }
             velocity_24h: { type: object, description: "近 24 小时 {count, amount}" }
         ts: { type: string, format: date-time }
+
+    VelocityFeature:
+      type: object
+      description: 频次统计特征（BA-BR-14，与 RiskSignal.velocity_json 同构）
+      properties:
+        velocity_1h:
+          type: object
+          properties:
+            count: { type: integer, description: 近 1 小时交易笔数 }
+            amount: { type: number, description: 近 1 小时交易金额 }
+        velocity_24h:
+          type: object
+          properties:
+            count: { type: integer, description: 近 24 小时交易笔数 }
+            amount: { type: number, description: 近 24 小时交易金额 }
+
+    AggregateResult:
+      type: object
+      description: AA-SK-01 聚合流水线结果（US-E3-03/04，分级裁决路由）
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        status: { $ref: '#/components/schemas/CaseStatus' }
+        route:
+          type: string
+          enum: [noise, auto_release, investigate, all_fail]
+          description: 裁决路由（降噪/自动放行/转调查/全源失败转人工）
+        risk_score: { type: integer, minimum: 0, maximum: 100 }
+        velocity: { $ref: '#/components/schemas/VelocityFeature' }
+        signals_count: { type: integer }
+        degraded_sources:
+          type: array
+          items: { type: string, enum: [tx, credit, sentiment, complaint] }
+        exec_id: { type: string, nullable: true, description: 自动放行处置凭证（DA-T-06） }
 
     Evidence:
       type: object

@@ -14,6 +14,7 @@ INSERT INTO case_state_transition (from_status, to_status) VALUES
   ('REGISTERED',       'AGGREGATING'),
   ('AGGREGATING',      'INVESTIGATING'),
   ('AGGREGATING',      'ARCHIVED'),          -- 低风险误报降噪放行
+  ('AGGREGATING',      'DISPOSING'),         -- BA-CAP-05 低风险自动通道（BA-BR-01/SC-01，边界守卫在聚合裁决层）
   ('INVESTIGATING',    'PENDING_APPROVAL'),
   ('INVESTIGATING',    'ARCHIVED'),          -- 人工复核排除欺诈
   ('PENDING_APPROVAL', 'APPROVED'),

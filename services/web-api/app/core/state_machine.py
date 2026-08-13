@@ -63,6 +63,9 @@ TRANSITIONS: tuple[Transition, ...] = (
     Transition(CaseState.REGISTERED, CaseEvent.AGGREGATION_STARTED, CaseState.AGGREGATING),
     Transition(CaseState.AGGREGATING, CaseEvent.SIGNALS_AGGREGATED, CaseState.INVESTIGATING),
     Transition(CaseState.AGGREGATING, CaseEvent.NOISE_DISMISSED, CaseState.ARCHIVED),
+    # BA-CAP-05 低风险自动通道（SC-01）：风险分<40 且涉案<5000（BA-BR-01）时聚合后直接提交
+    # 放行处置，免审批单；边界守卫在聚合裁决层（app/skills/aggregation.py triage）全链路审计。
+    Transition(CaseState.AGGREGATING, CaseEvent.DISPOSITION_SUBMITTED, CaseState.DISPOSING),
     Transition(CaseState.AGGREGATING, CaseEvent.INVESTIGATION_REQUESTED, CaseState.INVESTIGATING),
     Transition(CaseState.INVESTIGATING, CaseEvent.INVESTIGATION_COMPLETED, CaseState.PENDING_APPROVAL),
     Transition(CaseState.INVESTIGATING, CaseEvent.REVIEW_CONFIRMED, CaseState.PENDING_APPROVAL, human_only=True),

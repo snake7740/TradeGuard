@@ -132,6 +132,8 @@ services:
       NACOS_ADDR: http://nacos:8848                    # US-E1-03 阈值热加载源
       NACOS_AUTH_IDENTITY_KEY: serverIdentity
       NACOS_AUTH_IDENTITY_VALUE: tradeguard_dev
+      MCP_CORE_URL: http://mcp-core:8101/mcp/                 # AA-MCP-01 聚合落库/处置执行（US-E3-03/04）
+      MCP_EXTERNAL_URL: http://mcp-external-mock:8102/mcp/    # AA-MCP-02 外部数据源
     ports: ["8200:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)\" || exit 1"]

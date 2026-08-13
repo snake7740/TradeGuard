@@ -109,7 +109,7 @@
 
 | 里程碑 | Sprint | 内容 | 出口标准（对齐 06 §5） | 状态 |
 |---|---|---|---|---|
-| M1 最小闭环 | S1（E1+E2）、S2（E3） | 底座 + 数据 + 聚合放行 | SC-01 通过；契约测试绿 | S1 ✅（2026-08-13）；S2 进行中 |
+| M1 最小闭环 | S1（E1+E2）、S2（E3） | 底座 + 数据 + 聚合放行 | SC-01 通过；契约测试绿 | S1 ✅（2026-08-13）；S2 ✅（2026-08-13） |
 | M2 审批链路 | S3–S4（E5） | 处置 + 审批回滚 + 时效 | SC-02/03/07/09/10 通过；状态机/幂等单测全绿 | 待启动 |
 | M3 调查与知识 | S5–S6（E4+E6+E7-01~03） | 调查、审计、知识、门户 | SC-05/08 通过；集成测试全绿 | 待启动 |
 | 决赛 | S7（E7-04~05） | 可观测 + 演示剧本 | 11/11 场景通过 + KPI 报告 | 待启动 |
@@ -117,6 +117,8 @@
 > **Sprint 1 执行记录（2026-08-13 实测）**：R-22 测试补债 ✅（46/46 绿：18 迁移参数化 + 5 非法迁移 + 6 human_only 守卫 + 乐观锁冲突 + DB 触发器双守护负路径 + 审计链回放）；US-E1-03 ✅（Nacos v3 admin API：3 配置文档 + 3 服务实例注册，scripts/nacos_register.py；web-api ConfigService 5s 热加载，实测改阈值 70→75 不重启 7s 生效，新增 API-W-16 /api/config/thresholds）；US-E1-04 ✅（scripts/backup.sh + backup-restore-drill.ps1，恢复演练 10 表行数全对账，dump 604K）；E2 演示档 ✅（5000 账户/105916 交易/67 watch 账户/5 团伙，单账户峰值 55 笔支撑 SC-11）；US-E1-02 后半当日解锁（见下方 LLM 解锁记录）。环境修正：宿主 5432 被本机 PostgreSQL 占用，compose 宿主映射改 5433。Skill 体系落库：skills/AA-SK-01~05 官方技能可执行定义 + SKILL-DISPATCH 调度矩阵。
 >
 > **US-E1-02 LLM 解锁记录（2026-08-13 实测）**：真实 DashScope Key 经安全链路注入（`scripts/set-dashscope-key.ps1` SecureString 录入 → `secrets/dashscope.env`（gitignore）→ 环境变量注入，全程不落明文仓库件）。模型取证：专属 MaaS 端点 `/api/v1/models` 确认 **qwen3.8-max** 可用（MoE 旗舰/1M 上下文/function-calling），OpenAI 兼容路径 `/compatible-mode/v1/chat/completions` 实测连通。注入方式：`scripts/update-agentteams-llm.sh`（sed env + KEEP_ALL installer + 防御回写），随后经 `agt update manager --name default --model qwen3.8-max` 交 controller 按 CRD 重建 Manager。排障根因：controller 创建 Manager 的正解形态是 `agentteams-net` 桥接网络 + `AGENTTEAMS_RUNTIME=k8s`（Manager 自行从 MinIO 拉取 workspace 并 touch `.initialized`），此前手工重建误用共享网络命名空间 + local 模式导致死等崩溃循环。验收取证：`agt llm-preflight` passed；Manager Status=running/Restarts=0；Matrix 登录 + sync loop；经 Higress 网关 key-auth 实测 `model=qwen3.8-max` 返回正常；qwenpaw `active_model.json`=agentteams-gateway/qwen3.8-max（Key ENC 加密存储）；控制台 18888 HTTP 200。Worker 创建 ✅：`agt create worker --model qwen3.8-max --soul-file`（SOUL 按 02 §3 身份清单）创建 aa-ag-02~05 四 Worker，`agt get workers` 全部 Running/model=qwen3.8-max/runtime=copaw，SOUL.md 已注入各 Worker 容器；Matrix 房间实测：发消息→Manager 经 qwen3.8-max 生成完整中文回复入房（分派链路可用）。至此 **US-E1-02 全部完成**（5 Agent：1 Manager + 4 Worker，Sprint 1 收官）。
+>
+> **Sprint 2 执行记录（2026-08-13 实测，E3 信号聚合闭环）**：四 Story 全完成，测试 89/89 绿（基线 46 + 新增 43）。US-E3-02 ✅：`tests/test_acl_contract.py` 对运行中 mcp-external-mock 经官方 streamable-http 通道实测 9 例（缺 query_reason 拒收 BA-BR-10 / 成功载荷 schema / 确定性）。US-E3-03 ✅：AA-SK-01 内核落 `services/web-api/app/skills/aggregation.py`（纯函数可测：velocity 统计/降噪合并/加权评分/分级裁决 + AggregationService 编排），覆盖率 97%（≥60% 要求）；信号落库经 mcp-core 新工具 API-M-10 `record_case_signals`（tg_app 写角色，DA-INV-05 权限矩阵不破）。US-E3-04 ✅：分级裁决四路由（noise 降噪归档 / auto_release 低风险自动放行 / investigate 转调查 / all_fail 转人工）；新增状态迁移 AGGREGATING→DISPOSING（BA-CAP-05 低风险自动通道，边界守卫在聚合裁决层，应用层状态机 + DB 白名单表双守护同步 19 条）。SC-11 ✅：12 笔高频簇 velocity_json 与流水统计一致且 velocity 加分 ≥30；SC-01 ✅：低风险小额（风险分 23<40、涉案 800<5000）自动放行至 DISPOSED，DispositionExecuted 事件 + 审计 actor=AA-AG-04 依据含风险分，幂等重入仅 1 条处置记录。环境排障沉淀：① mcp SDK 全栈统一 1.9.4（1.2.1 无 streamable_http）；② streamable-http 挂载点需尾斜杠 `/mcp/`（无斜杠 307）；③ 宿主系统代理会拦截 httpx 回环连接返回 502，入口注入 NO_PROXY 旁路；④ FastMCP 对形似 JSON 的字符串参数会预解析，工具入参用 list[dict] 而非 JSON 字符串。
 
 依赖提示：E4 依赖 E3 的信号结构；E5 依赖 E2 的 DDL；E7-02/03 依赖 E3/E5 产生的真实事件数据。
 
@@ -145,6 +147,8 @@
 | API-W-13 | `/api/kb/applications/{doc_id}/reject` | POST | 驳回申请 | SC-05 |
 | API-W-14 | `/api/events/stream` | GET(SSE) | 领域事件实时推送 | 全体演示 |
 | API-W-15 | `/api/health` | GET | 健康检查 | US-E1-01 |
+| API-W-16 | `/api/config/thresholds` | GET/PUT | 阈值配置（Nacos 热加载） | US-E1-03 |
+| API-W-17 | `/api/cases/{case_id}/aggregate` | POST | 触发信号聚合（AA-SK-01） | SC-01/SC-11 |
 
 ### 5.2 MCP 工具契约（API-M-x，Schema 见 openapi.yaml `x-mcp-tool`）
 
@@ -159,6 +163,7 @@
 | API-M-07 | `query_credit` | AA-MCP-02 | 只读（模拟） | 是 |
 | API-M-08 | `query_sentiment` | AA-MCP-02 | 只读（模拟） | 是 |
 | API-M-09 | `query_complaint` | AA-MCP-02 | 只读（模拟） | 是 |
+| API-M-10 | `record_case_signals` | AA-MCP-01 | 写（tg_app，信号只增+评分回写） | 是（同案重复聚合仅追加信号） |
 
 **契约纪律**：任何接口/工具变更必须先改 openapi.yaml 再改代码（与 03 §9.4 领域事件纪律同级）；错误码统一见 [08 §6](./08-数据模型与数据字典.md#6-错误码表)。
 

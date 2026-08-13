@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -94,7 +95,11 @@ class CaseRepository:
     async def signals(self, case_id: str) -> list[dict]:
         rows = await self._pool.fetch(
             "SELECT * FROM risk_signal WHERE case_id=$1 ORDER BY ts", case_id)
-        return [dict(x) for x in rows]
+        out = [dict(x) for x in rows]
+        for s in out:  # asyncpg 对 jsonb 返回 JSON 文本，仓储层统一反序列化
+            if isinstance(s.get("velocity_json"), str):
+                s["velocity_json"] = json.loads(s["velocity_json"])
+        return out
 
     async def evidence(self, case_id: str) -> list[dict]:
         rows = await self._pool.fetch(

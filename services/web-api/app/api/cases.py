@@ -1,9 +1,10 @@
-"""事件工作台路由（API-W-02~07，案件工作台 SC-01/04/10 载体）"""
+"""事件工作台路由（API-W-02~07/17，案件工作台 SC-01/04/10 载体）"""
 from fastapi import APIRouter, HTTPException, Request
 
 from ..core.state_machine import CaseEvent, InvalidTransition
 from ..repositories import OptimisticLockError
 from ..schemas import ReviewIn
+from ..skills.aggregation import AggregationStateError
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
@@ -27,6 +28,19 @@ async def get_case(request: Request, case_id: str):
 async def list_signals(request: Request, case_id: str):
     """API-W-04：信号清单（DA-T-04，含 velocity_json BA-BR-14）"""
     return {"items": await request.app.state.cases.signals(case_id)}
+
+
+@router.post("/{case_id}/aggregate")
+async def aggregate_case(request: Request, case_id: str):
+    """API-W-17：触发信号聚合（AA-SK-01 确定性内核，US-E3-03/04，SC-01/SC-11 载体）
+    裁决路由：noise→ARCHIVED；auto_release→DISPOSED（BA-CAP-05）；investigate→INVESTIGATING；
+    all_fail→保持 AGGREGATING 转人工（E-AGG-ALL-FAIL）。"""
+    try:
+        return await request.app.state.aggregation.run(case_id)
+    except LookupError:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "case not found"})
+    except AggregationStateError as e:
+        raise HTTPException(409, detail={"code": e.code, "message": str(e)})
 
 
 @router.get("/{case_id}/graph")

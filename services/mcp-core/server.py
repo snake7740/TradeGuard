@@ -109,6 +109,38 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
 
 
 @mcp.tool()
+async def record_case_signals(case_id: str, risk_score: int, signals: list[dict]) -> str:
+    """API-M-10：聚合结果落库（AA-SK-01 步骤 6，US-E3-03）
+    信号 insert DA-T-04（只增）+ risk_score 回写 DA-T-03；tg_app 写角色（DA-INV-05 权限矩阵）。
+    signals 为数组（元素含 source/type/confidence/raw_ref/query_reason/degraded/velocity_json）；
+    签名用 list[dict] 而非 JSON 字符串：FastMCP 会对形似 JSON 的字符串参数预解析，
+    str 注解收到数组字符串会被转成 list 导致校验失败，故直收数组（兼容字符串入参）。"""
+    sigs = signals
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            for s in sigs:
+                await conn.execute(
+                    """INSERT INTO risk_signal (signal_id, case_id, source, type, confidence,
+                                                raw_ref, query_reason, degraded, velocity_json)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)""",
+                    s.get("signal_id") or uuid.uuid4().hex, case_id, s["source"], s["type"],
+                    s["confidence"], s.get("raw_ref"), s["query_reason"],
+                    s.get("degraded", False),
+                    json.dumps(s["velocity_json"]) if s.get("velocity_json") else None)
+            await conn.execute(
+                "UPDATE risk_case SET risk_score=$2, updated_at=now() WHERE case_id=$1",
+                case_id, risk_score)
+            await conn.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis)
+                   VALUES ($1, 'AA-AG-02', 'signals.record', $2, $3)""",
+                uuid.uuid4().hex, case_id, f"signals={len(sigs)},risk_score={risk_score}")
+        return json.dumps({"ok": True, "recorded": len(sigs), "risk_score": risk_score})
+    finally:
+        await conn.close()
+
+
+@mcp.tool()
 async def submit_kb_application(case_id: str, category: str, title: str, content: str) -> str:
     """API-M-05：知识入库申请（AA-SK-05；仅写 pending 申请单，发布由人类经 API-W-12 确认，DA-INV-06）"""
     if category not in ("case", "regulation", "runbook"):
