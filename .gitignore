@@ -13,6 +13,7 @@ dist/
 # 环境
 .env
 *.local
+secrets/
 
 # IDE / OS
 .idea/

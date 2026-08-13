@@ -14,7 +14,7 @@
 ```bash
 export AGENTTEAMS_NON_INTERACTIVE=1
 export AGENTTEAMS_LLM_PROVIDER=qwen
-export AGENTTEAMS_LLM_API_KEY=<真实 DashScope Key，演示可先用占位>
+export AGENTTEAMS_LLM_API_KEY=<从 secrets/dashscope.env 载入，见下方"Key 安全供给">
 export AGENTTEAMS_REGISTRY=higress-registry.cn-hangzhou.cr.aliyuncs.com
 bash agentteams-install.sh manager
 ```
@@ -22,7 +22,10 @@ bash agentteams-install.sh manager
 2. 安装完成后进入 Manager 控制台（Element Web，默认网关端口 18080 / 控制台 18001），按 docs/02 §3 Identity 清单创建 5 个 Worker：
    - AA-AG-01 主控调度 / AA-AG-02 信号聚合 / AA-AG-03 欺诈调查 / AA-AG-04 处置执行 / AA-AG-05 审计复盘；
    - 身份 Prompt 写入：职能边界、可用 Skill（AA-SK-01~05）、安全约束（只读边界/审批门控）；
-3. 凭据安全：Worker 仅持 consumer token，DashScope 等真实凭据仅存 Higress（04 §4 第 5 条）；
+3. 凭据安全（Key 安全供给，仓库零明文）：
+   - 录入：`powershell -ExecutionPolicy Bypass -File scripts/set-dashscope-key.ps1`（SecureString 不回显，写入 gitignore 的 `secrets/dashscope.env`）；
+   - 注入：`powershell -ExecutionPolicy Bypass -File scripts/apply-dashscope-key.ps1`（经环境变量传官方安装脚本，不落命令行/历史）；
+   - 治理：Worker 仅持 consumer token，DashScope 等真实凭据仅存网关侧（04 §4 第 5 条）；`secrets/` 已加入 .gitignore，脚本内置 `git check-ignore` 自检；
 4. 网络互通：官方安装创建独立 Docker 网络，用 `docker network connect tradeguard_tradeguard-net <agentteams容器>` 与 compose 栈打通；
 5. 验证：开一个 Matrix 房间，Manager 可向 Worker 分派测试任务 → US-E1-02 验收通过。
 
