@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# 环境
+.env
+*.local
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+
+# 数据
+db/backup/
+*.dump
+
+# 日志
+*.log

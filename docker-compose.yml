@@ -1,0 +1,162 @@
+# TradeGuard · Sprint 0 基础设施编排（对应 docs/04 §3 部署拓扑、US-E1-01）
+# 说明：
+#  - AgentTeams 按官方脚本独立部署（非 compose 服务），见 scripts/install-agentteams.md
+#  - PolarDB-PG 本地等价实现：pgvector/pgvector:pg16（文档 04 §2 替换成本列已声明）
+#  - UnifiedModel 语义运行时走 SQL 视图退化路径（db/init/03-umodel-fallback.sql）
+#  - 一键启动：docker compose --env-file .env up -d
+name: tradeguard
+
+x-python-base: &python-base
+  restart: unless-stopped
+  networks: [tradeguard-net]
+  environment:
+    PG_DSN: ${PG_DSN_APP:-postgresql://tg_app:tg_app_dev@postgres:5432/tradeguard}
+
+services:
+  # ---------- 数据层 ----------
+  postgres:                      # PolarDB-PG 本地等价（pgvector 内置）
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tradeguard
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_SUPER_PASSWORD:-tradeguard_dev}
+    ports: ["5432:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tradeguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [tradeguard-net]
+
+  # ---------- 事件总线 ----------
+  rocketmq-namesrv:
+    image: apache/rocketmq:${ROCKETMQ_VERSION:-5.3.1}
+    restart: unless-stopped
+    command: sh mqnamesrv
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
+    ports: ["9876:9876"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/9876'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [tradeguard-net]
+
+  rocketmq-broker:
+    image: apache/rocketmq:${ROCKETMQ_VERSION:-5.3.1}
+    restart: unless-stopped
+    command: sh mqbroker -n rocketmq-namesrv:9876
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx1g"
+    # 不挂载 broker.conf：5.3.1 外挂 -c 配置在 Windows 卷上触发 ScheduleMessageService NPE（rocketmq-docker#85）
+    # 不挂载 store 卷：镜像内无 /home/rocketmq/store，空卷挂载后属主 root 与容器用户 uid 3000 冲突（Permission denied）
+    # 演示环境事件流允许重放重建；复赛 Linux 环境可恢复卷挂载（scripts/rocketmq-init.md）
+    depends_on:
+      rocketmq-namesrv: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/10911'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [tradeguard-net]
+
+  # ---------- 治理层 ----------
+  nacos:                         # AI Registry + 动态配置（BA-BR 阈值，SC-06）
+    image: nacos/nacos-server:v3.2.3
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      # Nacos v3 镜像强制要求 AUTH_TOKEN（即使禁用鉴权），演示环境用开发凭据
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_TOKEN: "VHJhZGVHdWFyZERldlNlY3JldEtleTAxMjM0NTY3ODkwMTIzNDU2Nzg5QUJDREVG"
+      NACOS_AUTH_IDENTITY_KEY: serverIdentity
+      NACOS_AUTH_IDENTITY_VALUE: tradeguard_dev
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+    ports: ["8848:8848", "9848:9848"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8848/nacos/ || exit 1"]   # v3 已移除 v1/v2 readiness 端点，用控制台根路径探活
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [tradeguard-net]
+
+  higress:                       # AI 网关 all-in-one（控制台 8001 / 网关 8180）
+    image: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:latest
+    restart: unless-stopped
+    environment:
+      HIGRESS_CONSOLE_DISABLE: "false"
+    ports:
+      - "8001:8001"   # 控制台
+      - "8180:80"     # 网关入口（LLM/MCP 调用统一入口，04 §5）
+    volumes:
+      - higress-data:/data
+    networks: [tradeguard-net]
+
+  # ---------- 观测层 ----------
+  as-studio:                     # AgentScope Studio（OTel tracing，04 §7）
+    image: agentscope/studio:latest
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    networks: [tradeguard-net]
+
+  # ---------- 自研服务 ----------
+  mcp-core:                      # AA-MCP-01 交易风控业务库 MCP（只读 + 处置执行）
+    <<: *python-base
+    build: ./services/mcp-core
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["8101:8101"]
+
+  mcp-external-mock:             # AA-MCP-02 外部数据源模拟 MCP（征信/舆情/投诉）
+    <<: *python-base
+    build: ./services/mcp-external-mock
+    ports: ["8102:8102"]
+
+  web-api:                       # web-portal 后端进程（FastAPI，04 §10.1 三端调用链）
+    <<: *python-base
+    build: ./services/web-api
+    depends_on:
+      postgres: { condition: service_healthy }
+      rocketmq-broker: { condition: service_healthy }
+    environment:
+      PG_DSN: ${PG_DSN_WEB:-postgresql://tg_web:tg_web_dev@postgres:5432/tradeguard}
+      ROCKETMQ_NAMESRV: rocketmq-namesrv:9876
+    ports: ["8200:8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  web-portal:                    # web-portal 前端进程（Vue3 + Element Plus）
+    build: ./web-portal
+    restart: unless-stopped
+    depends_on:
+      web-api: { condition: service_healthy }
+    ports: ["8300:80"]
+    networks: [tradeguard-net]
+
+  data-generator:                # 合成数据发生器（04 §8，PaySim 式分布）
+    <<: *python-base
+    build: ./services/data-generator
+    profiles: ["tools"]          # 按需运行：docker compose run --rm data-generator
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [tradeguard-net]
+
+networks:
+  tradeguard-net:
+    driver: bridge
+
+volumes:
+  pg-data:
+  higress-data:

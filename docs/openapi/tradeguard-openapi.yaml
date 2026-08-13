@@ -1,0 +1,650 @@
+openapi: 3.0.3
+info:
+  title: TradeGuard 交易风控中枢 API 契约
+  version: 1.0.0
+  description: |
+    统一 OpenAPI 3.0 契约，覆盖两类接口：
+    1. web-api REST 接口（/api/**，供 web-portal 前端与演示调用，见 04 §10.1）；
+    2. MCP 工具契约（AA-MCP-01/02 的 6+3 个工具，MCP 为 JSON-RPC 传输，
+       其输入/输出 Schema 统一在 components.schemas 中以 x-mcp-tool 标注，
+       与 REST 接口共用同一套组件，保证"所有接口统一 OpenAPI 3.0 规范"）。
+    追溯：业务规则 BA-BR-x（01 §5）、场景 SC-x（06 §2）、数据字典 DD（08）。
+servers:
+  - url: http://localhost:8080
+    description: web-api（docker compose 演示环境）
+tags:
+  - name: 演示触发
+  - name: 事件工作台
+  - name: 审批门户
+  - name: 审计查询
+  - name: 知识库后台
+  - name: 实时推送
+  - name: 系统
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/health:
+    get:
+      tags: [系统]
+      operationId: health
+      security: []
+      summary: 健康检查（DB/RMQ/Agent 侧依赖探活）
+      responses:
+        '200':
+          description: 各依赖状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [UP, DEGRADED] }
+                  components:
+                    type: object
+                    additionalProperties: { type: string }
+
+  /api/alerts:
+    post:
+      tags: [演示触发]
+      operationId: submitAlert
+      summary: 告警/任务输入受理（AA-CL-01 载体，演示剧本触发入口）
+      description: 写入后经 RocketMQ CaseRegistered 事件驱动主控 Agent 立案。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertInput' }
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  case_id: { $ref: '#/components/schemas/CaseId' }
+                  status: { type: string, enum: [REGISTERED] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/cases:
+    get:
+      tags: [事件工作台]
+      operationId: listCases
+      summary: 风险事件列表（真实读 DA-T-03）
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/CaseStatus' } }
+        - { name: risk_min, in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          description: 分页列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/CaseSummary' }
+
+  /api/cases/{case_id}:
+    get:
+      tags: [事件工作台]
+      operationId: getCase
+      summary: 事件详情（含共享状态 context，真实读 DA-T-03）
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaseDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/cases/{case_id}/signals:
+    get:
+      tags: [事件工作台]
+      operationId: listSignals
+      summary: 事件信号清单（真实读 DA-T-04）
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 信号列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RiskSignal' }
+
+  /api/cases/{case_id}/evidence:
+    get:
+      tags: [事件工作台]
+      operationId: listEvidence
+      summary: 证据链（真实读 DA-T-05，审批门户展示依据）
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 证据列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Evidence' }
+
+  /api/cases/{case_id}/graph:
+    get:
+      tags: [事件工作台]
+      operationId: getRelatedGraph
+      summary: 关联网络图谱（经 mcp-core query_related_graph，与 Agent 同源）
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+        - { name: hops, in: query, schema: { type: integer, default: 2, maximum: 2 } }
+      responses:
+        '200':
+          description: 图谱
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GraphResponse' }
+
+  /api/cases/{case_id}/review:
+    post:
+      tags: [事件工作台]
+      operationId: submitReview
+      summary: 中风险人工复核结论（SC-10 载体，BA-BR-01 中风险分段）
+      description: 写 DA-T-03 状态 + 审计留痕（BA-BR-09），仅风控值班员角色。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewRequest' }
+      responses:
+        '200':
+          description: 复核完成
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaseSummary' }
+        '409':
+          description: 状态冲突（非 MANUAL_REVIEW 状态）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/approvals:
+    get:
+      tags: [审批门户]
+      operationId: listApprovals
+      summary: 待审批/已审批队列（真实读 DA-T-07，BA-BR-13 超时标记）
+      parameters:
+        - { name: decision, in: query, schema: { type: string, enum: [pending, approved, rejected] } }
+      responses:
+        '200':
+          description: 审批列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Approval' }
+
+  /api/approvals/{approval_id}/decide:
+    post:
+      tags: [审批门户]
+      operationId: decideApproval
+      summary: 批准/驳回（02 §7 状态机人类触发入口，SC-02/SC-03 载体）
+      description: |
+        回填 DA-T-07 decision（回填后不可变更）→ 发布 ApprovalApproved/ApprovalRejected
+        事件（actor=真实操作人）→ 审计留痕。驳回触发 BA-BR-07 回滚人工复核。
+      parameters:
+        - { name: approval_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecideRequest' }
+      responses:
+        '200':
+          description: 决策完成
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+        '409':
+          description: 工单已决策（幂等返回首次结果）或已过期
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/audit/{case_id}:
+    get:
+      tags: [审计查询]
+      operationId: getAuditTrail
+      summary: 审计链回放（SC-08 载体，经 mcp-core query_audit_trail）
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 按时间排序的完整审计链
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditRecord' }
+
+  /api/kb/applications:
+    get:
+      tags: [知识库后台]
+      operationId: listKbApplications
+      summary: 知识入库申请列表（真实读 DA-T-09，status=pending）
+      responses:
+        '200':
+          description: 申请列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/KbDocument' }
+
+  /api/kb/applications/{doc_id}/publish:
+    post:
+      tags: [知识库后台]
+      operationId: publishKbDocument
+      summary: 确认发布（SC-05 载体，DA-INV-06 人工门控，仅策略管理员）
+      parameters:
+        - { $ref: '#/components/parameters/DocIdPath' }
+      responses:
+        '200':
+          description: 已发布并触发向量化
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KbDocument' }
+        '409':
+          description: 状态非 pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/kb/applications/{doc_id}/reject:
+    post:
+      tags: [知识库后台]
+      operationId: rejectKbDocument
+      summary: 驳回入库申请（意见必填）
+      parameters:
+        - { $ref: '#/components/parameters/DocIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [opinion]
+              properties:
+                opinion: { type: string, minLength: 5 }
+      responses:
+        '200':
+          description: 已驳回
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KbDocument' }
+
+  /api/events/stream:
+    get:
+      tags: [实时推送]
+      operationId: eventStream
+      security: []
+      summary: 领域事件实时推送（SSE，订阅 RocketMQ case-events）
+      description: 演示时事件流转现场可见；断线自动重连（Last-Event-ID）。
+      responses:
+        '200':
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/SseEvent' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 演示环境静态 token；生产替换为机构 SSO（替换成本见 04 §2）
+
+  parameters:
+    CaseIdPath:
+      name: case_id
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/CaseId' }
+    DocIdPath:
+      name: doc_id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: 参数校验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 错误码（08 §6 错误码表）
+          example: E-DISP-AUTH
+        message: { type: string }
+        trace_id: { type: string, description: OTel trace_id，联动可观测 }
+
+    CaseId:
+      type: string
+      pattern: '^CASE-\d{8}-\d{4}$'
+      example: CASE-20260813-0001
+
+    CaseStatus:
+      type: string
+      description: 状态机（02 §7 + 08 §2 枚举字典，DA-INV-01 守护）
+      enum: [REGISTERED, AGGREGATING, INVESTIGATING, PENDING_APPROVAL,
+             APPROVED, REJECTED, MANUAL_REVIEW, DISPOSING, DISPOSED,
+             VERIFIED, ROLLBACK, ARCHIVED]
+
+    AlertInput:
+      type: object
+      required: [source_type, subject_ref]
+      properties:
+        source_type:
+          type: string
+          enum: [engine_alert, fraud_ticket, tx_anomaly, demo_script]
+        subject_ref: { type: string, description: 账户哈希或交易哈希 }
+        severity: { type: string, enum: [low, medium, high], default: medium }
+        payload:
+          type: object
+          additionalProperties: true
+          description: 原始告警上下文（交易快照/工单摘要）
+
+    CaseSummary:
+      type: object
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        subject_ref: { type: string }
+        status: { $ref: '#/components/schemas/CaseStatus' }
+        risk_score: { type: integer, minimum: 0, maximum: 100 }
+        current_agent: { type: string, description: AA-AG-0x 编号 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        approval_overdue:
+          type: boolean
+          description: BA-BR-13 审批超时标记（前端标红）
+
+    CaseDetail:
+      allOf:
+        - $ref: '#/components/schemas/CaseSummary'
+        - type: object
+          properties:
+            context:
+              type: object
+              additionalProperties: true
+              description: 共享状态（DA-T-03 context_json，AA-CL-03 载体）
+            signal_count: { type: integer }
+            evidence_count: { type: integer }
+            matrix_room: { type: string, description: Matrix 房间链接 }
+            trace_id: { type: string }
+
+    RiskSignal:
+      type: object
+      description: DA-T-04 信号结构（四源统一，03 §4）
+      properties:
+        signal_id: { type: string }
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        source: { type: string, enum: [tx, credit, sentiment, complaint] }
+        type: { type: string, example: high_freq_small_amount }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        raw_ref: { type: string, description: 原始数据引用（tx_id 或外部源 id） }
+        query_reason: { type: string, description: 查询事由（BA-BR-10 必填） }
+        degraded: { type: boolean, description: 数据源降级标记 }
+        velocity_json:
+          type: object
+          nullable: true
+          description: 频次统计特征（BA-BR-14，对标社区 velocity 实践）；tx 源信号必填
+          properties:
+            velocity_1h: { type: object, description: "近 1 小时 {count, amount}" }
+            velocity_24h: { type: object, description: "近 24 小时 {count, amount}" }
+        ts: { type: string, format: date-time }
+
+    Evidence:
+      type: object
+      description: DA-T-05 证据条目（共享内核结构，01 §10.2）
+      properties:
+        evidence_id: { type: string }
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        claim: { type: string, description: 结论主张 }
+        source_ref: { type: string, description: 数据来源（含 RAG doc_id 引用） }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        ts: { type: string, format: date-time }
+
+    Disposition:
+      type: object
+      description: DA-T-06 处置记录
+      properties:
+        exec_id: { type: string }
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        action: { type: string, enum: [block, freeze, reduce, release] }
+        amount: { type: number, format: double, description: 涉案/调整金额 }
+        idempotency_key:
+          type: string
+          description: case_id+decision_type（AA-SK-03，DA-INV-03）
+        approval_ref: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [submitted, executed, failed, rolled_back]
+        ts: { type: string, format: date-time }
+
+    Approval:
+      type: object
+      description: DA-T-07 审批工单（AG-04 创建、人类回填）
+      properties:
+        approval_id: { type: string }
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        approver: { type: string, nullable: true }
+        decision: { type: string, enum: [pending, approved, rejected] }
+        opinion: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        decided_at: { type: string, format: date-time, nullable: true }
+        overdue: { type: boolean, description: BA-BR-13 超时 }
+
+    ReviewRequest:
+      type: object
+      required: [conclusion, opinion]
+      properties:
+        conclusion: { type: string, enum: [release, block, escalate] }
+        opinion: { type: string, minLength: 5 }
+
+    DecideRequest:
+      type: object
+      required: [decision, opinion]
+      properties:
+        decision: { type: string, enum: [approved, rejected] }
+        opinion: { type: string, minLength: 5, description: 批准/驳回意见均必填（02 §7） }
+
+    AuditRecord:
+      type: object
+      description: DA-T-08 审计条目（append-only，BA-BR-09）
+      properties:
+        log_id: { type: string }
+        actor: { type: string, description: AA-AG-0x 或人类账号 }
+        action: { type: string }
+        target: { type: string }
+        basis: { type: string, description: 依据（规则编号/审批凭证/风险分） }
+        trace_id: { type: string }
+        ts: { type: string, format: date-time }
+
+    KbDocument:
+      type: object
+      description: DA-T-09 知识文档/入库申请
+      properties:
+        doc_id: { type: string }
+        category: { type: string, enum: [case, regulation, runbook] }
+        title: { type: string }
+        content_summary: { type: string }
+        status: { type: string, enum: [pending, published, rejected] }
+        applicant: { type: string, description: 固定 AA-AG-05 }
+        ts: { type: string, format: date-time }
+
+    GraphNode:
+      type: object
+      properties:
+        id: { type: string }
+        node_type: { type: string, enum: [Account, Device, Transaction, PayeeAccount, IpRange, Contact, Case], description: DA-N-01~07 }
+        label: { type: string }
+        risk_flag: { type: string, enum: [none, watch, gray, black] }
+    GraphLink:
+      type: object
+      properties:
+        source: { type: string }
+        target: { type: string }
+        link_type: { type: string, enum: [SAME_DEVICE, SAME_PAYEE, SAME_IPSEG, SAME_CONTACT, INITIATED, INVOLVED_IN], description: DA-L-01~06 }
+    GraphResponse:
+      type: object
+      properties:
+        start: { type: string }
+        hops: { type: integer }
+        nodes: { type: array, items: { $ref: '#/components/schemas/GraphNode' } }
+        links: { type: array, items: { $ref: '#/components/schemas/GraphLink' } }
+
+    SseEvent:
+      type: object
+      description: SSE 事件体（领域事件目录见 03 §9.2）
+      properties:
+        event:
+          type: string
+          enum: [CaseRegistered, SignalsAggregated, InvestigationRequested,
+                 InvestigationCompleted, ApprovalApproved, ApprovalRejected,
+                 DispositionExecuted, VerificationPassed, VerificationFailed,
+                 CaseArchived]
+        data:
+          type: object
+          properties:
+            case_id: { $ref: '#/components/schemas/CaseId' }
+            trace_id: { type: string }
+            occurred_at: { type: string, format: date-time }
+            payload: { type: object, additionalProperties: true }
+
+    # ============ MCP 工具契约（AA-MCP-01/02，x-mcp-tool 标注） ============
+    McpQueryTransactionsReq:
+      x-mcp-tool: query_transactions
+      x-mcp-server: AA-MCP-01
+      type: object
+      required: [account_hash, time_range]
+      properties:
+        account_hash: { type: string }
+        time_range: { type: string, example: '2026-08-01/2026-08-13' }
+        limit: { type: integer, default: 200 }
+    McpQueryTransactionsResp:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            type: object
+            properties:
+              tx_id: { type: string }
+              amount: { type: number }
+              mcc: { type: string }
+              channel: { type: string }
+              ts: { type: string, format: date-time }
+    McpQueryRelatedGraphReq:
+      x-mcp-tool: query_related_graph
+      x-mcp-server: AA-MCP-01
+      type: object
+      required: [subject_id]
+      properties:
+        subject_id: { type: string }
+        edge_types:
+          type: array
+          items: { type: string, enum: [SAME_DEVICE, SAME_PAYEE, SAME_IPSEG, SAME_CONTACT] }
+          default: [SAME_DEVICE, SAME_PAYEE, SAME_IPSEG, SAME_CONTACT]
+        hops: { type: integer, default: 2, maximum: 2, description: BA-BP-03 深度上限 }
+    McpExecuteDispositionReq:
+      x-mcp-tool: execute_disposition
+      x-mcp-server: AA-MCP-01
+      type: object
+      required: [case_id, action, idempotency_key]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        action: { type: string, enum: [block, freeze, reduce, release] }
+        idempotency_key: { type: string }
+        approval_ref:
+          type: string
+          nullable: true
+          description: 缺失且触及 BA-BR-01/02 边界时返回 E-DISP-AUTH（SC-02）
+    McpExecuteDispositionResp:
+      type: object
+      properties:
+        execution_id: { type: string }
+        status: { type: string, enum: [executed, rejected, failed] }
+        receipt: { type: object, additionalProperties: true }
+    McpQueryDispositionResultReq:
+      x-mcp-tool: query_disposition_result
+      x-mcp-server: AA-MCP-01
+      type: object
+      required: [execution_id]
+      properties:
+        execution_id: { type: string }
+    McpSubmitKbApplicationReq:
+      x-mcp-tool: submit_kb_application
+      x-mcp-server: AA-MCP-01
+      type: object
+      required: [case_id, pattern]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        pattern: { type: string, description: 手法特征摘要 }
+    McpQueryAuditTrailReq:
+      x-mcp-tool: query_audit_trail
+      x-mcp-server: AA-MCP-01
+      type: object
+      required: [case_id]
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+    McpQueryCreditReq:
+      x-mcp-tool: query_credit
+      x-mcp-server: AA-MCP-02
+      type: object
+      required: [subject_id, query_reason]
+      properties:
+        subject_id: { type: string }
+        query_reason: { type: string, description: BA-BR-10 必填 }
+    McpQueryCreditResp:
+      type: object
+      properties:
+        credit_score: { type: integer, description: 模拟评分 }
+        overdue_flag: { type: boolean }
+        source: { type: string, example: mock-credit, description: 生产替换为持牌机构 API }
+    McpQuerySentimentReq:
+      x-mcp-tool: query_sentiment
+      x-mcp-server: AA-MCP-02
+      type: object
+      required: [subject_id, query_reason]
+      properties:
+        subject_id: { type: string }
+        query_reason: { type: string }
+    McpQueryComplaintReq:
+      x-mcp-tool: query_complaint
+      x-mcp-server: AA-MCP-02
+      type: object
+      required: [subject_id, query_reason]
+      properties:
+        subject_id: { type: string }
+        query_reason: { type: string }
