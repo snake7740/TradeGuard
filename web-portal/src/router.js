@@ -1,25 +1,37 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { currentRole } from './role'
+import { currentRole, ROLES } from './role'
 
-// 4 页面 × 4 角色（04 §10 人机界面设计）；meta.roles 声明可见角色白名单
+// 各角色首页（01 §6 用户旅程）：白名单外重定向回本角色主页面，避免 '/' 循环跳转
+const HOME_BY_ROLE = {
+  风控值班员: '/cases', 风控审批官: '/approvals',
+  合规审计员: '/audit', 风控策略管理员: '/kb',
+}
+
+// 5 页面 × 4 角色（04 §10 人机界面设计）；meta.roles 声明可见角色白名单
 const routes = [
-  { path: '/', redirect: '/cases' },
+  { path: '/', redirect: () => HOME_BY_ROLE[currentRole()] || '/observe' },
   { path: '/cases', name: 'cases', component: () => import('./views/CaseWorkbench.vue'),
-    meta: { title: '事件工作台', roles: ['风控运营', '值班员'] } },
+    meta: { title: '事件工作台', roles: ['风控值班员'] } },
   { path: '/approvals', name: 'approvals', component: () => import('./views/ApprovalPortal.vue'),
-    meta: { title: '审批门户', roles: ['审批官', '风控运营'] } },
+    meta: { title: '审批门户', roles: ['风控审批官'] } },
+  { path: '/audit', name: 'audit', component: () => import('./views/AuditQuery.vue'),
+    meta: { title: '审计查询', roles: ['合规审计员'] } },
   { path: '/kb', name: 'kb', component: () => import('./views/KnowledgeBase.vue'),
-    meta: { title: '知识库管理', roles: ['知识管理员'] } },
+    meta: { title: '知识库管理', roles: ['风控策略管理员'] } },
   { path: '/observe', name: 'observe', component: () => import('./views/Observability.vue'),
-    meta: { title: '可观测面板', roles: ['值班员', '风控运营'] } },
+    meta: { title: '可观测面板', roles: [...ROLES] } },
+  // 404 兜底：未知路径不再白屏，统一回到当前角色首页
+  { path: '/:pathMatch(.*)*', redirect: () => HOME_BY_ROLE[currentRole()] || '/observe' },
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
 
-// 角色守卫：白名单外重定向到首页（Sprint 0 角色存 localStorage，无登录态）
+// 角色守卫：白名单外重定向到本角色首页（Sprint 0 角色存 localStorage，无登录态）
 router.beforeEach((to) => {
   document.title = to.meta.title ? `${to.meta.title} · TradeGuard` : 'TradeGuard'
-  if (to.meta.roles && !to.meta.roles.includes(currentRole())) return { path: '/' }
+  if (to.meta.roles && !to.meta.roles.includes(currentRole())) {
+    return { path: HOME_BY_ROLE[currentRole()] || '/observe' }
+  }
   return true
 })
 
