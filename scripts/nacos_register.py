@@ -53,7 +53,8 @@ SKILL_REGISTRY = {
          "kernel": "services/web-api/app/skills/verification.py"},
         {"id": "AA-SK-05", "name": "knowledge-sedimentation", "agent": "AA-AG-05",
          "definition": "skills/AA-SK-05-knowledge-sedimentation.md",
-         "kernel": "services/web-api/app/skills/retrospective.py"},
+         "kernel": "services/web-api/app/skills/knowledge.py",
+         "kernel_note": "复盘入库申请入口：verification.py VerificationService._retrospective（无独立 retrospective.py）"},
     ],
 }
 

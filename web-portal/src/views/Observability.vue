@@ -70,10 +70,12 @@ import { openEventStream, getTraces } from '../api'
 import { eventLabel, friendlyError } from '../labels'
 
 // ---- 外链可达性探测：no-cors fetch，服务端有响应即视为可达（连接拒绝/超时=不可达） ----
+// 外链文案如实标注数据连通状态：Studio/Nacos 已真实打通；Higress 已承载门户业务流量（04 §5）
 const extLinks = reactive([
-  { name: 'AgentScope Studio', desc: 'Agent 调用链可视化回放', href: 'http://localhost:3000', state: 'pending' },
-  { name: 'Higress 网关控制台', desc: 'MCP/LLM 流量网关管理', href: 'http://localhost:8001', state: 'pending' },
-  { name: 'Nacos 控制台', desc: '服务注册与动态阈值配置', href: 'http://localhost:8848/nacos', state: 'pending' },
+  { name: 'AgentScope Studio', desc: '技能 span 经 OTLP 直推上报，按案件分组可视化回放调用链（已打通）', href: 'http://localhost:3000', state: 'pending' },
+  { name: 'Higress 网关入口', desc: '门户 /api 业务流量经此入口真实转发至 web-api（已承载，04 §5）', href: 'http://localhost:8180/api/health', state: 'pending' },
+  { name: 'Higress 网关控制台', desc: '控制台 UI（已部署；首次初始化未完成，路由经文件仓下发，见 04 §5）', href: 'http://localhost:8001', state: 'pending' },
+  { name: 'Nacos 控制台', desc: '服务注册 + 动态阈值配置，web-api 5s 快照热加载（已打通）', href: 'http://localhost:8848/nacos', state: 'pending' },
 ])
 async function probe(l) {
   const ctrl = new AbortController()

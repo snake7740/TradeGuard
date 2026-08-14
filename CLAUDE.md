@@ -2,7 +2,7 @@
 
 TradeGuard · 交易风控中枢：AI 多 Agent 金融风控竞赛作品（方向四），五阶段闭环
 「信号聚合 → 根因定位 → 处置执行 → 核验审计 → 知识沉淀」。
-设计文档体系 v1.4.4（docs/00~09），代码已全量落地（Sprint 1-8，九轮评审留痕）。
+设计文档体系 v1.4.7（docs/00~09），代码已全量落地（Sprint 1-11，十二轮评审留痕）。
 
 ## 目录结构
 
@@ -18,7 +18,7 @@ docs/openapi/tradeguard-openapi.yaml   REST 契约唯一事实来源（22 路径
 db/init/                   SQL：01-schema / 04-invariants（白名单+双守护触发器）/
                            05-approval-extension / 06-closedloop-fix（幂等迁移，新卷旧卷双写一致）
 skills/                    AA-SK-01~05 官方技能可执行定义 + SKILL-DISPATCH 调度矩阵
-scripts/                   demo_playbook / kpi_report / nacos_register / check_pg / data_retention 等
+scripts/                   demo_playbook / kpi_report / nacos_register / higress_routes / agentteams_doctor / check_pg / data_retention 等
 ```
 
 ## 常用命令（Windows + Git Bash）
@@ -58,12 +58,19 @@ docker compose exec postgres psql -U postgres -d tradeguard
 
 ## 已知环境实况（勿当 bug 修）
 
-- **Higress 旁路直连**：网关已部署但路由注入不通（console 401、数据面仅 8443 自签 TLS），
-  演示流量为浏览器→:8200、Agent→:8101/:8102 直连。04 §5 已如实声明，勿伪造网关流量路径。
+- **Higress 已承载门户流量**：portal nginx→higress:8080→web-api.dns:8000（dns 型服务源，
+  compose 配 `*.tg.local` 网络别名）。数据面 HTTP=容器内 8080（宿主 8180）、HTTPS 8443；
+  控制台 :8001 首次初始化未完成（路由经容器 /data 文件仓下发）。`down -v` 清卷后用
+  `scripts/higress_routes.py` 幂等重建路由。web-api→MCP 保持直连是刻意的场景化取舍（04 §5）。
+- **AgentTeams 独立部署栈（非 compose）**：controller/manager/4 worker 跑在 Docker Desktop 的
+  agentteams-net，经 `docker network connect` 接 tradeguard-net 才能解析 mcp-core。Docker Desktop
+  重启后 controller 可能 Exited(127) 不自愈、worker 停 Sleeping、丢组网与容器层 mcporter 配置——
+  一律跑 `scripts/agentteams_doctor.py` 幂等体检恢复（拉起→唤醒→组网→注入 MCP 桥→校验 12+3 工具）。
+  端口：controller 18001/18080/18088、manager 18888、dashboard 13000（宿主回环）。
 - **KPI 全量口径未达标是诚实结果**：pytest 残留 source=TEST 案件抬升 KPI-03/04；
   决赛验收以演示口径为准，报告按口径分列判定，不得以演示达标掩盖全量未达标。
 - asyncpg 单次 executemany 10 万行会在客户端挂死（pg_stat_activity 呈 ClientRead）——大批量插入必须分批。
-- compose 端口：pg 5433、nacos 8848、higress 控制台 8001、studio 3000、mcp 8101/8102、web-api 8200(:8000)、portal 8300。
+- compose 端口：pg 5433、nacos 8848、higress 控制台 8001/网关 HTTP 8180、studio 3000、mcp 8101/8102、web-api 8200(:8000)、portal 8300。
 
 ## 文档回写纪律
 
