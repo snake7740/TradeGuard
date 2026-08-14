@@ -2,6 +2,9 @@
 """US-E7-04 离线评估脚本（BA-KPI 口径，01 §BA-KPI / 04 §7）：KPI 报告可复现
 
 口径定义（ground truth = account.list_flag 打标，data-generator 团伙标 watch）：
+  KPI-01 事件响应时效（低风险≤5分钟）：已处置/已核验/已归档案件从立案
+         （risk_case.created_at）到处置完成（首条 executed 处置凭证 ts）的
+         平均时长；目标线仅约束低风险案件（risk_score<40，自动通道带）；
   KPI-02 召回率（≥85%）：watch/black 主体案件中 risk_score≥40（进入风控处置带）占比；
   KPI-03 误报率（≤10%）：none 主体案件中被"最终定性为欺诈"的占比——
          定性依据 = risk_score≥40 且无反向处置回滚（:rollback 凭证）
@@ -32,16 +35,37 @@ DSN = os.getenv("TG_KPI_DSN", "postgresql://tg_web:tg_web_dev@localhost:5433/tra
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "docs", "reports")
 THRESHOLDS = {"KPI-02": (0.85, ">="), "KPI-03": (0.10, "<="),
               "KPI-04": (0.30, "<="), "KPI-05": (1.00, ">=")}
+KPI01_TARGET_MIN = 5  # BA-KPI-01 目标线：低风险事件 ≤5 分钟（01 §7）
 
 
 async def compute(conn) -> dict:
     out: dict = {"generated_at": datetime.now(timezone.utc).isoformat(),
-                 "thresholds": {k: f"{op}{v:.0%}" for k, (v, op) in THRESHOLDS.items()}}
+                 "thresholds": {"KPI-01": f"低风险≤{KPI01_TARGET_MIN}分钟"}
+                 | {k: f"{op}{v:.0%}" for k, (v, op) in THRESHOLDS.items()}}
     for scope, demo_only in (("all", False), ("demo", True)):
         kpi = {}
         # 演示口径：主体有 demo- 前缀播种交易（剧本 D1~D3 专用主体，多轮复跑稳定）
         scope_sql = ("AND rc.subject_ref IN (SELECT rtrim(account_hash) FROM transaction "
                      "WHERE tx_id LIKE 'demo-%')" if demo_only else "")
+        # KPI-01 响应时效：立案→首条 executed 处置凭证（BA-KPI-01，低风险=risk_score<40）
+        row = await conn.fetchrow(f"""
+            SELECT count(*) AS total,
+                   avg(extract(epoch FROM d.done_ts - rc.created_at))/60 AS avg_min,
+                   count(*) FILTER (WHERE rc.risk_score < 40) AS low_total,
+                   avg(extract(epoch FROM d.done_ts - rc.created_at))
+                     FILTER (WHERE rc.risk_score < 40)/60 AS low_avg_min
+            FROM risk_case rc
+            JOIN LATERAL (SELECT min(dr.ts) AS done_ts FROM disposition_record dr
+                          WHERE dr.case_id=rc.case_id AND dr.status IN ('executed','rolled_back')
+                         ) d ON d.done_ts IS NOT NULL
+            WHERE rc.status IN ('DISPOSED','VERIFIED','ARCHIVED') {scope_sql}""")
+        kpi["KPI-01"] = {"total": row["total"],
+                         "avg_min": float(row["avg_min"]) if row["avg_min"] is not None else None,
+                         "low_total": row["low_total"],
+                         "low_avg_min": (float(row["low_avg_min"])
+                                         if row["low_avg_min"] is not None else None),
+                         "value": (float(row["low_avg_min"])
+                                   if row["low_avg_min"] is not None else None)}
         # KPI-02 召回率：watch/black 主体进入风控处置带（risk_score≥40）
         row = await conn.fetchrow(f"""
             SELECT count(*) FILTER (WHERE rc.risk_score>=40) AS hit, count(*) AS total
@@ -92,6 +116,8 @@ async def compute(conn) -> dict:
 def _verdict(kpi_id: str, value: float | None) -> str:
     if value is None:
         return "N/A（无样本）"
+    if kpi_id == "KPI-01":
+        return "达标" if value <= KPI01_TARGET_MIN else "未达标"
     limit, op = THRESHOLDS[kpi_id]
     ok = value >= limit if op == ">=" else value <= limit
     return "达标" if ok else "未达标"
@@ -107,6 +133,18 @@ def render_md(report: dict) -> str:
              "|---|---|---|---|---|---|"]
     names = {"KPI-02": "欺诈召回率", "KPI-03": "误报率（最终定性口径）",
              "KPI-04": "人工介入率", "KPI-05": "处置留痕完整率"}
+
+    def _fmt_kpi01(k: dict) -> str:
+        if k["total"] == 0:
+            return "N/A"
+        low = (f"低风险 {k['low_avg_min']:.1f} 分（{k['low_total']}例）"
+               if k["low_avg_min"] is not None else "低风险 N/A（0例）")
+        return f"{low}／全部 {k['avg_min']:.1f} 分（{k['total']}例）"
+
+    a, d = report["all"]["KPI-01"], report["demo"]["KPI-01"]
+    verdict = _verdict("KPI-01", d["value"] if d["value"] is not None else a["value"])
+    lines.append(f"| KPI-01 | 事件响应时效（立案→处置完成） | {report['thresholds']['KPI-01']} "
+                 f"| {_fmt_kpi01(a)} | {_fmt_kpi01(d)} | {verdict} |")
     for k in ("KPI-02", "KPI-03", "KPI-04", "KPI-05"):
         a, d = report["all"][k], report["demo"][k]
         fa = f"{a['value']:.1%}（{a['hit']}/{a['total']}）" if a["value"] is not None else "N/A"
@@ -114,6 +152,9 @@ def render_md(report: dict) -> str:
         verdict = _verdict(k, d["value"] if d["value"] is not None else a["value"])
         lines.append(f"| {k} | {names[k]} | {report['thresholds'][k]} | {fa} | {fd} | {verdict} |")
     lines += ["", "## 口径说明", "",
+              "- KPI-01 统计已处置闭环案件（DISPOSED/VERIFIED/ARCHIVED 且有 executed 处置凭证），"
+              "时长 = risk_case.created_at → 首条处置凭证 ts；目标线仅约束低风险案件"
+              "（risk_score<40 自动通道带），高风险案件含人工审批等待不设目标线。",
               "- KPI-02/03 仅统计可关联账户档案（ground truth）的案件；自动化测试案件"
               "多为无档案合成哈希，不计入。",
               "- KPI-03 的误报以\"最终定性\"计：核验回滚（:rollback）或人工复核排除"
