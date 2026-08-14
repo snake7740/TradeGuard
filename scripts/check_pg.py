@@ -1,10 +1,17 @@
+# -*- coding: utf-8 -*-
+"""Postgres 连通性快检：端口读 PGPORT（compose 宿主映射缺省 5433，见 docker-compose.yml）"""
 import asyncio
+import os
+
 import asyncpg
+
+PORT = os.getenv("PGPORT", "5433")
+
 
 async def t():
     for dsn in (
-        "postgresql://tg_web:tg_web_dev@127.0.0.1:5432/tradeguard",
-        "postgresql://postgres:tradeguard_dev@127.0.0.1:5432/tradeguard",
+        f"postgresql://tg_web:tg_web_dev@127.0.0.1:{PORT}/tradeguard",
+        f"postgresql://postgres:tradeguard_dev@127.0.0.1:{PORT}/tradeguard",
     ):
         try:
             c = await asyncpg.connect(dsn, timeout=5)

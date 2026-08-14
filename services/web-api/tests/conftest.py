@@ -1,4 +1,4 @@
-"""共享夹具：宿主侧直连运行中的栈（postgres localhost:5432，tg_web 人类写路径账号）。
+"""共享夹具：宿主侧直连运行中的栈（postgres localhost:5433，tg_web 人类写路径账号）。
 
 路径注入使 `app` 包可导入；事件发布用记录替身（端口/适配器模式的可测试性收益）。
 """
@@ -23,13 +23,14 @@ MCP_EXTERNAL_URL = os.getenv("TG_TEST_MCP_EXTERNAL", "http://127.0.0.1:8102/mcp/
 
 
 class RecordingPublisher:
-    """EventPublisher 测试替身：只记录不投递"""
+    """EventPublisher 测试替身：只记录不投递（A4：兼容 trace_id 关键字透传）"""
 
     def __init__(self):
         self.published = []
 
-    async def publish(self, case_id, event, payload, actor):
-        self.published.append({"case_id": case_id, "event": event, "payload": payload, "actor": actor})
+    async def publish(self, case_id, event, payload, actor, trace_id=None, **kwargs):
+        self.published.append({"case_id": case_id, "event": event, "payload": payload,
+                               "actor": actor, "trace_id": trace_id})
 
     async def subscribe(self, *a, **kw):  # pragma: no cover
         pass

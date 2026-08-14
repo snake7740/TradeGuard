@@ -11,7 +11,7 @@ const HOME_BY_ROLE = {
 const routes = [
   { path: '/', redirect: () => HOME_BY_ROLE[currentRole()] || '/observe' },
   { path: '/cases', name: 'cases', component: () => import('./views/CaseWorkbench.vue'),
-    meta: { title: '事件工作台', roles: ['风控值班员'] } },
+    meta: { title: '案件工作台', roles: ['风控值班员'] } },
   { path: '/approvals', name: 'approvals', component: () => import('./views/ApprovalPortal.vue'),
     meta: { title: '审批门户', roles: ['风控审批官'] } },
   { path: '/audit', name: 'audit', component: () => import('./views/AuditQuery.vue'),

@@ -1,56 +1,67 @@
 <template>
+  <!-- 审计查询（API-W-10 消费方，01 §6 合规审计员旅程，SC-08） -->
   <div class="page">
     <div class="page-head">
       <div>
         <div class="page-title">审计查询</div>
-        <div class="page-desc">按 case_id 回放完整审计链（SC-08 界面载体，BA-BR-09 全链路留痕）。数据来源 DA-T-08，API-W-10。</div>
+        <div class="page-desc">输入案件编号回放完整操作审计链：每一步由谁、在何时、基于什么依据做出，全程留痕、不可篡改，满足合规追溯要求。</div>
       </div>
     </div>
     <div class="page-body">
     <el-row align="middle">
       <el-space>
-        <el-input v-model="caseId" placeholder="输入事件编号 case_id" clearable
-          style="width:280px" @keyup.enter="query" />
-        <el-button type="primary" :loading="loading" @click="query">查询审计链</el-button>
+        <!-- 便捷选择：最近 10 笔案件，免去手工抄录编号 -->
+        <el-select v-model="caseId" filterable placeholder="选择或输入案件编号" style="width:320px">
+          <el-option v-for="c in recent" :key="c.case_id" :value="c.case_id"
+            :label="`${c.case_id} · ${statusLabel(c.status)}`" />
+        </el-select>
+        <el-button type="primary" :loading="loading" @click="query">回放审计链</el-button>
+        <span class="hint">案件编号也可在「案件工作台」列表中获取</span>
       </el-space>
     </el-row>
     <el-card v-if="queried" class="result" :header="`审计时间线 · ${queriedCaseId}`">
       <el-timeline v-if="records.length">
-        <el-timeline-item v-for="(a, i) in records" :key="i"
-          :timestamp="a.created_at || a.timestamp" placement="top">
-          <b>{{ a.actor || a.operator || '-' }}</b>
-          <el-tag size="small" class="action">{{ a.action }}</el-tag>
-          <div class="detail">{{ a.detail || a.details || a.reason || '' }}</div>
+        <el-timeline-item v-for="(a, i) in records" :key="i" :timestamp="a.ts" placement="top">
+          <b>{{ a.actor }}</b>
+          <el-tag size="small" class="action">{{ auditActionLabel(a.action) }}</el-tag>
+          <div class="detail">依据：{{ a.basis }}</div>
         </el-timeline-item>
       </el-timeline>
-      <el-empty v-else description="该事件暂无审计记录" />
+      <el-empty v-else description="该案件暂无审计记录" />
     </el-card>
-    <el-empty v-else description="输入 case_id 后查询审计链" />
+    <el-empty v-else description="选择或输入案件编号后点击「回放审计链」" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getAuditTrail } from '../api'
+import { getAuditTrail, getCases } from '../api'
+import { auditActionLabel, statusLabel, friendlyError } from '../labels'
 
 const caseId = ref('')
 const queriedCaseId = ref('')
 const queried = ref(false)
 const loading = ref(false)
 const records = ref([])
+const recent = ref([])
+
+// 最近案件快捷选择（API-W-02 取最新 10 笔）
+onMounted(async () => {
+  try { recent.value = (await getCases({ page: 1, size: 10 })).data.items } catch { /* 快捷项失败不阻断手工输入 */ }
+})
 
 async function query() {
   const id = caseId.value.trim()
-  if (!id) { ElMessage.warning('请输入 case_id'); return }
+  if (!id) { ElMessage.warning('请选择或输入案件编号'); return }
   loading.value = true
   try {
     const d = (await getAuditTrail(id)).data
     records.value = Array.isArray(d) ? d : d?.items || []
     queriedCaseId.value = id
     queried.value = true
-  } catch (e) { ElMessage.error('查询失败：' + e.message) } finally { loading.value = false }
+  } catch (e) { ElMessage.error(friendlyError(e, '查询失败')) } finally { loading.value = false }
 }
 </script>
 

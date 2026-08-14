@@ -146,23 +146,28 @@ async def test_matrix_sc05_kb_human_gate(pool, verification):
 
 async def test_matrix_sc06_threshold_hot_reload(pool):
     """Nacos 不可达 → 降级 sys_config；tg_web UPDATE 后经 5s 轮询等价 _reload 生效，
-    source=db 暴露来源；测试后恢复种子值，不污染运行中栈。"""
+    source=db 暴露来源；测试后恢复种子值，不污染运行中栈。
+
+    闭环修复 D6：样本键从 br-01-auto-block-score 换为 br-14-velocity-1h-count——
+    70 分线已成 mcp-core 门控实时读取的活键（C/D2），瞬时改写会与并行用例
+    （SC-02/07/08 审批链）串扰；velocity 阈值键对审批门控无影响。"""
+    key = "br-14-velocity-1h-count"
     original = await pool.fetchval(
-        "SELECT value FROM sys_config WHERE key='br-01-auto-block-score'")
+        "SELECT value FROM sys_config WHERE key=$1", key)
     cfg = ConfigService(pool=pool, addr="http://127.0.0.1:9")   # 不可达地址强制降级
     await cfg._reload()
     assert cfg.snapshot()["source"] == "db"
-    assert cfg.values.get("br-01-auto-block-score") == original
+    assert cfg.values.get(key) == original
     try:
         await pool.execute(
-            "UPDATE sys_config SET value='77' WHERE key='br-01-auto-block-score'")
+            "UPDATE sys_config SET value='11' WHERE key=$1", key)
         await cfg._reload()                                     # 等价一次 5s 轮询周期
         snap = cfg.snapshot()
         assert snap["source"] == "db"
-        assert snap["values"]["br-01-auto-block-score"] == "77"  # 不重启生效
+        assert snap["values"][key] == "11"                      # 不重启生效
     finally:
         await pool.execute(
-            "UPDATE sys_config SET value=$1 WHERE key='br-01-auto-block-score'", original)
+            "UPDATE sys_config SET value=$1 WHERE key=$2", original, key)
 
 
 # ---------- SC-07 处置幂等重放（DA-INV-03） ----------

@@ -69,6 +69,37 @@ async def test_sc07_disposition_idempotent_replay(pool, disposition):
     assert rows[0]["approval_ref"] == gate["approval_id"]
 
 
+async def test_b2_idempotent_conflict_in_disposing_treated_as_success(pool, disposition):
+    """B2：DISPOSING 态幂等冲突按成功处理（首执成功但响应丢失的重投）——
+    复用首次凭证推进 DISPOSED，不产生第二条记录（DA-INV-03），route=executed。"""
+    svc, repo, pub = disposition
+    case_id = await _investigating_case(repo, score=82)
+    await _with_evidence(svc, case_id)
+    gate = await svc.submit(case_id, "freeze", None, f"{case_id}:freeze")
+    assert gate["route"] == "approval_required"
+    approval_id = gate["approval_id"]
+    # 人工批准（拆开 approve 的两步：先回填决策，再手工推进状态，把案件停在
+    # DISPOSING 态模拟"首执响应丢失"）
+    await pool.execute(
+        "UPDATE approval_record SET decision='approved', approver='human:approver', "
+        "decided_at=now() WHERE approval_id=$1", approval_id)
+    r = await repo.transition(case_id, CaseEvent.APPROVAL_APPROVED, "human:approver",
+                              (await repo.get(case_id))["version"])
+    r = await repo.transition(case_id, CaseEvent.DISPOSITION_SUBMITTED, "agent:AA-AG-04",
+                              r["version"])
+    assert (await repo.get(case_id))["status"] == "DISPOSING"
+    key = f"{case_id}:freeze:{approval_id}"
+    first = await svc.core.execute_disposition(case_id, "freeze", None, key,
+                                               approval_ref=approval_id)
+    assert first["status"] == "executed"          # 首次执行落库成功
+    # 重投：DISPOSING 态 + 同幂等键 → 按成功处理推进 DISPOSED
+    replay = await svc.submit(case_id, "freeze", None, key, approval_ref=approval_id)
+    assert replay["route"] == "executed" and replay.get("idempotent_replay") is True
+    assert replay["exec_id"] == first["exec_id"]  # 复用首次凭证
+    assert (await repo.get(case_id))["status"] == "DISPOSED"
+    assert len(await _disposition_rows(pool, case_id)) == 1   # 不重复执行
+
+
 # ---------- SC-02 高风险强制人工审批（DA-INV-02，US-E5-02/03） ----------
 
 async def test_sc02_high_risk_gate_and_full_approval_chain(pool, disposition):

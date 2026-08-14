@@ -21,6 +21,18 @@ async def test_register_creates_case_with_audit(case_repo):
     trail = await repo.audit_trail(r["case_id"])
     assert any(a["action"] == "case.register" for a in trail)
     assert pub.published[-1]["event"] == "CaseRegistered"
+    # A4：事件透传案件 trace_id（可观测侧同案串联回放）
+    assert pub.published[-1]["trace_id"] == r["trace_id"]
+
+
+async def test_transition_events_carry_case_trace_id(case_repo):
+    """A4：状态迁移事件同样携带案件 trace_id（_envelope 缺省回落 uuid 不再适用）"""
+    repo, pub = case_repo
+    r = await _new_case(repo)
+    out = await repo.transition(r["case_id"], CaseEvent.AGGREGATION_STARTED, "agent:AA-AG-02", 0)
+    msg = pub.published[-1]
+    assert msg["event"] == "AggregationStarted" and msg["trace_id"] == r["trace_id"]
+    assert out["version"] == 1
 
 
 async def test_transition_happy_path_version_increment(case_repo):
@@ -66,16 +78,43 @@ async def test_human_only_enforced_in_repository(case_repo):
 
 
 async def test_db_trigger_second_guardrail(pool, case_repo):
-    """存储层守护第二道：绕过应用层直改 PENDING_APPROVAL→VERIFIED 必须被触发器拒绝"""
+    """存储层守护第二道（07-case-actor-gate.sql，工作流 E）：绕过应用层直改 status
+    必须被触发器拒绝。actor_gate 先于 transition_guard 触发（按触发器名排序），
+    故未声明 tg.actor 先撞 E-ACTOR-REQUIRED；声明 agent actor 后再撞白名单
+    E-BAD-TRANSITION——双道防线语义都保留。"""
     repo, _ = case_repo
     r = await _new_case(repo)
     cid = r["case_id"]
     await repo.transition(cid, CaseEvent.AGGREGATION_STARTED, "agent:a", 0)
     await repo.transition(cid, CaseEvent.INVESTIGATION_REQUESTED, "agent:a", 1)
     await repo.transition(cid, CaseEvent.INVESTIGATION_COMPLETED, "agent:a", 2)
-    with pytest.raises(Exception, match="E-BAD-TRANSITION"):
+    # 第一道（actor 门控）：未声明 tg.actor → E-ACTOR-REQUIRED
+    with pytest.raises(Exception, match="E-ACTOR-REQUIRED"):
         await pool.execute(
             "UPDATE risk_case SET status='VERIFIED' WHERE case_id=$1", cid)
+    # 第二道（白名单）：声明 agent actor 后直改 → E-BAD-TRANSITION
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('tg.actor', 'agent:intruder', true)")
+        with pytest.raises(Exception, match="E-BAD-TRANSITION"):
+            await conn.execute(
+                "UPDATE risk_case SET status='VERIFIED' WHERE case_id=$1", cid)
+    assert (await repo.get(cid))["status"] == "PENDING_APPROVAL"
+
+
+async def test_db_actor_gate_blocks_human_pair_for_agent(pool, case_repo):
+    """工作流 E：五对人类守卫对的存储层拒绝——agent actor 直改
+    PENDING_APPROVAL→APPROVED 必须被 trg_case_actor_gate 拒绝（E-HUMAN-ONLY-DB）。"""
+    repo, _ = case_repo
+    r = await _new_case(repo)
+    cid = r["case_id"]
+    await repo.transition(cid, CaseEvent.AGGREGATION_STARTED, "agent:a", 0)
+    await repo.transition(cid, CaseEvent.INVESTIGATION_REQUESTED, "agent:a", 1)
+    await repo.transition(cid, CaseEvent.INVESTIGATION_COMPLETED, "agent:a", 2)
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('tg.actor', 'agent:intruder', true)")
+        with pytest.raises(Exception, match="E-HUMAN-ONLY-DB"):
+            await conn.execute(
+                "UPDATE risk_case SET status='APPROVED' WHERE case_id=$1", cid)
     assert (await repo.get(cid))["status"] == "PENDING_APPROVAL"
 
 

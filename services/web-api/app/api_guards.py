@@ -15,6 +15,8 @@ import uuid
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from .api.common import operator_from_header
+
 logger = logging.getLogger("tradeguard.guards")
 WRITE_METHODS = ("POST", "PUT", "DELETE", "PATCH")
 EXEMPT_PATHS = ("/api/health", "/api/events/stream")
@@ -35,7 +37,7 @@ async def _guard_middleware(request: Request, call_next):
     # 2. 写操作审计（读操作不落痕，降低审计噪音）
     if (request.method in WRITE_METHODS and path.startswith("/api/")
             and request.app.state.pool is not None):
-        actor = request.headers.get("X-Operator", "api:anonymous")
+        actor = operator_from_header(request.headers.get("X-Operator"), "api:anonymous")
         try:
             await request.app.state.pool.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis)

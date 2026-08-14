@@ -73,7 +73,8 @@ async def publish_and_index(pool, doc_id: str, operator: str, comment: str = "")
     if not doc:
         raise LookupError(doc_id)
     if doc["status"] != "pending":
-        raise ValueError(f"E-KB-NOT-PENDING: 文档已决（{doc['status']}）")
+        zh = {"published": "已发布", "rejected": "已驳回"}.get(doc["status"], doc["status"])
+        raise ValueError(f"该条目已完成审核（{zh}），请勿重复操作")
     async with pool.acquire() as conn, conn.transaction():
         await conn.execute("SELECT set_config('tg.actor', $1, true)", operator)
         await conn.execute(

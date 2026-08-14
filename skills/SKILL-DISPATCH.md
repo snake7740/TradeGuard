@@ -35,8 +35,9 @@ Review 必须过五道元 skill 门控**（防止多 Agent 协作幻觉叠加）
 | S2（E3） | AA-SK-01 signal-aggregation | app/skills/aggregation.py | SC-01、SC-11 |
 | S3–S4（E5） | AA-SK-03 disposition-execution | mcp-core execute_disposition | SC-02/03/07 |
 | S5–S6（E4+E6） | AA-SK-02 fraud-investigation | app/skills/investigation.py | SC-05 |
-| S5–S6（E6） | AA-SK-04 compliance-audit、AA-SK-05 knowledge-sedimentation | app/skills/verification.py、retrospective.py | SC-04/08 |
-| S7 | 全部技能回放评估 | scripts/demo_runner.py | 11/11 |
+| S5–S6（E6） | AA-SK-04 compliance-audit、AA-SK-05 knowledge-sedimentation | app/skills/verification.py（核验三分支 + `_retrospective` 复盘入库申请，无独立 retrospective.py） | SC-04/08 |
+| S7 | 全部技能回放评估 | scripts/demo_playbook.py（D1~D3 三剧本，演示=测试回放） | 3/3 |
+| S8 | 事件驱动闭环（EventWorker）+ 门控加固 + 契约对账 | app/core/event_worker.py、services/mcp-core/server.py | SC-01~11 + demo_playbook 3/3 |
 
 ## 4. 执行纪律
 

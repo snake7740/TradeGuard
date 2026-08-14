@@ -1,37 +1,52 @@
-# web-portal 前端设计（Vue 3 + Element Plus + Vite）
+# web-portal 前端设计（Vue 3 + Element Plus + Vite，Sprint 0 模板 → Sprint 1-8 全量落地）
 
-定位：人机操作面（04 §10），4 页面 × 4 角色；**零内置静态数据**——
-所有展示数据实时来自 web-api（04 §10.1 三端真实调用链）。
+定位：人机操作面（04 §10.1 三端真实调用链），5 页面 × 4 角色；**零内置静态数据**——
+所有展示数据实时来自 web-api，SSE 实时推送领域事件。
 
-## 结构与实现路径
+## 结构与实现实况
 
 ```
 src/
-├─ api.js        # 契约层：API-W-01~15 全量声明，函数名对齐 openapi operationId
-│                # + 统一错误信封解包（detail.code/message）
-├─ role.js       # 角色上下文（风控运营/审批官/知识管理员/值班员）
+├─ api.js        # 契约层：API-W-01~15/17~19/21~22 全量声明（20 个编号注释在案），
+│                # 函数名对齐 openapi operationId + 统一错误信封解包（detail.code/message）
+│                # W-14 SSE：subscribeCaseEvents → EventSource('/api/events/stream')
+│                # W-20 Trace：getTraces → /api/observability/traces
+│                # W-16 阈值配置为后端契约（PUT 经测试/剧本回放验证），门户暂不设管理页
+├─ labels.js     # 业务语汇层：12 状态/21 事件/处置动作/路由结论/审计动作的中文口径
+│                #   + 字段名翻译 + 错误码人性化提示（friendlyError），页面文案统一走此层，
+│                #   契约编号与英文枚举不外泄到 UI
+├─ role.js       # 角色上下文（风控值班员/风控审批官/合规审计员/风控策略管理员）
 ├─ router.js     # 路由 + meta.roles 白名单守卫（越权重定向首页）
 ├─ App.vue       # 布局骨架：侧边导航 + 中间件健康灯（10s 轮询 API-W-15）
-└─ views/        # 4 页面骨架（Sprint 1 起按 US 填实）
-   ├─ CaseWorkbench.vue    # 事件工作台（W-02~07 消费方）
-   ├─ ApprovalPortal.vue   # 审批门户（W-08/09，BA-BR-13 超时标红）
-   ├─ KnowledgeBase.vue    # 知识库管理（W-11~13）
-   └─ Observability.vue    # 可观测面板（W-14 SSE 事件流）
+└─ views/        # 5 页面全部填实
+   ├─ CaseWorkbench.vue    # 案件工作台（W-02~07/17~19/21/22）：信号/图谱/证据字段对齐实况，
+   │                       #   risk_flag 三态判定修复，按状态接线"推进聚合/启动调查/触发核验"
+   │                       #   流水线按钮，演示候选主体取 W-21 真实接口
+   ├─ ApprovalPortal.vue   # 审批门户（W-08/09）：展示 requested_action/requested_amount、
+   │                       #   escalated_at 超时标红（BA-BR-13）、decide 走 X-Operator 人类通道
+   ├─ AuditQuery.vue       # 审计查询（W-10，SC-08 全链回放，ts/basis 字段对齐）
+   ├─ KnowledgeBase.vue    # 知识库管理（W-11~13，人工发布 human:* 守卫）
+   └─ Observability.vue    # 可观测面板（W-14 SSE 事件流 + W-20 技能 span 回放，event/start_ts 对齐）
 ```
 
 ## 设计思路
 
 1. **契约驱动**：api.js 每个函数标注 API-W 编号；新增接口先改 openapi.yaml，
-   后端落地后前端跟进，禁止前端私造字段；
+   后端落地后前端跟进，禁止前端私造字段（Sprint 8 契约对账：五页字段逐项核对）；
 2. **角色守卫**：路由 meta.roles 声明页面可见角色，beforeEach 统一拦截；
-   Sprint 0 角色存 localStorage（演示切换），Sprint 1 接统一认证；
-3. **SSE 而非轮询**：领域事件推送走 API-W-14 EventSource，后端切 RocketMQ 时
-   前端协议不变（端口/适配器收益同后端）；
-4. **组件库选型**：Element Plus 提供表格/表单/标签套件，聚焦业务编排不自绘基础件。
+   演示环境角色存 localStorage 切换（可观测面板全角色开放）；
+3. **SSE 而非轮询**：领域事件推送走 API-W-14 EventSource（进程内总线 21 事件名扁平信封），
+   事件键 `event`、时间键按各端点实况（span 用 start_ts epoch 秒）；
+4. **组件库选型**：Element Plus 提供表格/表单/标签套件，聚焦业务编排不自绘基础件；
+5. **讲人话且专业**：页面文案经 labels.js 统一为风控业务口径（立案/聚合/调查取证/
+   审批门控/处置凭证/核验/归档），状态带五阶段进度与下一步指引（NEXT_STEP），
+   错误提示给可操作建议而非工程堆栈；契约编号（API-W-xx、E-xxx 仅保留在括注）
+   与英文枚举不直接暴露给操作者。
 
-## TODO（Sprint 1+）
+## 已交付（原 TODO，Sprint 1-8）
 
-- CaseWorkbench：详情抽屉接 W-04/05/06（信号/图谱/证据），复核按钮接 W-07（US-E5-05）
-- ApprovalPortal：decide 调用 + 倒计时标红（US-E5-03，BA-BR-13）
-- Observability：事件流时间线 + 状态机迁移高亮（US-E7-03）
-- 角色切换 UI（App.vue 侧栏，接 role.js setRole）
+- ✅ CaseWorkbench 详情抽屉接 W-04/05/06（信号/图谱/证据）+ W-07 复核 → 审批闭环
+- ✅ ApprovalPortal decide 调用 + escalated_at 标红（US-E5-03，BA-BR-13）
+- ✅ Observability 事件流时间线 + Trace 回放（US-E7-03/04）
+- ✅ 角色切换 UI（App.vue 侧栏，role.js setRole）
+- ✅ `npm run build` 通过；demo_playbook 3/3 回放经真实 HTTP 走本门户同款契约

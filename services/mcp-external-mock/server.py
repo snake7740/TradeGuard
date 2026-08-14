@@ -23,8 +23,8 @@ def _require_reason(query_reason: str | None) -> dict | None:
 
 
 @mcp.tool()
-async def query_credit_report(subject_id: str, query_reason: str | None = None) -> str:
-    """API-M-07：征信报告模拟（防腐层翻译为统一结构）"""
+async def query_credit(subject_id: str, query_reason: str | None = None) -> str:
+    """API-M-07：征信报告模拟（防腐层翻译为统一结构；工具名对齐契约 query_credit）"""
     if err := _require_reason(query_reason):
         return json.dumps(err, ensure_ascii=False)
     rnd = _seed("credit:" + subject_id)
@@ -58,8 +58,8 @@ async def query_sentiment(subject_id: str, query_reason: str | None = None) -> s
 
 
 @mcp.tool()
-async def query_complaints(subject_id: str, query_reason: str | None = None) -> str:
-    """API-M-09：客服投诉记录模拟（持卡人否认交易 = Chargeback 前置信号，BA-BP-02）"""
+async def query_complaint(subject_id: str, query_reason: str | None = None) -> str:
+    """API-M-09：客服投诉记录模拟（持卡人否认交易 = Chargeback 前置信号，BA-BP-02；工具名对齐契约 query_complaint）"""
     if err := _require_reason(query_reason):
         return json.dumps(err, ensure_ascii=False)
     rnd = _seed("complaint:" + subject_id)

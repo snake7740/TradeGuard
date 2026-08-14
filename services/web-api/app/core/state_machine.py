@@ -41,10 +41,12 @@ class CaseEvent(str, Enum):
     APPROVAL_REJECTED = "ApprovalRejected"            # 人类驳回（SC-03）
     DISPOSITION_SUBMITTED = "DispositionSubmitted"    # AA-SK-03 提交处置
     DISPOSITION_EXECUTED = "DispositionExecuted"      # AA-SK-03 幂等执行完成
+    DISPOSITION_FAILED = "DispositionFailed"          # 处置重试耗尽/门控拒绝→转人工（失败兜底）
     ROLLBACK_TO_REVIEW = "RollbackToReview"           # 驳回→人工复核（BA-BR-07）
     VERIFICATION_PASSED = "VerificationPassed"        # AA-SK-04 核验通过
     VERIFICATION_FAILED = "VerificationFailed"        # 核验不一致→反向处置
     ROLLBACK_EXECUTED = "RollbackExecuted"            # 反向处置完成→升级 P0 转人工
+    ROLLBACK_ESCALATED = "RollbackEscalated"          # 反向处置未执行（被拒/失败）→直接升级转人工
     REVIEW_CONFIRMED = "ReviewConfirmed"              # 人工复核确认欺诈（SC-10，web-api 扩展）
     REVIEW_DISMISSED = "ReviewDismissed"              # 人工复核排除欺诈（SC-10，web-api 扩展）
     CASE_ARCHIVED = "CaseArchived"                    # 结案归档（BA-BP-04）
@@ -74,10 +76,14 @@ TRANSITIONS: tuple[Transition, ...] = (
     Transition(CaseState.PENDING_APPROVAL, CaseEvent.APPROVAL_REJECTED, CaseState.REJECTED, human_only=True),
     Transition(CaseState.APPROVED, CaseEvent.DISPOSITION_SUBMITTED, CaseState.DISPOSING),
     Transition(CaseState.DISPOSING, CaseEvent.DISPOSITION_EXECUTED, CaseState.DISPOSED),
+    # 处置重试耗尽/门控拒绝（E-DISP-AUTH/E-DISP-SCOPE）→ 转人工，消除 DISPOSING 死胡同
+    Transition(CaseState.DISPOSING, CaseEvent.DISPOSITION_FAILED, CaseState.MANUAL_REVIEW),
     Transition(CaseState.REJECTED, CaseEvent.ROLLBACK_TO_REVIEW, CaseState.MANUAL_REVIEW),
     Transition(CaseState.DISPOSED, CaseEvent.VERIFICATION_PASSED, CaseState.VERIFIED),
     Transition(CaseState.DISPOSED, CaseEvent.VERIFICATION_FAILED, CaseState.ROLLBACK),
     Transition(CaseState.ROLLBACK, CaseEvent.ROLLBACK_EXECUTED, CaseState.MANUAL_REVIEW),
+    # 反向处置未执行（被拒/失败）→ 直接升级转人工；与 ROLLBACK_EXECUTED 同状态对，白名单零改动
+    Transition(CaseState.ROLLBACK, CaseEvent.ROLLBACK_ESCALATED, CaseState.MANUAL_REVIEW),
     Transition(CaseState.MANUAL_REVIEW, CaseEvent.REVIEW_CONFIRMED, CaseState.PENDING_APPROVAL, human_only=True),
     Transition(CaseState.MANUAL_REVIEW, CaseEvent.REVIEW_DISMISSED, CaseState.ARCHIVED, human_only=True),
     Transition(CaseState.VERIFIED, CaseEvent.CASE_ARCHIVED, CaseState.ARCHIVED),
@@ -95,15 +101,42 @@ class InvalidTransition(Exception):
         super().__init__(message)
 
 
+# 面向用户的状态/事件中文语汇（仅用于错误文案；追溯编号留在 code 与文档，不进 message）
+_STATUS_ZH = {
+    "REGISTERED": "已立案", "AGGREGATING": "信号聚合中", "INVESTIGATING": "调查取证中",
+    "PENDING_APPROVAL": "待审批", "APPROVED": "已批准", "REJECTED": "已驳回",
+    "MANUAL_REVIEW": "人工复核中", "DISPOSING": "处置执行中", "DISPOSED": "已处置",
+    "VERIFIED": "已核验", "ROLLBACK": "回滚执行", "ARCHIVED": "已归档",
+}
+_EVENT_ZH = {
+    "AggregationStarted": "推进聚合", "SignalsAggregated": "信号聚合完成", "NoiseDismissed": "降噪放行",
+    "InvestigationRequested": "启动调查", "InvestigationCompleted": "调查完成",
+    "ApprovalApproved": "审批批准", "ApprovalRejected": "审批驳回",
+    "DispositionSubmitted": "提交处置", "DispositionExecuted": "处置执行", "DispositionFailed": "处置失败转人工",
+    "RollbackToReview": "退回人工复核", "VerificationPassed": "核验通过", "VerificationFailed": "核验不一致",
+    "RollbackExecuted": "执行回滚", "RollbackEscalated": "回滚升级转人工",
+    "ReviewConfirmed": "复核确认", "ReviewDismissed": "复核排除", "CaseArchived": "结案归档",
+}
+
+
+def status_zh(value: str) -> str:
+    """案件状态中文标签（用户可见错误文案与展示用；未知值原样返回）"""
+    return _STATUS_ZH.get(value, value)
+
+
 def next_state(current: CaseState, event: CaseEvent, actor: str) -> CaseState:
     """按迁移表计算下一状态；非法迁移 / 越权触发一律拒绝"""
     t = _INDEX.get((current, event))
     if t is None:
         raise InvalidTransition(
-            "E-BAD-TRANSITION", f"非法迁移：{current.value} + {event.value} 不在状态机定义内（DA-INV-01）")
+            "E-BAD-TRANSITION",
+            f"案件当前处于「{_STATUS_ZH.get(current.value, current.value)}」状态，"
+            f"不允许执行「{_EVENT_ZH.get(event.value, event.value)}」操作，请刷新页面查看最新进展")
     if t.human_only and not actor.startswith("human:"):
         raise InvalidTransition(
-            "E-HUMAN-ONLY", f"{event.value} 为人类触发入口，actor={actor} 无权执行（02 §7）")
+            "E-HUMAN-ONLY",
+            f"「{_EVENT_ZH.get(event.value, event.value)}」属于人工决策环节，"
+            f"当前操作方（{actor}）无权执行，请切换相应人工角色操作")
     return t.target
 
 

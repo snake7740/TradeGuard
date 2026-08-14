@@ -24,9 +24,9 @@ async def publish_document(request: Request, doc_id: str, body: KbPublishIn):
             request.app.state.pool, doc_id, body.operator, body.comment)
     except PermissionError:
         raise HTTPException(403, detail={"code": "E-KB-HUMAN-GATE",
-                                         "message": "发布仅限人类操作者（DA-INV-06）"})
+                                         "message": "知识发布仅限人工操作，请切换人工角色后重试"})
     except LookupError:
-        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "doc not found"})
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "未找到该知识条目，请刷新列表"})
     except ValueError as e:
         raise HTTPException(409, detail={"code": "E-KB-NOT-PENDING", "message": str(e)})
 
@@ -42,10 +42,11 @@ async def _decide(request: Request, doc_id: str, body: KbPublishIn, status: str,
     pool = request.app.state.pool
     doc = await pool.fetchrow("SELECT status FROM kb_document WHERE doc_id=$1", doc_id)
     if not doc:
-        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "doc not found"})
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "未找到该知识条目，请刷新列表"})
     if doc["status"] != "pending":
+        zh = {"published": "已发布", "rejected": "已驳回"}.get(doc["status"], doc["status"])
         raise HTTPException(409, detail={"code": "E-ALREADY-DECIDED",
-                                         "message": f"文档已决（{doc['status']}）"})
+                                         "message": f"该条目已完成审核（{zh}），请勿重复操作"})
     async with pool.acquire() as conn, conn.transaction():
         # DA-INV-06 双守护：事务内声明人类操作者，否则 DB 触发器拒发（04-invariants.sql）
         await conn.execute("SELECT set_config('tg.actor', $1, true)", body.operator)

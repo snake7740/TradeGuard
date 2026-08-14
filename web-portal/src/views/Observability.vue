@@ -1,14 +1,15 @@
 <template>
+  <!-- 可观测面板（API-W-14/20 消费方，运维与开发排障视图，US-E7-03/04） -->
   <div class="page">
     <div class="page-head">
       <div>
         <div class="page-title">可观测面板</div>
-        <div class="page-desc">AgentScope Studio（OTel tracing）入口与 SSE 实时事件流（API-W-14）；外链可达性自动探测，不可达时先检查对应容器是否已启动。</div>
+        <div class="page-desc">系统运行状态观测：实时事件流展示案件在风控闭环中的流转，Trace 回放展示各技能环节的执行耗时，外部组件入口供运维排障。本页面面向运维与开发人员。</div>
       </div>
     </div>
     <el-row :gutter="12">
       <el-col :span="12">
-        <el-card header="观测入口">
+        <el-card header="外部组件入口">
           <div v-for="l in extLinks" :key="l.href" class="ext-link">
             <div class="ext-row">
               <el-link :href="l.href" target="_blank" type="primary">{{ l.name }} →</el-link>
@@ -17,43 +18,47 @@
                 {{ l.state === 'ok' ? '可达' : l.state === 'fail' ? '不可达' : '探测中' }}
               </el-tag>
             </div>
-            <div class="hint">{{ l.desc }} · {{ l.href }}</div>
+            <div class="hint">{{ l.desc }} · {{ l.href }}<span v-if="l.state === 'fail'">（不可达时请确认对应容器已启动：docker compose ps）</span></div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="12">
-        <el-card header="实时事件流（SSE）">
-          <el-timeline>
+        <el-card header="实时事件流">
+          <el-timeline v-if="messages.length">
             <el-timeline-item v-for="(m, i) in messages" :key="i" :timestamp="m.time">
-              {{ m.tag }} · {{ m.case_id }}
+              {{ eventLabel(m.event) }}
+              <span class="hint">· {{ m.case_id }}</span>
             </el-timeline-item>
           </el-timeline>
-          <el-empty v-if="messages.length === 0" description="等待 case-events 事件（US-E7-03 完整接入）" />
+          <el-empty v-else description="暂无事件。新建演示案件或推进案件后，领域事件将实时出现在这里" :image-size="60" />
         </el-card>
       </el-col>
     </el-row>
-    <!-- Trace 回放：GET /api/observability/traces，按 case_id 查询 span 列表 -->
-    <el-card header="Trace 回放">
+    <!-- Trace 回放：GET /api/observability/traces，按案件编号查询技能执行 span -->
+    <el-card header="技能执行 Trace 回放">
       <el-space class="toolbar">
-        <el-input v-model="traceCaseId" placeholder="输入 case_id" clearable
+        <el-input v-model="traceCaseId" placeholder="输入案件编号" clearable
           style="width:260px" @keyup.enter="loadTraces" />
         <el-input-number v-model="traceLimit" :min="1" :max="200" controls-position="right" style="width:110px" />
         <el-button type="primary" :loading="traceLoading" @click="loadTraces">查询 Trace</el-button>
+        <span class="hint">展示该案件各环节（聚合/调查/处置/核验）的执行耗时与调用链</span>
       </el-space>
-      <el-table :data="spans" v-loading="traceLoading" size="small" stripe max-height="320">
-        <el-table-column prop="trace_id" label="trace_id" width="220" show-overflow-tooltip />
-        <el-table-column prop="span_id" label="span_id" width="160" show-overflow-tooltip />
-        <el-table-column label="span 名称" show-overflow-tooltip>
+      <el-table :data="spans" v-loading="traceLoading" size="small" stripe max-height="320"
+        empty-text="暂无 Trace 数据">
+        <el-table-column prop="trace_id" label="追踪标识" width="220" show-overflow-tooltip />
+        <el-table-column prop="span_id" label="片段标识" width="160" show-overflow-tooltip />
+        <el-table-column label="环节名称" show-overflow-tooltip>
           <template #default="{ row }">{{ row.name || row.span_name || row.operation || '-' }}</template>
         </el-table-column>
         <el-table-column label="开始时间" width="200" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.start_time || row.timestamp || row.created_at || '-' }}</template>
+          <!-- 留痕 span 用 start_ts（epoch 秒，core/tracing.py），换算本地时间展示 -->
+          <template #default="{ row }">{{ fmtTs(row.start_ts) }}</template>
         </el-table-column>
         <el-table-column label="耗时(ms)" width="100">
           <template #default="{ row }">{{ row.duration_ms ?? row.duration ?? '-' }}</template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!traceLoading && traceQueried && spans.length === 0" description="该事件暂无 trace 记录" :image-size="60" />
+      <el-empty v-if="!traceLoading && traceQueried && spans.length === 0" description="该案件暂无 Trace 记录。技能环节执行后将自动埋点留痕" :image-size="60" />
     </el-card>
   </div>
 </template>
@@ -62,12 +67,13 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { openEventStream, getTraces } from '../api'
+import { eventLabel, friendlyError } from '../labels'
 
 // ---- 外链可达性探测：no-cors fetch，服务端有响应即视为可达（连接拒绝/超时=不可达） ----
 const extLinks = reactive([
-  { name: 'AgentScope Studio', desc: 'Agent 调用链回放（OTel）', href: 'http://localhost:3000', state: 'pending' },
-  { name: 'Higress 网关控制台', desc: 'MCP/LLM 流量网关', href: 'http://localhost:8001', state: 'pending' },
-  { name: 'Nacos 控制台', desc: '服务注册与动态配置', href: 'http://localhost:8848/nacos', state: 'pending' },
+  { name: 'AgentScope Studio', desc: 'Agent 调用链可视化回放', href: 'http://localhost:3000', state: 'pending' },
+  { name: 'Higress 网关控制台', desc: 'MCP/LLM 流量网关管理', href: 'http://localhost:8001', state: 'pending' },
+  { name: 'Nacos 控制台', desc: '服务注册与动态阈值配置', href: 'http://localhost:8848/nacos', state: 'pending' },
 ])
 async function probe(l) {
   const ctrl = new AbortController()
@@ -88,6 +94,7 @@ onMounted(() => {
 onUnmounted(() => es && es.close())
 
 // ---- Trace 回放 ----
+const fmtTs = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : '-')
 const traceCaseId = ref('')
 const traceLimit = ref(50)
 const traceLoading = ref(false)
@@ -96,13 +103,13 @@ const spans = ref([])
 
 async function loadTraces() {
   const id = traceCaseId.value.trim()
-  if (!id) { ElMessage.warning('请输入 case_id'); return }
+  if (!id) { ElMessage.warning('请输入案件编号'); return }
   traceLoading.value = true
   try {
     const d = (await getTraces(id, traceLimit.value)).data
     spans.value = Array.isArray(d) ? d : d?.items || d?.spans || []
     traceQueried.value = true
-  } catch (e) { ElMessage.error('Trace 查询失败：' + e.message) } finally { traceLoading.value = false }
+  } catch (e) { ElMessage.error(friendlyError(e, 'Trace 查询失败')) } finally { traceLoading.value = false }
 }
 </script>
 

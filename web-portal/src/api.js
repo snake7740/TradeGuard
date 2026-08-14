@@ -1,4 +1,5 @@
-// 前端契约层：API-W-01~15 全量声明，函数名与 openapi.yaml operationId 逐一对齐。
+// 前端契约层：API-W-01~15/17~19/21~22 全量声明，函数名与 openapi.yaml operationId 逐一对齐。
+// 用户可见文案统一经 labels.js 业务语汇层翻译，本文件不承载展示文案。
 // 三端真实调用链（04 §10.1）：前端零内置静态数据，一律实时请求 web-api。
 // 契约纪律：先改 docs/openapi/tradeguard-openapi.yaml → 后端实现 → 本文件跟进。
 import axios from 'axios'
@@ -34,9 +35,11 @@ export const getEvidence = (caseId) => http.get(`/cases/${caseId}/evidence`)    
 export const postReview = (caseId, body) => http.post(`/cases/${caseId}/review`, body) // API-W-07（SC-10）body:{conclusion:release|block|escalate, opinion≥5字符}
 
 // ---- pipeline actions（04 §10.1 三端真实调用链）----
-export const aggregateCase = (caseId) => http.post(`/cases/${caseId}/aggregate`)
-export const investigateCase = (caseId) => http.post(`/cases/${caseId}/investigate`)
-export const verifyCase = (caseId) => http.post(`/cases/${caseId}/verify`)
+export const aggregateCase = (caseId) => http.post(`/cases/${caseId}/aggregate`)        // API-W-17
+export const investigateCase = (caseId) => http.post(`/cases/${caseId}/investigate`)    // API-W-18
+export const verifyCase = (caseId, execId) => http.post(`/cases/${caseId}/verify`, { exec_id: execId }) // API-W-19
+export const getDispositions = (caseId) => http.get(`/cases/${caseId}/dispositions`)    // API-W-22（核验取 exec_id）
+export const getDemoSubjects = (limit = 10) => http.get('/demo/subjects', { params: { limit } }) // API-W-21
 
 // ---- config / observability ----
 export const getThresholds = () => http.get('/config/thresholds')
@@ -56,7 +59,7 @@ export const publishKbDocument = (docId, body) => http.post(`/kb/applications/${
 export const rejectKbDocument = (docId, body) => http.post(`/kb/applications/${docId}/reject`, body)          // API-W-13
 
 // ---- events ----
-// SSE 实时事件流（API-W-14）：后端 Sprint 0 走进程内总线，Sprint 1 切 RocketMQ，前端协议不变
+// SSE 实时事件流（API-W-14）：后端进程内总线必达 + RocketMQ 尽力而为，前端协议不变
 export function openEventStream(onMessage) {
   const es = new EventSource('/api/events/stream')
   es.onmessage = (e) => onMessage(JSON.parse(e.data))

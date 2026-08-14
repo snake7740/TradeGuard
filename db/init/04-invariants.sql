@@ -21,6 +21,7 @@ INSERT INTO case_state_transition (from_status, to_status) VALUES
   ('PENDING_APPROVAL', 'REJECTED'),
   ('APPROVED',         'DISPOSING'),
   ('DISPOSING',        'DISPOSED'),
+  ('DISPOSING',        'MANUAL_REVIEW'),     -- 处置失败/门控拒绝转人工（DispositionFailed）
   ('REJECTED',         'MANUAL_REVIEW'),     -- 驳回回滚（BA-BR-07）
   ('DISPOSED',         'VERIFIED'),
   ('DISPOSED',         'ROLLBACK'),          -- 核验不一致→反向处置

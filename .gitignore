@@ -21,6 +21,7 @@ key
 .idea/
 .vscode/
 Thumbs.db
+.claude/
 
 # 数据
 db/backup/

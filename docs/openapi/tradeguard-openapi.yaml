@@ -10,8 +10,8 @@ info:
        与 REST 接口共用同一套组件，保证"所有接口统一 OpenAPI 3.0 规范"）。
     追溯：业务规则 BA-BR-x（01 §5）、场景 SC-x（06 §2）、数据字典 DD（08）。
 servers:
-  - url: http://localhost:8080
-    description: web-api（docker compose 演示环境）
+  - url: http://localhost:8200
+    description: web-api（docker compose 演示环境，宿主端口映射 8200→8000）
 tags:
   - name: 演示触发
   - name: 事件工作台
@@ -49,7 +49,9 @@ paths:
       tags: [演示触发]
       operationId: submitAlert
       summary: 告警/任务输入受理（AA-CL-01 载体，演示剧本触发入口）
-      description: 写入后经 RocketMQ CaseRegistered 事件驱动主控 Agent 立案。
+      description: |
+        写入立案后由 EventWorker（DB 轮询主力，2s；RocketMQ CaseRegistered 尽力而为
+        旁路加速）自动承接聚合，无需人工推动（AA-CL-01/02 闭环）。
       requestBody:
         required: true
         content:
@@ -66,6 +68,33 @@ paths:
                   case_id: { $ref: '#/components/schemas/CaseId' }
                   status: { type: string, enum: [REGISTERED] }
         '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/demo/subjects:
+    get:
+      tags: [演示触发]
+      operationId: listDemoSubjects
+      summary: 可用演示主体清单（API-W-21，门户"触发演示事件"取材入口）
+      description: |
+        从 account 表返回无未结案件（status<>ARCHIVED 视为未结）的真实主体；
+        随机 subject_ref 不在三源底表内会令聚合走降级路径，演示语义失真，故前端一律经此取材。
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 10, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: 候选主体列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        subject_ref: { type: string, description: account_hash（64 位） }
+                        list_flag: { type: string, enum: [none, watch, gray, black] }
+                        risk_level: { type: integer, minimum: 0, maximum: 5 }
 
   /api/cases:
     get:
@@ -165,6 +194,27 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Evidence' }
 
+  /api/cases/{case_id}/dispositions:
+    get:
+      tags: [事件工作台]
+      operationId: listDispositions
+      summary: 处置执行记录（API-W-22，真实读 DA-T-06，按执行时序）
+      description: 前端核验入口（API-W-19）依此取最近一条 executed 凭证作为 exec_id。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 处置记录列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Disposition' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/cases/{case_id}/graph:
     get:
       tags: [事件工作台]
@@ -186,9 +236,10 @@ paths:
       operationId: submitReview
       summary: 中风险人工复核结论（SC-10 载体，BA-BR-01 中风险分段）
       description: |
-        写 DA-T-03 状态 + 审计留痕（BA-BR-09），仅风控值班员角色。
-        confirm→ReviewConfirmed（human_only）+ 自动建处置审批工单（API-M-11，US-E4-05）；
-        dismiss→排除欺诈归档 ARCHIVED。
+        写 DA-T-03 状态 + 审计留痕（BA-BR-09），actor 取 X-Operator 头（human_only 守卫）。
+        release→ReviewDismissed 排除欺诈归档 ARCHIVED；
+        block/escalate→委托 AA-SK-03 review_confirm 自动建处置审批工单（API-M-11，US-E4-05），
+        escalate 额外审计标记升级。
       parameters:
         - { $ref: '#/components/parameters/CaseIdPath' }
       requestBody:
@@ -242,9 +293,14 @@ paths:
       operationId: verifyCase
       summary: 触发结果核验（API-W-19，AA-SK-04 确定性内核，US-E6-01/02 载体）
       description: |
-        一致→VerificationPassed→VERIFIED→CaseArchived→ARCHIVED，审计报告落 DA-T-05，
-        复盘摘要提入库申请（AA-SK-05，pending）；不一致→VerificationFailed→反向处置
-        （幂等键 :rollback 后缀）→RollbackExecuted→MANUAL_REVIEW + P0 审计升级。
+        三分支裁决（B3）：
+        1. 执行一致（无论 trace 是否完整）→VerificationPassed→VERIFIED→CaseArchived→ARCHIVED，
+           审计报告落 DA-T-05，复盘摘要提入库申请（pending）；trace 缺口仅审计告警
+           verification.trace_gap，绝不回滚一致执行；
+        2. 不一致→VerificationFailed→反向处置（幂等键 :rollback 后缀，凭证按原动作+逆对
+           兜底查询，C1 逆动作对授权）→RollbackExecuted→MANUAL_REVIEW + verification.p0 审计；
+        3. 不一致且反向处置被拒/失败→RollbackEscalated→MANUAL_REVIEW +
+           verification.escalated 审计（未执行反向不写 P0 已回滚）。
       parameters:
         - { $ref: '#/components/parameters/CaseIdPath' }
       requestBody:
@@ -389,8 +445,10 @@ paths:
       tags: [实时推送]
       operationId: eventStream
       security: []
-      summary: 领域事件实时推送（SSE，订阅 RocketMQ case-events）
-      description: 演示时事件流转现场可见；断线自动重连（Last-Event-ID）。
+      summary: 领域事件实时推送（SSE，订阅进程内事件总线）
+      description: |
+        演示时事件流转现场可见。事件源为 web-api 进程内总线（InMemoryPublisher fan-out），
+        RocketMQ 为旁路广播通道（尽力而为）；15s keepalive 心跳防代理断链。
       responses:
         '200':
           description: SSE 流
@@ -419,6 +477,49 @@ paths:
                   values:
                     type: object
                     additionalProperties: { type: string }
+    put:
+      tags: [系统]
+      operationId: putThresholdConfig
+      summary: BA-BR 阈值动态配置写入（US-E1-03，SC-06）
+      description: |
+        阈值键值对写入 sys_config（DA-T-11，UPDATE 优先，tg_web 权限矩阵）并触发
+        ConfigService 即时重载；操作者取 X-Operator 头（URL 编码中文，后端 unquote），
+        写操作落 audit_log（BA-BR-09）。需 bearer 守卫（US-E7-01）。
+      parameters:
+        - name: X-Operator
+          in: header
+          required: false
+          schema: { type: string }
+          description: 操作者（encodeURIComponent 编码，缺省 human:operator）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: { type: string }
+              description: 阈值键值对（如 br-05-window-days、7）
+      responses:
+        '200':
+          description: |
+            写入后的最新快照（同 GET 响应结构）。写回顺序：先 Nacos → 再 sys_config →
+            即时 reload；Nacos 写回失败不阻断 DB 写入，经 nacos_writeback 暴露。
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source: { type: string, enum: [nacos, db] }
+                  updated_at: { type: string, format: date-time }
+                  values:
+                    type: object
+                    additionalProperties: { type: string }
+                  nacos_writeback: { type: boolean, description: Nacos 写回是否成功（false=仅 DB 生效） }
+        '400':
+          description: 配置键不存在且无新增权限（E-CONFIG-KEY）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
   /api/observability/traces:
     get:
@@ -529,9 +630,7 @@ components:
         current_agent: { type: string, description: AA-AG-0x 编号 }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
-        approval_overdue:
-          type: boolean
-          description: BA-BR-13 审批超时标记（前端标红）
+        # 审批超时标记不在案件摘要上：BA-BR-13 升级写在 DA-T-07 escalated_at（API-W-08 返回）
 
     CaseDetail:
       allOf:
@@ -640,7 +739,17 @@ components:
         opinion: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
         decided_at: { type: string, format: date-time, nullable: true }
-        overdue: { type: boolean, description: BA-BR-13 超时 }
+        requested_action:
+          type: string
+          enum: [block, freeze, reduce, release]
+          nullable: true
+          description: 建单请求的处置动作（C1 凭证验真比对项）
+        requested_amount: { type: number, nullable: true, description: 涉案金额 }
+        escalated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: BA-BR-13/SC-09 超时升级时刻（非空即前端标红，后台扫描每轮幂等写入）
 
     ReviewRequest:
       type: object
@@ -700,7 +809,7 @@ components:
       type: object
       required: [decision, opinion]
       properties:
-        decision: { type: string, enum: [approved, rejected] }
+        decision: { type: string, enum: [approve, reject] }
         opinion: { type: string, minLength: 5, description: 批准/驳回意见均必填（02 §7） }
 
     AuditRecord:
@@ -731,15 +840,14 @@ components:
       type: object
       properties:
         id: { type: string }
-        node_type: { type: string, enum: [Account, Device, Transaction, PayeeAccount, IpRange, Contact, Case], description: DA-N-01~07 }
-        label: { type: string }
+        type: { type: string, enum: [Account, Device, Transaction, PayeeAccount, IpRange, Contact, Case], description: DA-N-01~07 }
         risk_flag: { type: string, enum: [none, watch, gray, black] }
     GraphLink:
       type: object
       properties:
         source: { type: string }
         target: { type: string }
-        link_type: { type: string, enum: [SAME_DEVICE, SAME_PAYEE, SAME_IPSEG, SAME_CONTACT, INITIATED, INVOLVED_IN], description: DA-L-01~06 }
+        relation: { type: string, enum: [SAME_DEVICE, SAME_PAYEE, SAME_IPSEG, SAME_CONTACT, INITIATED, INVOLVED_IN], description: DA-L-01~06 }
     GraphResponse:
       type: object
       properties:
@@ -750,21 +858,25 @@ components:
 
     SseEvent:
       type: object
-      description: SSE 事件体（领域事件目录见 03 §9.2）
+      description: |
+        SSE 事件体（03 §9.2 消息体 Schema，扁平信封）。trace_id 透传案件 trace_id
+        （A4：同案事件可观测侧串联回放；无案件上下文的定时器事件回落新 uuid）。
+        ApprovalEscalated/VerificationOverdue 为后台巡检事件，不驱动状态迁移。
       properties:
         event:
           type: string
-          enum: [CaseRegistered, SignalsAggregated, InvestigationRequested,
-                 InvestigationCompleted, ApprovalApproved, ApprovalRejected,
-                 DispositionExecuted, VerificationPassed, VerificationFailed,
-                 CaseArchived]
-        data:
-          type: object
-          properties:
-            case_id: { $ref: '#/components/schemas/CaseId' }
-            trace_id: { type: string }
-            occurred_at: { type: string, format: date-time }
-            payload: { type: object, additionalProperties: true }
+          enum: [CaseRegistered, AggregationStarted, SignalsAggregated, NoiseDismissed,
+                 InvestigationRequested, InvestigationCompleted,
+                 ApprovalApproved, ApprovalRejected, ApprovalEscalated,
+                 DispositionSubmitted, DispositionExecuted, DispositionFailed,
+                 RollbackToReview, VerificationPassed, VerificationFailed,
+                 VerificationOverdue, RollbackExecuted, RollbackEscalated,
+                 ReviewConfirmed, ReviewDismissed, CaseArchived]
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        trace_id: { type: string, description: 案件 trace_id 透传（缺省回落新 uuid） }
+        actor: { type: string, description: 触发者（agent:AA-AG-0x 或 human:*） }
+        occurred_at: { type: string, format: date-time }
+        payload: { type: object, additionalProperties: true }
 
     # ============ MCP 工具契约（AA-MCP-01/02，x-mcp-tool 标注） ============
     McpQueryTransactionsReq:

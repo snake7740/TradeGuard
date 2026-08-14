@@ -1,6 +1,7 @@
 """合成数据发生器（US-E2-02，04 §8；采样参数借鉴 PaySim，见 docs/09）
 规模参数：演示档 5000 账户 / 10 万交易 / 5 组欺诈团伙；--scale small 出 500 账户冒烟档。
-欺诈行为特征：快进快出（transfer 占比高）、夜间集中（22:00–05:00）、同设备多账户。
+欺诈行为特征：快进快出（transfer 占比高）、近 1 小时高频聚集（velocity 窗口可触发）、
+同设备多账户。正常交易均匀散布近 60 天。
 """
 import argparse
 import asyncio
@@ -40,12 +41,13 @@ async def main(accounts: int, txs: int, rings: int):
         print(f"accounts: {len(hashes)}")
 
         # 2. 欺诈团伙：共享设备指纹 + 收款账户（供 SAME_DEVICE/SAME_PAYEE 图谱）
-        ring_devices, ring_payees = [], []
+        ring_devices, ring_payees, ring_members = [], [], []
         for r in range(rings):
             ring_devices.append(sha(f"ring-device-{r}"))
             ring_payees.append(sha(f"ring-payee-{r}"))
             # 每团伙 8–12 个成员账户
             members = rnd.sample(hashes, rnd.randint(8, 12))
+            ring_members.append(members)
             await conn.executemany(
                 "UPDATE account SET list_flag='watch', risk_level=3 WHERE account_hash=$1",
                 [(m,) for m in members])
@@ -65,24 +67,30 @@ async def main(accounts: int, txs: int, rings: int):
                 rnd.choice(GEOS), ts,
             ))
 
-        # 4. 欺诈簇：夜间高频小额 + 快进快出 transfer + 同设备（支撑 SC-11 velocity 验证）
+        # 4. 欺诈簇：近 1 小时高频小额 + 快进快出 transfer + 同设备（支撑 SC-11 velocity 验证）
+        #    ts 全部落在 now()-uniform(2min,55min)：单主体近 1h 12~15 笔 ≥ velocity_1h
+        #    阈值（BA-BR-14 缺省 10），聚合时 velocity 奖励可实证触发；
+        #    （旧实现 burst 在 30~55 天前，velocity 窗口永远为空，SC-11 验证名不副实）
         for r in range(rings):
-            for m in rnd.sample(hashes, 10):
-                burst = window_start + timedelta(days=rnd.randint(30, 55), hours=rnd.randint(22, 28))
-                for k in range(rnd.randint(10, 15)):  # 单小时 10+ 笔 → velocity_1h 超阈
+            for m in rnd.sample(ring_members[r], rnd.randint(3, 5)):
+                for k in range(rnd.randint(12, 15)):
                     rows.append((
                         f"TX-{uuid.uuid4().hex[:16]}", m, ring_payees[r],
                         round(rnd.uniform(50, 480), 2),
                         "6011", "transfer", ring_devices[r],
                         f"172.16.{r}.{rnd.randint(1,254)}/32", "缅北",
-                        burst + timedelta(minutes=k * 3),
+                        now - timedelta(minutes=rnd.uniform(2, 55)),
                     ))
 
-        await conn.executemany(
-            """INSERT INTO transaction (tx_id, account_hash, payee_hash, amount, mcc, channel,
-                                        device_fp_hash, ip, geo, ts)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8::inet,$9,$10) ON CONFLICT DO NOTHING""", rows)
-        print(f"transactions: {len(rows)}")
+        # 分批插入：10 万行单次 executemany 实测会在客户端发送侧挂死
+        # （pg_stat_activity 呈现 ClientRead 数小时不动），改 5000 行/批提交并显示进度；
+        # tx_id 为 uuid 天然不重，ON CONFLICT DO NOTHING 仅兜底，复跑幂等
+        tx_sql = """INSERT INTO transaction (tx_id, account_hash, payee_hash, amount, mcc, channel,
+                                             device_fp_hash, ip, geo, ts)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8::inet,$9,$10) ON CONFLICT DO NOTHING"""
+        for i in range(0, len(rows), 5000):
+            await conn.executemany(tx_sql, rows[i:i + 5000])
+            print(f"transactions: {min(i + 5000, len(rows))}/{len(rows)}", flush=True)
     finally:
         await conn.close()
 

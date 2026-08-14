@@ -43,6 +43,18 @@ CREATE TABLE transaction_2026_09 PARTITION OF transaction FOR VALUES FROM ('2026
 CREATE TABLE transaction_2026_10 PARTITION OF transaction FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
 CREATE TABLE transaction_2026_11 PARTITION OF transaction FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
 CREATE TABLE transaction_2026_12 PARTITION OF transaction FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
+CREATE TABLE transaction_2027_01 PARTITION OF transaction FOR VALUES FROM ('2027-01-01') TO ('2027-02-01');
+CREATE TABLE transaction_2027_02 PARTITION OF transaction FOR VALUES FROM ('2027-02-01') TO ('2027-03-01');
+CREATE TABLE transaction_2027_03 PARTITION OF transaction FOR VALUES FROM ('2027-03-01') TO ('2027-04-01');
+CREATE TABLE transaction_2027_04 PARTITION OF transaction FOR VALUES FROM ('2027-04-01') TO ('2027-05-01');
+CREATE TABLE transaction_2027_05 PARTITION OF transaction FOR VALUES FROM ('2027-05-01') TO ('2027-06-01');
+CREATE TABLE transaction_2027_06 PARTITION OF transaction FOR VALUES FROM ('2027-06-01') TO ('2027-07-01');
+CREATE TABLE transaction_2027_07 PARTITION OF transaction FOR VALUES FROM ('2027-07-01') TO ('2027-08-01');
+CREATE TABLE transaction_2027_08 PARTITION OF transaction FOR VALUES FROM ('2027-08-01') TO ('2027-09-01');
+CREATE TABLE transaction_2027_09 PARTITION OF transaction FOR VALUES FROM ('2027-09-01') TO ('2027-10-01');
+CREATE TABLE transaction_2027_10 PARTITION OF transaction FOR VALUES FROM ('2027-10-01') TO ('2027-11-01');
+CREATE TABLE transaction_2027_11 PARTITION OF transaction FOR VALUES FROM ('2027-11-01') TO ('2027-12-01');
+CREATE TABLE transaction_2027_12 PARTITION OF transaction FOR VALUES FROM ('2027-12-01') TO ('2028-01-01');
 CREATE TABLE transaction_default PARTITION OF transaction DEFAULT;
 
 -- DA-T-03 risk_case（聚合根，乐观锁 DA-INV-01）
@@ -179,9 +191,15 @@ CREATE INDEX idx_embedding_hnsw    ON kb_embedding USING hnsw (embedding vector_
 CREATE INDEX idx_memory_agent_ts   ON agent_memory (agent_id, ts DESC);
 
 -- ---------- BA-BR 阈值种子（sys_config，正式值经 Nacos 下发，SC-06） ----------
+-- 全部为消费侧活键：聚合/处置/核验按同名键读取（06-closedloop-fix 补播同批）
 INSERT INTO sys_config (key, value) VALUES
-  ('br-01-auto-block-score', '70'),
-  ('br-01-mid-review-score', '40'),
-  ('br-01-auto-amount-limit', '5000'),
-  ('br-13-approval-timeout-min', '30'),
-  ('br-14-velocity-1h-count', '10');
+  ('br-01-auto-block-score', '70'),        -- 高风险线（web disposition + mcp-core 门控同源）
+  ('br-01-mid-review-score', '40'),        -- 中风险线下限（转人工复核分段）
+  ('br-01-auto-amount-limit', '5000'),     -- 自动处置金额上限
+  ('br-05-window-days', '7'),              -- 高频异常观察窗（天）
+  ('br-05-case-count', '3'),               -- 窗口内立案次数阈值
+  ('br-08-verification-timeout-min', '10'),-- 核验时限（分钟）
+  ('br-13-approval-timeout-min', '30'),    -- 审批时效升级阈值
+  ('br-14-velocity-1h-count', '10'),       -- 1 小时频次阈值
+  ('br-14-velocity-24h-count', '50'),      -- 24 小时频次阈值
+  ('br-14-velocity-bonus', '30');          -- 频次命中加分

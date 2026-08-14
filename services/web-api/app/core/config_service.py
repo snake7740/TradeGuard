@@ -39,6 +39,22 @@ def _fetch_nacos(addr: str, data_id: str, group: str) -> dict | None:
         return None
 
 
+def _publish_nacos(addr: str, data_id: str, group: str, values: dict) -> bool:
+    """同步写回 Nacos v3 admin 配置（SC-06 D3：Nacos 为权威源，PUT 必须先写回）。
+    写回失败时调用方仍写 DB 镜像并暴露 source，不阻断变更（降级路径）。"""
+    data = urllib.parse.urlencode({
+        "dataId": data_id, "groupName": group, "namespaceId": "public",
+        "type": "json", "content": json.dumps(values, ensure_ascii=False)}).encode()
+    req = urllib.request.Request(f"{addr}/nacos/v3/admin/cs/config", data=data,
+                                 headers={NACOS_IDENTITY_KEY: NACOS_IDENTITY_VALUE})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            body = json.loads(resp.read().decode())
+        return body.get("code") == 0
+    except Exception:
+        return False
+
+
 class ConfigService:
     """BA-BR 阈值热加载：Nacos 优先，DB 降级，内存暴露"""
 
@@ -62,6 +78,15 @@ class ConfigService:
         while True:
             await asyncio.sleep(POLL_SECONDS)
             await self._reload()
+
+    async def reload(self) -> None:
+        """公共重载入口（PUT /api/config/thresholds 写库后即时生效，不等 5s 轮询）"""
+        await self._reload()
+
+    async def publish(self, values: dict) -> bool:
+        """SC-06 D3：阈值变更先写回 Nacos 权威源（再落 DB 镜像）。返回写回是否成功。
+        values 应为合并后的全量键值（Nacos dataId content 为完整 JSON 文档）。"""
+        return await asyncio.to_thread(_publish_nacos, self._addr, DATA_ID, GROUP, values)
 
     async def _reload(self) -> None:
         values = await asyncio.to_thread(_fetch_nacos, self._addr, DATA_ID, GROUP)

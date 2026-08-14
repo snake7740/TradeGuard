@@ -2,20 +2,26 @@
 """AA-SK-04 核验审计确定性内核（E6 核验审计与知识沉淀，US-E6-01/02/03）
 
 与聚合/处置同构的可测内核（06 §3 TDD 纪律）：
-  verify —— 结果核验（query_disposition_result 实际状态对账执行凭证）+
-            留痕完整性（audit_trail 覆盖全链）→
-            一致：VerificationPassed → VERIFIED → CaseArchived → ARCHIVED，
-                  审计报告落 DA-T-05，复盘摘要提入库申请（AA-SK-05，pending）；
-            不一致：VerificationFailed → ROLLBACK → 反向处置（幂等键 :rollback 后缀）
-                  → RollbackExecuted → MANUAL_REVIEW + P0 审计升级。
-  scan_verification_overdue —— BA-BR-08 十分钟核验超时扫描（lifespan 定时驱动，幂等）。
+  verify —— 结果核验（执行凭证实际状态对账）+ 留痕完整性（audit_trail 覆盖全链），
+            三分支裁决（闭环修复 v1.4.4，B3）：
+            分支 1（一致，**无论 trace 是否完整**）：VerificationPassed → VERIFIED →
+                  CaseArchived → ARCHIVED，审计报告落 DA-T-05，复盘入库申请（AA-SK-05）；
+                  trace 缺口仅审计告警——**绝不回滚一致执行**；
+            分支 2（不一致 + 反向处置完成）：VerificationFailed → ROLLBACK → 反向处置
+                  （携带原动作审批凭证，逆动作对授权，C1）→ RollbackExecuted →
+                  MANUAL_REVIEW + verification.p0 审计；
+            分支 3（不一致 + 反向被拒/失败）：RollbackEscalated → MANUAL_REVIEW +
+                  verification.escalated 审计——**绝不抛异常卡死案件**。
+  scan_verification_overdue —— BA-BR-08 十分钟核验超时扫描（lifespan 定时驱动，幂等；
+            基准取 updated_at：DISPOSED 迁入时间即核验时钟起点）。
 """
 from __future__ import annotations
 
 import uuid
 
-from ..core.state_machine import CaseEvent
+from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
+from .mcp_adapters import remember
 
 ACTOR_VER = "agent:AA-AG-05"        # 合规审计 Agent（02 §3）
 ACTOR_VER_AUDIT = "AA-AG-05"
@@ -45,14 +51,20 @@ class VerificationService:
 
     async def verify(self, case_id: str, exec_id: str) -> dict:
         async with skill_span("AA-SK-04", "AA-AG-05", case_id, exec_id=exec_id):
-            return await self._verify(case_id, exec_id)
+            result = await self._verify(case_id, exec_id)
+        await remember(self.core, case_id, "AA-AG-05", "verification", {
+            "consistency_check": result["consistency_check"],
+            "trace_complete": result["trace_complete"],
+            "case_status": result["case_status"]})
+        return result
 
     async def _verify(self, case_id: str, exec_id: str) -> dict:
         case = await self.cases.get(case_id)
         if not case:
             raise LookupError(case_id)
         if case["status"] != "DISPOSED":
-            raise VerificationStateError(f"{case_id} 状态 {case['status']} 不可核验")
+            raise VerificationStateError(
+                f"案件当前处于「{status_zh(case['status'])}」状态，不支持发起核验，请刷新页面查看最新进展")
         rec = await self.pool.fetchrow(
             "SELECT * FROM disposition_record WHERE exec_id=$1 AND case_id=$2",
             exec_id, case_id)
@@ -68,10 +80,15 @@ class VerificationService:
                           f"exec_id={exec_id},consistent={consistent},"
                           f"trace_complete={trace_complete}", case["trace_id"])
 
-        # 2. 分支：一致归档 / 不一致反向处置（AA-SK-04 步骤 3）
-        if consistent and trace_complete:
+        # 2. 分支 1：一致即归档——**绝不回滚一致执行**（B3）；trace 缺口仅审计告警
+        if consistent:
+            if not trace_complete:
+                await self._audit(case_id, "verification.trace_gap",
+                                  f"exec_id={exec_id} 核验一致但审计链缺 "
+                                  f"{[a for a in TRACE_REQUIRED if a not in actions]}，"
+                                  f"仅告警不回滚（B3 一致执行不可逆）", case["trace_id"])
             report = (f"审计报告：{case_id} 处置 {rec['action']} 核验一致，"
-                      f"审计链 {len(actions)} 条完整（BA-BR-09）")
+                      f"审计链 {len(actions)} 条（trace_complete={trace_complete}，BA-BR-09）")
             await self.core.record_case_evidence(case_id, [{
                 "claim": report, "source_ref": "AA-AG-05:audit-report",
                 "confidence": 0.95}])                       # 报告落 DA-T-05（步骤 5）
@@ -83,26 +100,49 @@ class VerificationService:
                 basis="结案归档（BA-BP-04）")
             kb = await self._retrospective(case_id, rec)    # AA-SK-05 复盘入库申请
             return {"case_id": case_id, "consistency_check": True,
-                    "trace_complete": True, "case_status": out["status"],
+                    "trace_complete": trace_complete, "case_status": out["status"],
                     "audit_report": report, "kb_application": kb["doc_id"]}
 
+        # 3. 分支 2/3：不一致 → ROLLBACK → 反向处置（携原动作审批凭证，逆对授权 C1）
         out = await self.cases.transition(
             case_id, CaseEvent.VERIFICATION_FAILED, ACTOR_VER, case["version"],
             basis=f"exec_id={exec_id} 实际状态={rec['status']} 与凭证不一致")
         inverse = INVERSE_ACTION.get(rec["action"], "release")
-        rb = await self.core.execute_disposition(
-            case_id, inverse, None, f"{case_id}:{rec['action']}:rollback")
-        if rb.get("code") and rb["code"] != "E-IDEMPOTENT-CONFLICT":
-            raise RuntimeError(f"反向处置失败：{rb}")
+        approval_ref = rec["approval_ref"] or await self.pool.fetchval(
+            """SELECT approval_id FROM approval_record
+               WHERE case_id=$1 AND decision='approved' AND requested_action=$2
+               ORDER BY decided_at DESC NULLS LAST LIMIT 1""",
+            case_id, rec["action"])
+        try:
+            rb = await self.core.execute_disposition(
+                case_id, inverse, None, f"{case_id}:{rec['action']}:rollback", approval_ref)
+        except Exception as e:  # noqa: BLE001 —— 反向处置异常不得卡死案件（B3）
+            rb = {"code": "E-MCP-UNAVAILABLE", "message": str(e)}
+
+        rb_code = rb.get("code")
+        if not rb_code or rb_code == "E-IDEMPOTENT-CONFLICT":
+            # 分支 2：反向处置完成（或幂等重放已回滚）→ RollbackExecuted 升级 P0 转人工
+            out = await self.cases.transition(
+                case_id, CaseEvent.ROLLBACK_EXECUTED, ACTOR_VER, out["version"],
+                basis=f"反向处置 {inverse} 完成，升级 P0 转人工（AA-SK-04 失败处理）")
+            await self._audit(case_id, "verification.p0",
+                              f"exec_id={exec_id} 核验不一致，反向处置 {inverse} 已执行"
+                              f"（凭证={approval_ref}，逆动作对授权），"
+                              f"升级 P0 并暂停该主体自动处置", case["trace_id"])
+            return {"case_id": case_id, "consistency_check": False,
+                    "trace_complete": trace_complete, "case_status": out["status"],
+                    "rollback_exec_id": rb.get("exec_id") or rb.get("first_result", {}).get("exec_id")}
+
+        # 分支 3：反向处置被拒/失败 → RollbackEscalated 直接升级转人工（不回滚、不抛异常）
         out = await self.cases.transition(
-            case_id, CaseEvent.ROLLBACK_EXECUTED, ACTOR_VER, out["version"],
-            basis=f"反向处置 {inverse} 完成，升级 P0 转人工（AA-SK-04 失败处理）")
-        await self._audit(case_id, "verification.p0",
-                          f"exec_id={exec_id} 核验不一致，反向处置 {inverse} 已执行，"
-                          f"升级 P0 并暂停该主体自动处置", case["trace_id"])
+            case_id, CaseEvent.ROLLBACK_ESCALATED, ACTOR_VER, out["version"],
+            basis=f"反向处置 {inverse} 被拒（{rb_code}），未回滚直接升级转人工")
+        await self._audit(case_id, "verification.escalated",
+                          f"exec_id={exec_id} 核验不一致且反向处置 {inverse} 未执行"
+                          f"（{rb_code}），不自动回滚，升级 P0 转人工处置", case["trace_id"])
         return {"case_id": case_id, "consistency_check": False,
                 "trace_complete": trace_complete, "case_status": out["status"],
-                "rollback_exec_id": rb.get("exec_id") or rb.get("first_result", {}).get("exec_id")}
+                "rollback_refused": rb_code}
 
     async def _retrospective(self, case_id: str, rec) -> dict:
         """AA-SK-05 复盘摘要与入库申请（US-E6-03）：汇总信号/证据/处置/核验四段，

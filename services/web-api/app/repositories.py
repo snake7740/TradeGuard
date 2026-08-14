@@ -33,17 +33,24 @@ class CaseRepository:
         self._pool = pool
         self._pub = publisher
 
-    async def list(self, status: str | None, limit: int) -> list[dict]:
-        q = "SELECT * FROM risk_case"
+    async def list(self, status: str | None = None, risk_min: int | None = None,
+                   page: int = 1, size: int = 20) -> tuple[int, list[dict]]:
+        """API-W-02 分页列表：返回 (total, items)，统一 created_at 倒序"""
+        where: list[str] = []
         args: list = []
         if status:
-            q += " WHERE status=$1 ORDER BY risk_score DESC LIMIT $2"
-            args = [status, limit]
-        else:
-            q += " ORDER BY created_at DESC LIMIT $1"
-            args = [limit]
-        rows = await self._pool.fetch(q, *args)
-        return [_case_row(r) for r in rows]
+            args.append(status)
+            where.append(f"status=${len(args)}")
+        if risk_min is not None:
+            args.append(risk_min)
+            where.append(f"risk_score>=${len(args)}")
+        cond = f" WHERE {' AND '.join(where)}" if where else ""
+        total = await self._pool.fetchval(f"SELECT count(*) FROM risk_case{cond}", *args)
+        rows = await self._pool.fetch(
+            f"SELECT * FROM risk_case{cond} ORDER BY created_at DESC "
+            f"LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}",
+            *args, size, (page - 1) * size)
+        return total, [_case_row(r) for r in rows]
 
     async def get(self, case_id: str) -> dict | None:
         r = await self._pool.fetchrow("SELECT * FROM risk_case WHERE case_id=$1", case_id)
@@ -53,7 +60,8 @@ class CaseRepository:
                                "version": r["version"],
                                "trace_id": r["trace_id"]}
 
-    async def register(self, subject_ref: str, risk_score: int, source_type: str) -> dict:
+    async def register(self, subject_ref: str, risk_score: int, source_type: str,
+                       actor: str = "human:operator") -> dict:
         """立案（API-W-01）：INSERT risk_case + audit_log 同事务，并发布 CaseRegistered"""
         case_id = f"CASE-{datetime.now(timezone.utc):%Y%m%d}-{uuid.uuid4().hex[:6]}"
         trace_id = uuid.uuid4().hex
@@ -64,33 +72,41 @@ class CaseRepository:
                 case_id, subject_ref, risk_score, trace_id)
             await conn.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
-                   VALUES ($1, 'human:operator', 'case.register', $2, $3, $4)""",
-                uuid.uuid4().hex, case_id, f"source={source_type},severity={risk_score}", trace_id)
+                   VALUES ($1, $2, 'case.register', $3, $4, $5)""",
+                uuid.uuid4().hex, actor, case_id,
+                f"source={source_type},severity={risk_score}", trace_id)
         await self._pub.publish(case_id, "CaseRegistered",
-                                {"subject_ref": subject_ref, "risk_score": risk_score}, "human:operator")
+                                {"subject_ref": subject_ref, "risk_score": risk_score}, actor,
+                                trace_id=trace_id)
         return {"case_id": case_id, "status": "REGISTERED", "trace_id": trace_id}
 
     async def transition(self, case_id: str, event: CaseEvent, actor: str,
                          expected_version: int, basis: str = "") -> dict:
-        """状态迁移写路径模板：状态机校验→乐观锁 UPDATE→审计→事件发布"""
+        """状态迁移写路径模板：状态机校验→乐观锁 UPDATE→审计→事件发布
+
+        E（闭环修复）：事务内先声明 tg.actor（is_local=true，同连接同事务），
+        供存储层 trg_case_actor_gate 第二道防线校验人类门控（02 §7，kb_human_gate 同款）。
+        """
         r = await self._pool.fetchrow("SELECT status, version, trace_id FROM risk_case WHERE case_id=$1", case_id)
         if not r:
             raise LookupError(case_id)
         target = next_state(CaseState(r["status"]), event, actor)  # 非法迁移直接抛 InvalidTransition
         async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('tg.actor', $1, true)", actor)
             updated = await conn.execute(
                 """UPDATE risk_case SET status=$1, version=version+1, updated_at=now()
                    WHERE case_id=$2 AND version=$3""",
                 target.value, case_id, expected_version)
             if updated != "UPDATE 1":
-                raise OptimisticLockError(f"{case_id} version 冲突（期望 {expected_version}）")
+                raise OptimisticLockError("案件数据已被其他操作更新，请刷新页面后重试")
             await conn.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                    VALUES ($1, $2, $3, $4, $5, $6)""",
                 uuid.uuid4().hex, actor, f"case.transition.{event.value}", case_id,
                 basis or f"{r['status']}->{target.value}", r["trace_id"])
         await self._pub.publish(case_id, event.value,
-                                {"from": r["status"], "to": target.value}, actor)
+                                {"from": r["status"], "to": target.value}, actor,
+                                trace_id=r["trace_id"])
         return {"case_id": case_id, "status": target.value, "version": expected_version + 1}
 
     async def signals(self, case_id: str) -> list[dict]:
@@ -120,8 +136,12 @@ class ApprovalRepository:
         self._pool = pool
 
     async def list(self, decision: str) -> list[dict]:
+        # UX 加固：join 案件主表补风险评分/涉事主体（审批人决策依据），
+        # 保持 created_at ASC（FIFO：等待最久的工单置顶，与超时升级语义一致）
         rows = await self._pool.fetch(
-            "SELECT * FROM approval_record WHERE decision=$1 ORDER BY created_at", decision)
+            """SELECT a.*, c.risk_score, c.subject_ref
+               FROM approval_record a LEFT JOIN risk_case c ON c.case_id = a.case_id
+               WHERE a.decision=$1 ORDER BY a.created_at""", decision)
         return [dict(r) | {"created_at": r["created_at"].isoformat()} for r in rows]
 
 

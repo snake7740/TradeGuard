@@ -66,6 +66,16 @@ services:
       start_period: 30s
     networks: [tradeguard-net]
 
+  rocketmq-init:                 # case-events Topic 一次性预建（工作流 A3，US-E1-01）
+    # 命令搬 scripts/rocketmq-init.md：broker 就绪后 updateTopic；until 循环容忍
+    # broker 启动早期 namesrv 路由未就绪的瞬时失败。restart: "no"：建完即退。
+    image: apache/rocketmq:${ROCKETMQ_VERSION:-5.3.1}
+    restart: "no"
+    entrypoint: ["sh", "-c", "until sh mqadmin updateTopic -n rocketmq-namesrv:9876 -c DefaultCluster -t case-events -r 4 -w 4; do echo 'case-events topic 未就绪，2s 后重试'; sleep 2; done"]
+    depends_on:
+      rocketmq-broker: { condition: service_healthy }
+    networks: [tradeguard-net]
+
   # ---------- 治理层 ----------
   nacos:                         # AI Registry + 动态配置（BA-BR 阈值，SC-06）
     image: nacos/nacos-server:v3.2.3
@@ -89,7 +99,8 @@ services:
     networks: [tradeguard-net]
 
   higress:                       # AI 网关 all-in-one（控制台 8001 / 网关 8180）
-    image: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:latest
+    # 版本锁定：2.2.3 为该仓库当前最新稳定 tag（docker manifest inspect 实测 2.2.0~2.2.3 存在、2.2.4+ 不存在，2026-08-14 查证）
+    image: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/all-in-one:2.2.3
     restart: unless-stopped
     environment:
       HIGRESS_CONSOLE_DISABLE: "false"
@@ -102,7 +113,9 @@ services:
 
   # ---------- 观测层 ----------
   as-studio:                     # AgentScope Studio（OTel tracing，04 §7）
-    image: agentscope/studio:latest
+    # 版本锁定：v1.0.9 为 docker.io/agentscope/studio 当前最新版本号 tag（docker.io 直连不可达，
+    # 经镜像索引 docker.aityp.com 查证 2026-08-14：仅 v1.0.8 / v1.0.9 / latest 三个 tag）
+    image: agentscope/studio:v1.0.9
     restart: unless-stopped
     ports: ["3000:3000"]
     networks: [tradeguard-net]
@@ -114,11 +127,26 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     ports: ["8101:8101"]
+    healthcheck:
+      # FastMCP streamable-http 无 200 健康端点：/mcp/ 对普通 GET 返回 4xx（HTTPError），
+      # 有 HTTP 响应即判定存活；连接拒绝/超时（URLError）才失败
+      test: ["CMD-SHELL", "python -c \"import urllib.request,urllib.error\ntry: urllib.request.urlopen('http://127.0.0.1:8101/mcp/',timeout=3)\nexcept urllib.error.HTTPError: pass\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   mcp-external-mock:             # AA-MCP-02 外部数据源模拟 MCP（征信/舆情/投诉）
     <<: *python-base
     build: ./services/mcp-external-mock
     ports: ["8102:8102"]
+    healthcheck:
+      # 同 mcp-core：FastMCP /mcp/ 有 HTTP 响应（含 4xx）即存活
+      test: ["CMD-SHELL", "python -c \"import urllib.request,urllib.error\ntry: urllib.request.urlopen('http://127.0.0.1:8102/mcp/',timeout=3)\nexcept urllib.error.HTTPError: pass\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   web-api:                       # web-portal 后端进程（FastAPI，04 §10.1 三端调用链）
     <<: *python-base
@@ -126,6 +154,8 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       rocketmq-broker: { condition: service_healthy }
+      nacos: { condition: service_healthy }          # 阈值热加载依赖（US-E1-03）
+      mcp-core: { condition: service_healthy }       # AA-SK 工具链依赖（US-E3-03/04）
     environment:
       PG_DSN: ${PG_DSN_WEB:-postgresql://tg_web:tg_web_dev@postgres:5432/tradeguard}
       ROCKETMQ_NAMESRV: rocketmq-namesrv:9876
@@ -134,6 +164,8 @@ services:
       NACOS_AUTH_IDENTITY_VALUE: tradeguard_dev
       MCP_CORE_URL: http://mcp-core:8101/mcp/                 # AA-MCP-01 聚合落库/处置执行（US-E3-03/04）
       MCP_EXTERNAL_URL: http://mcp-external-mock:8102/mcp/    # AA-MCP-02 外部数据源
+      TG_EVENT_WORKER: "on"      # AA-CL-01/02 闭环：CaseRegistered 消费者（代码缺省 OFF，
+                                 # 测试进程不开；仅容器化部署显式启用，core/event_worker.py）
     ports: ["8200:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)\" || exit 1"]
@@ -148,6 +180,13 @@ services:
     depends_on:
       web-api: { condition: service_healthy }
     ports: ["8300:80"]
+    healthcheck:
+      # nginx:1.27-alpine 自带 busybox wget（已实测容器内 /usr/bin/wget 可用）
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
     networks: [tradeguard-net]
 
   data-generator:                # 合成数据发生器（04 §8，PaySim 式分布）

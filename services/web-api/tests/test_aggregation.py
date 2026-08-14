@@ -187,4 +187,5 @@ def test_triage_thresholds_traceable():
     """阈值与 BA-BR-01 可追溯对账"""
     assert AUTO_SCORE_MAX == 40 and AUTO_AMOUNT_MAX == 5000
     assert VELOCITY_BONUS == 30
-    assert SOURCE_WEIGHTS == {"tx": 0.4, "credit": 0.2, "complaint": 0.25, "sentiment": 0.15}
+    assert SOURCE_WEIGHTS == {"tx": 0.4, "credit": 0.2, "complaint": 0.25, "sentiment": 0.15,
+                              "internal": 0.25}   # BA-BR-05 高频异常追加源

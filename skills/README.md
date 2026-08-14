@@ -10,7 +10,7 @@
 | AA-SK-02 fraud-investigation | [AA-SK-02-fraud-investigation.md](./AA-SK-02-fraud-investigation.md) | AA-AG-03 | services/web-api/app/skills/investigation.py |
 | AA-SK-03 disposition-execution | [AA-SK-03-disposition-execution.md](./AA-SK-03-disposition-execution.md) | AA-AG-04 | services/mcp-core/server.py execute_disposition |
 | AA-SK-04 compliance-audit | [AA-SK-04-compliance-audit.md](./AA-SK-04-compliance-audit.md) | AA-AG-05 | services/web-api/app/skills/verification.py |
-| AA-SK-05 knowledge-sedimentation | [AA-SK-05-knowledge-sedimentation.md](./AA-SK-05-knowledge-sedimentation.md) | AA-AG-05 | services/web-api/app/skills/retrospective.py |
+| AA-SK-05 knowledge-sedimentation | [AA-SK-05-knowledge-sedimentation.md](./AA-SK-05-knowledge-sedimentation.md) | AA-AG-05 | services/web-api/app/skills/knowledge.py + verification.py `_retrospective` |
 
 执行纪律：
 1. 每个技能先跑**确定性规则内核**（可单测、可回放），LLM 仅做推理增强层——无 Key 时闭环不断；

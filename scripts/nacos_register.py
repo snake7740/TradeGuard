@@ -58,15 +58,37 @@ SKILL_REGISTRY = {
 }
 
 # BA-BR 阈值（与 db/init/01-schema.sql 种子同源；正式值经此处下发，SC-06）
+# 闭环修复 D4：补齐 br-05/br-08 键——此前缺失导致聚合/核验侧只能回落代码常量，
+# 与 PUT /api/config/thresholds 的热更新键集不一致（SC-06 宣称不实）。
 THRESHOLDS = {
     "br-01-auto-block-score": "70",
     "br-01-mid-review-score": "40",
     "br-01-auto-amount-limit": "5000",
+    "br-05-window-days": "7",
+    "br-05-case-count": "3",
+    "br-08-verification-timeout-min": "10",
     "br-13-approval-timeout-min": "30",
     "br-14-velocity-1h-count": "10",
     "br-14-velocity-24h-count": "50",
     "br-14-velocity-bonus": "30",
 }
+
+
+def fetch_config(addr: str, data_id: str) -> dict | None:
+    """读现值（D4）：仅缺键补默认，防重跑覆盖 PUT /api/config/thresholds 改过的值。
+    注意执行顺序——本脚本只应在首次部署/补键时运行；演示改阈值一律走 PUT 端点。"""
+    qs = urllib.parse.urlencode({"dataId": data_id, "groupName": GROUP,
+                                 "namespaceId": "public"})
+    req = urllib.request.Request(f"{addr}/nacos/v3/admin/cs/config?{qs}",
+                                 headers={IDENTITY_KEY: IDENTITY_VALUE})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read().decode())
+        if body.get("code") == 0:
+            return json.loads(body["data"]["content"])
+    except Exception:
+        pass
+    return None
 
 SERVICE_INSTANCES = [
     {"serviceName": "web-api", "ip": "web-api", "port": 8000},
@@ -111,10 +133,19 @@ def main() -> int:
     ap.add_argument("--addr", default="http://localhost:8848")
     args = ap.parse_args()
 
+    # 阈值发放前读现值：仅缺键补默认，已有键（含 PUT 改过的）一律保留（D4）
+    existing = fetch_config(args.addr, "ba-br-thresholds") or {}
+    thresholds = {**THRESHOLDS, **{k: str(v) for k, v in existing.items()}}
+    filled = sorted(set(thresholds) - set(existing))
+    if filled:
+        print(f"[config] ba-br-thresholds 补键: {', '.join(filled)}")
+    elif existing:
+        print("[config] ba-br-thresholds 现值完整，不覆盖任何已有键")
+
     ok = all([
         publish_config(args.addr, "tradeguard-mcp-registry", MCP_REGISTRY),
         publish_config(args.addr, "tradeguard-skill-registry", SKILL_REGISTRY),
-        publish_config(args.addr, "ba-br-thresholds", THRESHOLDS),
+        publish_config(args.addr, "ba-br-thresholds", thresholds),
     ])
     for inst in SERVICE_INSTANCES:  # best-effort：实例注册失败不阻断元数据注册验收
         register_instance(args.addr, inst)

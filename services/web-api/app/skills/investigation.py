@@ -13,9 +13,10 @@ from __future__ import annotations
 import json
 import uuid
 
-from ..core.state_machine import CaseEvent
+from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
 from .knowledge import search_kb
+from .mcp_adapters import remember
 
 ACTOR_INV = "agent:AA-AG-03"      # 调查取证 Agent（02 §3）
 ACTOR_INV_AUDIT = "AA-AG-03"
@@ -61,14 +62,19 @@ class InvestigationService:
 
     async def run(self, case_id: str) -> dict:
         async with skill_span("AA-SK-02", "AA-AG-03", case_id):
-            return await self._run(case_id)
+            result = await self._run(case_id)
+        await remember(self.core, case_id, "AA-AG-03", "investigation", {
+            "pattern": result["hypothesis"]["pattern"], "impact": result["impact"],
+            "case_status": result["case_status"]})
+        return result
 
     async def _run(self, case_id: str) -> dict:
         case = await self.cases.get(case_id)
         if not case:
             raise LookupError(case_id)
         if case["status"] != "INVESTIGATING":
-            raise InvestigationStateError(f"{case_id} 状态 {case['status']} 不可调查")
+            raise InvestigationStateError(
+                f"案件当前处于「{status_zh(case['status'])}」状态，不支持启动调查，请刷新页面查看最新进展")
 
         signals = await self.pool.fetch(
             "SELECT * FROM risk_signal WHERE case_id=$1 ORDER BY ts", case_id)

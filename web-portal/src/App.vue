@@ -10,6 +10,7 @@
         <el-select v-model="role" size="small" @change="onRoleChange">
           <el-option v-for="r in ROLES" :key="r" :value="r" :label="r" />
         </el-select>
+        <div class="switcher-tip">四个角色对应风控闭环中值班、审批、审计、知识管理四个环节，切换以体验不同岗位视角</div>
       </div>
       <el-menu :default-active="$route.path" router class="side-menu"
         background-color="transparent" text-color="#b6c2d9" active-text-color="#ffffff">
@@ -17,17 +18,20 @@
           {{ m.title }}
         </el-menu-item>
       </el-menu>
-      <div class="side-footer">Sprint 7 · 决赛版</div>
+      <div class="side-footer">TradeGuard · 交易风控中枢 v1.4</div>
     </el-aside>
     <el-container>
       <el-header class="topbar">
         <div class="topbar-title">{{ $route.meta.title || 'TradeGuard' }}</div>
         <div class="topbar-right">
           <el-tag effect="plain" round>{{ role }}</el-tag>
-          <span class="health">
-            <i class="dot" :class="health === 'UP' ? 'up' : 'down'" />
-            中间件 {{ health }}
-          </span>
+          <!-- 中间件健康探针（API-W-15，10s 轮询）：DEGRADED 时悬停可见故障组件 -->
+          <el-tooltip placement="bottom" :content="healthTip">
+            <span class="health">
+              <i class="dot" :class="healthDot" />
+              {{ healthText }}
+            </span>
+          </el-tooltip>
         </div>
       </el-header>
       <el-main><router-view /></el-main>
@@ -43,7 +47,7 @@ import { ROLES, currentRole, setRole } from './role'
 
 // 5 页面 × 4 角色（01 §6 用户旅程 × 04 §10）；roles 为空数组=全角色可见
 const menus = [
-  { path: '/cases', title: '事件工作台', roles: ['风控值班员'] },
+  { path: '/cases', title: '案件工作台', roles: ['风控值班员'] },
   { path: '/approvals', title: '审批门户', roles: ['风控审批官'] },
   { path: '/audit', title: '审计查询', roles: ['合规审计员'] },
   { path: '/kb', title: '知识库管理', roles: ['风控策略管理员'] },
@@ -63,11 +67,20 @@ function onRoleChange(r) {
   if (allowed && !allowed.includes(r)) router.push('/')
 }
 
-const health = ref('…')
+// 健康状态：UP 全部正常 / DEGRADED 部分组件降级（悬停提示故障明细）/ DOWN 探针失联
+const health = ref({ status: '…', components: {} })
 let timer
+const COMPONENT_NAMES = { postgres: '数据库', rocketmq: '消息队列', 'mcp-core': '业务 MCP', 'mcp-external': '外部数据 MCP' }
+const healthDot = computed(() => health.value.status === 'UP' ? 'up' : health.value.status === 'DEGRADED' ? 'warn' : 'down')
+const healthText = computed(() => health.value.status === 'UP' ? '系统正常' : health.value.status === 'DEGRADED' ? '部分组件降级' : '系统探测失败')
+const healthTip = computed(() => {
+  const parts = Object.entries(health.value.components || {})
+    .map(([k, v]) => `${COMPONENT_NAMES[k] || k}：${v === 'UP' ? '正常' : '异常'}`)
+  return parts.length ? parts.join('；') : '健康探针无响应，请检查 web-api 服务'
+})
 onMounted(() => {
   const probe = async () => {
-    try { health.value = (await getHealth()).data.status } catch { health.value = 'DOWN' }
+    try { health.value = (await getHealth()).data } catch { health.value = { status: 'DOWN', components: {} } }
   }
   probe(); timer = setInterval(probe, 10000)
 })
@@ -95,6 +108,7 @@ onUnmounted(() => clearInterval(timer))
 
 .switcher { padding: 4px 16px 14px; }
 .switcher-label { font-size: 11px; color: #8fa0c2; margin-bottom: 6px; }
+.switcher-tip { font-size: 11px; color: #64748f; line-height: 1.5; margin-top: 8px; }
 .sidebar .el-select .el-input__wrapper {
   background: rgba(255, 255, 255, 0.08); box-shadow: none;
 }
@@ -128,6 +142,7 @@ onUnmounted(() => clearInterval(timer))
 .health { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--tg-text-sub); }
 .health .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .health .dot.up { background: #52c41a; box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.15); }
+.health .dot.warn { background: #faad14; box-shadow: 0 0 0 3px rgba(250, 173, 20, 0.15); }
 .health .dot.down { background: #ff4d4f; box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.15); }
 
 /* ---------- 内容区 ---------- */

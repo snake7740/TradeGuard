@@ -11,7 +11,7 @@ import pytest
 from app.skills.mcp_adapters import ExternalSourcesClient
 from tests.conftest import MCP_EXTERNAL_URL
 
-TOOLS = ("query_credit_report", "query_sentiment", "query_complaints")
+TOOLS = ("query_credit", "query_sentiment", "query_complaint")
 
 
 @pytest.fixture(scope="module")

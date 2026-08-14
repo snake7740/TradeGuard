@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from datetime import datetime, timezone
 
 import asyncpg
@@ -124,13 +125,15 @@ def _verdict(kpi_id: str, value: float | None) -> str:
 
 
 def render_md(report: dict) -> str:
+    # 复现命令用当前解释器相对路径（不硬编码 .venv/Scripts/python.exe，跨环境可复现）
+    interp = os.path.relpath(sys.executable, os.path.join(os.path.dirname(__file__), ".."))
     lines = ["# TradeGuard KPI 评估报告（US-E7-04 离线评估，可复现）", "",
              f"- 生成时间：{report['generated_at']}",
-             "- 复现命令：`.venv/Scripts/python.exe scripts/kpi_report.py`",
+             f"- 复现命令：`{interp.replace(os.sep, '/')} scripts/kpi_report.py`",
              "- Ground truth：`account.list_flag`（watch=团伙观察名单，black=确认欺诈，none=正常）",
-             "", "## 阈值与结论", "",
-             "| KPI | 定义 | 阈值 | 全量口径 | 演示口径 | 结论 |",
-             "|---|---|---|---|---|---|"]
+             "", "## 阈值与结论（全量 / 演示两口径分别独立判定，不互相掩盖）", "",
+             "| KPI | 定义 | 阈值 | 全量口径 | 全量结论 | 演示口径 | 演示结论 |",
+             "|---|---|---|---|---|---|---|"]
     names = {"KPI-02": "欺诈召回率", "KPI-03": "误报率（最终定性口径）",
              "KPI-04": "人工介入率", "KPI-05": "处置留痕完整率"}
 
@@ -142,15 +145,15 @@ def render_md(report: dict) -> str:
         return f"{low}／全部 {k['avg_min']:.1f} 分（{k['total']}例）"
 
     a, d = report["all"]["KPI-01"], report["demo"]["KPI-01"]
-    verdict = _verdict("KPI-01", d["value"] if d["value"] is not None else a["value"])
     lines.append(f"| KPI-01 | 事件响应时效（立案→处置完成） | {report['thresholds']['KPI-01']} "
-                 f"| {_fmt_kpi01(a)} | {_fmt_kpi01(d)} | {verdict} |")
+                 f"| {_fmt_kpi01(a)} | {_verdict('KPI-01', a['value'])} "
+                 f"| {_fmt_kpi01(d)} | {_verdict('KPI-01', d['value'])} |")
     for k in ("KPI-02", "KPI-03", "KPI-04", "KPI-05"):
         a, d = report["all"][k], report["demo"][k]
         fa = f"{a['value']:.1%}（{a['hit']}/{a['total']}）" if a["value"] is not None else "N/A"
         fd = f"{d['value']:.1%}（{d['hit']}/{d['total']}）" if d["value"] is not None else "N/A"
-        verdict = _verdict(k, d["value"] if d["value"] is not None else a["value"])
-        lines.append(f"| {k} | {names[k]} | {report['thresholds'][k]} | {fa} | {fd} | {verdict} |")
+        lines.append(f"| {k} | {names[k]} | {report['thresholds'][k]} | {fa} "
+                     f"| {_verdict(k, a['value'])} | {fd} | {_verdict(k, d['value'])} |")
     lines += ["", "## 口径说明", "",
               "- KPI-01 统计已处置闭环案件（DISPOSED/VERIFIED/ARCHIVED 且有 executed 处置凭证），"
               "时长 = risk_case.created_at → 首条处置凭证 ts；目标线仅约束低风险案件"
@@ -167,7 +170,7 @@ def render_md(report: dict) -> str:
               "- 全量口径含 Sprint 自动化测试案件（source=TEST，pytest 运行残留，多为",
               "PENDING_APPROVAL 中间态），会抬升 KPI-03/04 全量数值；决赛验收以演示口径为准。",
               "- KPI-04 演示口径结构性偏高：三剧本中 D2/D3 本身即人机协同审批/申诉场景",
-              "（2/3 必入人工通道），自动通道能力由 SC-01 与测试矩阵 121 例覆盖。", ""]
+              "（2/3 必入人工通道），自动通道能力由 SC-01 与测试矩阵 169 例覆盖。", ""]
     return "\n".join(lines)
 
 

@@ -3,3 +3,8 @@ uvicorn[standard]==0.34.0
 asyncpg==0.30.0
 pydantic==2.10.4
 mcp==1.9.4
+# 工作流 A2 预检结论（2026-08-14，python:3.12-slim 实测 PRECHECK-PASS）：
+# 稳定线 2.0.0 仅 sdist（需 C++ 工具链），cp312 唯一可装轮子为 0.5.0rc2
+# （py2.py3-none-manylinux1，内置 librocketmq，与 5.x broker 走 remoting 协议兼容）。
+# events.py 仍保留 try/except 降级：本地无该库时 SSE fan-out 不断链（MQ 投递尽力而为）。
+rocketmq-client-python==0.5.0rc2

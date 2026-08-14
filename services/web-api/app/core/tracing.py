@@ -18,7 +18,10 @@ import uuid
 from contextlib import asynccontextmanager
 
 logger = logging.getLogger("tradeguard.tracing")
-TRACES_FILE = os.getenv("TG_TRACES_FILE", "logs/traces.jsonl")
+# 基于模块文件定位服务根（app/core/tracing.py 上溯三层）：与工作目录无关，
+# 宿主 pytest / 容器 uvicorn 两种启动方式写同一份 logs/traces.jsonl
+SERVICE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TRACES_FILE = os.getenv("TG_TRACES_FILE", os.path.join(SERVICE_ROOT, "logs", "traces.jsonl"))
 MAX_SPANS = 500          # 内存环形缓冲上限（演示规模，重启清空不影响文件留痕）
 
 _spans: list[dict] = []

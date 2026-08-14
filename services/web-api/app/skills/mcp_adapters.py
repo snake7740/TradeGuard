@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+
+logger = logging.getLogger("tradeguard.mcp")
 
 
 class McpToolClient:
@@ -34,7 +37,7 @@ class ExternalSourcesClient(McpToolClient):
     """AA-MCP-02：三外部源查询（query_reason 必填，BA-BR-10）"""
 
     async def query_credit_report(self, subject_id: str, query_reason: str) -> dict:
-        return await self.call_tool("query_credit_report",
+        return await self.call_tool("query_credit",
                                     subject_id=subject_id, query_reason=query_reason)
 
     async def query_sentiment(self, subject_id: str, query_reason: str) -> dict:
@@ -42,7 +45,7 @@ class ExternalSourcesClient(McpToolClient):
                                     subject_id=subject_id, query_reason=query_reason)
 
     async def query_complaints(self, subject_id: str, query_reason: str) -> dict:
-        return await self.call_tool("query_complaints",
+        return await self.call_tool("query_complaint",
                                     subject_id=subject_id, query_reason=query_reason)
 
 
@@ -98,3 +101,18 @@ class CoreClient(McpToolClient):
         """API-M-05：知识入库申请（AA-SK-05，仅 pending，发布须人工，DA-INV-06）"""
         return await self.call_tool("submit_kb_application", case_id=case_id,
                                     category=category, title=title, content=content)
+
+    async def record_agent_memory(self, case_id: str, agent_id: str,
+                                  stage: str, summary: dict) -> dict:
+        """API-M-14：Agent 执行摘要落 DA-T-12（agent_memory 仅 tg_app 可 INSERT）"""
+        return await self.call_tool("record_agent_memory", case_id=case_id,
+                                    agent_id=agent_id, stage=stage, summary=summary)
+
+
+async def remember(core: CoreClient, case_id: str, agent_id: str,
+                   stage: str, summary: dict) -> None:
+    """DA-T-12 agent_memory 摘要写入：失败仅告警不阻断技能主流程"""
+    try:
+        await core.record_agent_memory(case_id, agent_id, stage, summary)
+    except Exception:  # noqa: BLE001 —— 记忆写入非关键路径
+        logger.exception("agent_memory 写入失败：case=%s stage=%s", case_id, stage)

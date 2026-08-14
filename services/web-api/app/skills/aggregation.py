@@ -21,15 +21,19 @@ import math
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from ..core.state_machine import CaseEvent
+from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
+from .mcp_adapters import remember
 
-# ---------- 规则常量（可追溯：BA-BR-01/14，02 §4 AA-SK-01） ----------
+# ---------- 规则常量（可追溯：BA-BR-01/05/14，02 §4 AA-SK-01） ----------
 
-SOURCE_WEIGHTS: dict[str, float] = {"tx": 0.4, "credit": 0.2, "complaint": 0.25, "sentiment": 0.15}
+SOURCE_WEIGHTS: dict[str, float] = {"tx": 0.4, "credit": 0.2, "complaint": 0.25,
+                                    "sentiment": 0.15, "internal": 0.25}
 VELOCITY_BONUS = 30          # BA-BR-14：1h≥10 笔或 24h≥50 笔 +30 分
 VELOCITY_1H_THRESHOLD = 10   # BA-BR-14 阈值（正式值经 Nacos 热更新，TA-C-05）
 VELOCITY_24H_THRESHOLD = 50
+HIGH_FREQ_DAYS = 7           # BA-BR-05：同主体近 7 天风险事件窗口（可配置 br-05-window-days）
+HIGH_FREQ_COUNT = 3          # BA-BR-05：窗口内 ≥3 次追加高频异常信号（可配置 br-05-case-count）
 AUTO_SCORE_MAX = 40          # BA-BR-01：风险分 <40 可自动处置
 AUTO_AMOUNT_MAX = 5000       # BA-BR-01：单笔涉案 <5000 元可自动处置
 BLACK_FLAG_SCORE = 75        # BA-BR-04：黑名单主体立案即高风险（≥BA-BR-02 审批线 70，SC-04）
@@ -66,11 +70,13 @@ def compute_velocity(txs: list[dict], now: datetime) -> dict:
             "velocity_24h": {"count": c24, "amount": a24}}
 
 
-def velocity_bonus(velocity: dict) -> int:
-    """BA-BR-14：1h≥10 笔或 24h≥50 笔 → +30 分"""
-    if (velocity["velocity_1h"]["count"] >= VELOCITY_1H_THRESHOLD
-            or velocity["velocity_24h"]["count"] >= VELOCITY_24H_THRESHOLD):
-        return VELOCITY_BONUS
+def velocity_bonus(velocity: dict, *, t1h: int = VELOCITY_1H_THRESHOLD,
+                   t24h: int = VELOCITY_24H_THRESHOLD, bonus: int = VELOCITY_BONUS) -> int:
+    """BA-BR-14：1h≥t1h 笔或 24h≥t24h 笔 → +bonus 分
+    （SC-06 闭环修复 D1：阈值可经关键字参数注入热值，缺省即代码常量）"""
+    if (velocity["velocity_1h"]["count"] >= t1h
+            or velocity["velocity_24h"]["count"] >= t24h):
+        return bonus
     return 0
 
 
@@ -84,10 +90,12 @@ def _signal(source: str, type_: str, confidence: float, query_reason: str,
             "velocity_json": velocity_json, "ts": now}
 
 
-def build_tx_signal(case_id: str, velocity: dict, query_reason: str, now: datetime) -> dict | None:
+def build_tx_signal(case_id: str, velocity: dict, query_reason: str, now: datetime, *,
+                    t1h: int = VELOCITY_1H_THRESHOLD, t24h: int = VELOCITY_24H_THRESHOLD,
+                    bonus: int = VELOCITY_BONUS) -> dict | None:
     """tx 源仅在 velocity 突破时产出信号（低频正常流水不放大评分）；
     velocity_json 为 tx 源必填（DA-T-04，SC-11 断言载体）。"""
-    if velocity_bonus(velocity) == 0:
+    if velocity_bonus(velocity, t1h=t1h, t24h=t24h, bonus=bonus) == 0:
         return None
     c1 = velocity["velocity_1h"]["count"]
     c24 = velocity["velocity_24h"]["count"]
@@ -152,19 +160,24 @@ def dedupe_signals(signals: list[dict]) -> list[dict]:
 
 # ---------- 加权评分（AA-SK-01 步骤 5） ----------
 
-def score_signals(signals: list[dict], velocity: dict) -> int:
+def score_signals(signals: list[dict], velocity: dict, *,
+                  t1h: int = VELOCITY_1H_THRESHOLD, t24h: int = VELOCITY_24H_THRESHOLD,
+                  bonus: int = VELOCITY_BONUS) -> int:
     """基础分 = Σ(confidence × 源权重) × 100 + velocity 加分，封顶 100"""
     base = sum(s["confidence"] * SOURCE_WEIGHTS.get(s["source"], 0.0) for s in signals) * 100
-    return min(100, int(math.floor(base + velocity_bonus(velocity) + 0.5)))
+    return min(100, int(math.floor(base + velocity_bonus(velocity, t1h=t1h, t24h=t24h, bonus=bonus) + 0.5)))
 
 
 # ---------- 分级裁决（US-E3-04，BA-BR-01 边界） ----------
 
-def triage(risk_score: int, amount: float, signals: list[dict]) -> str:
-    """裁决路由：零信号降噪 / 低风险小额自动放行（BA-CAP-05）/ 其余转调查"""
+def triage(risk_score: int, amount: float, signals: list[dict], *,
+           auto_score_max: int = AUTO_SCORE_MAX,
+           auto_amount_max: int = AUTO_AMOUNT_MAX) -> str:
+    """裁决路由：零信号降噪 / 低风险小额自动放行（BA-CAP-05）/ 其余转调查
+    （SC-06 闭环修复 D1：两条边界可经关键字参数注入热值，缺省即代码常量）"""
     if not signals:
         return "noise"
-    if risk_score < AUTO_SCORE_MAX and amount < AUTO_AMOUNT_MAX:
+    if risk_score < auto_score_max and amount < auto_amount_max:
         return "auto_release"
     return "investigate"
 
@@ -181,17 +194,43 @@ class AggregationService:
     ACTOR_AGG = "agent:AA-AG-02"   # 信号聚合 Agent（02 §3）
     ACTOR_DISP = "AA-AG-04"        # 处置执行 Agent（SC-01 审计操作者）
 
-    def __init__(self, pool, cases, external, core, retry: int = 2, timeout: float = 5.0):
+    def __init__(self, pool, cases, external, core, retry: int = 2, timeout: float = 5.0,
+                 config=None):
         self.pool = pool
         self.cases = cases
         self.external = external
         self.core = core
         self.retry = retry          # AA-SK-01 失败处理：单源超时重试 2 次→降级
         self.timeout = timeout
+        self.config = config        # ConfigService（BA-BR-05 阈值热加载，可缺省用常量）
+
+    def _cfg_int(self, key: str, default: int) -> int:
+        """从 ConfigService 读整型阈值，未配置/非法值回退代码常量"""
+        try:
+            return int(self.config.values[key])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return default
+
+    def _thresholds(self) -> dict:
+        """SC-06 阈值热值快照（D1）：每次聚合实时读取，变更不重启生效。
+        键与 db/init/01-schema.sql 种子、scripts/nacos_register.py THRESHOLDS 同源。"""
+        return {
+            "t1h": self._cfg_int("br-14-velocity-1h-count", VELOCITY_1H_THRESHOLD),
+            "t24h": self._cfg_int("br-14-velocity-24h-count", VELOCITY_24H_THRESHOLD),
+            "bonus": self._cfg_int("br-14-velocity-bonus", VELOCITY_BONUS),
+            "auto_score_max": self._cfg_int("br-01-mid-review-score", AUTO_SCORE_MAX),
+            "auto_amount_max": self._cfg_int("br-01-auto-amount-limit", AUTO_AMOUNT_MAX),
+            "black_flag": self._cfg_int("br-04-black-flag-score", BLACK_FLAG_SCORE),
+        }
 
     async def run(self, case_id: str) -> dict:
         async with skill_span("AA-SK-01", "AA-AG-02", case_id):
-            return await self._run(case_id)
+            result = await self._run(case_id)
+        await remember(self.core, case_id, "AA-AG-02", "aggregation", {
+            "route": result["route"], "risk_score": result["risk_score"],
+            "signals_count": result["signals_count"],
+            "degraded_sources": result["degraded_sources"]})
+        return result
 
     async def _run(self, case_id: str) -> dict:
         case = await self.pool.fetchrow(
@@ -204,11 +243,13 @@ class AggregationService:
                                               self.ACTOR_AGG, version)
             version = out["version"]
         elif case["status"] != "AGGREGATING":
-            raise AggregationStateError(f"{case_id} 状态 {case['status']} 不可聚合")
+            raise AggregationStateError(
+                f"案件当前处于「{status_zh(case['status'])}」状态，不支持信号聚合，请刷新页面查看最新进展")
 
         reason = f"case={case_id} 风险信号聚合（BA-BR-10 查询事由）"
         now = datetime.now(timezone.utc)
         degraded: list[str] = []
+        th = self._thresholds()   # SC-06 热值（D1）：本轮聚合内一致
 
         # 1. 采集（单源失败降级不中断，AA-SK-01 失败处理）
         try:
@@ -228,7 +269,8 @@ class AggregationService:
         velocity = compute_velocity(txs, now)
         signals: list[dict] = []
         if "tx" not in degraded:
-            tx_sig = build_tx_signal(case_id, velocity, reason, now)
+            tx_sig = build_tx_signal(case_id, velocity, reason, now,
+                                     t1h=th["t1h"], t24h=th["t24h"], bonus=th["bonus"])
             if tx_sig:
                 signals.append(tx_sig)
         for name, normalize in (("credit", normalize_credit_report),
@@ -250,15 +292,30 @@ class AggregationService:
                     "risk_score": 0, "velocity": ZERO_VELOCITY, "signals": [],
                     "signals_count": 0, "degraded_sources": degraded, "exec_id": None}
 
-        # 4-5. 评分 + 落库（经 AA-MCP-01，tg_app 写角色 DA-INV-05）
-        score = score_signals(signals, velocity)
+        # 4. BA-BR-05：同主体近 N 天风险事件 ≥M 次（排除当前案件）→ 追加高频异常信号
+        window_days = self._cfg_int("br-05-window-days", HIGH_FREQ_DAYS)
+        count_threshold = self._cfg_int("br-05-case-count", HIGH_FREQ_COUNT)
+        hist = await self.pool.fetchval(
+            """SELECT count(*) FROM risk_case
+               WHERE subject_ref=$1 AND case_id<>$2
+                 AND created_at >= now() - make_interval(days=>$3)""",
+            case["subject_ref"], case_id, window_days)
+        if hist >= count_threshold:
+            signals.append(_signal(
+                "internal", "high_freq_case", min(1.0, hist / (count_threshold * 2)),
+                f"case={case_id} BA-BR-05 同主体近 {window_days} 天风险事件 {hist} 次≥{count_threshold}",
+                now, raw_ref=f"risk_case:{case['subject_ref'][:16]}:recent={hist}"))
+
+        # 5-6. 评分 + 落库（经 AA-MCP-01，tg_app 写角色 DA-INV-05）
+        score = score_signals(signals, velocity,
+                              t1h=th["t1h"], t24h=th["t24h"], bonus=th["bonus"])
         # BA-BR-04（SC-04）：黑名单主体立案即高风险，处置建议拦截，
         # 无论金额均经 BA-BR-02 审批门控入人工通道（评分垫高至 ≥审批线）
         black = await self.pool.fetchval(
             "SELECT list_flag FROM account WHERE account_hash=$1", case["subject_ref"])
         recommended_action = None
         if black == "black":
-            score = max(score, BLACK_FLAG_SCORE)
+            score = max(score, th["black_flag"])
             recommended_action = "block"
             await self.pool.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
@@ -266,11 +323,16 @@ class AggregationService:
                            'list_flag=black 立案即高风险，处置建议=block（BA-BR-04，SC-04）',
                            (SELECT trace_id FROM risk_case WHERE case_id=$4))""",
                 uuid.uuid4().hex, self.ACTOR_AGG, case_id, case_id)
-        await self.core.record_case_signals(case_id, score, signals)
+        # internal 源信号仅参与评分与响应，不落 DA-T-04（risk_signal.source CHECK 仅允许
+        # tx/credit/sentiment/complaint，01-schema.sql；历史频次可由 risk_case 复算）
+        await self.core.record_case_signals(
+            case_id, score, [s for s in signals if s["source"] != "internal"])
 
-        # 6. 裁决路由
+        # 7. 裁决路由
         amount = velocity["velocity_24h"]["amount"]
-        route = triage(score, amount, signals)
+        route = triage(score, amount, signals,
+                       auto_score_max=th["auto_score_max"],
+                       auto_amount_max=th["auto_amount_max"])
         # BA-BR-07：驳回回滚禁用自动通道后，同档低风险也不再自动放行，转调查
         ctx = case["context_json"]
         if isinstance(ctx, str):
@@ -289,7 +351,21 @@ class AggregationService:
                                               self.ACTOR_DISP, version,
                                               basis=f"risk_score={score} amount={amount:.2f} 自动通道准入（BA-BR-01）")
             version = out["version"]
-            exec_id = await self._auto_release(case_id, amount)
+            try:
+                exec_id = await self._auto_release(case_id, amount)
+            except RuntimeError as e:
+                # 失败兜底（B1）：审计 + DispositionFailed→MANUAL_REVIEW，案件不卡死 DISPOSING
+                await self.pool.execute(
+                    """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                       VALUES ($1, $2, 'disposition.failed', $3, $4,
+                               (SELECT trace_id FROM risk_case WHERE case_id=$3))""",
+                    uuid.uuid4().hex, self.ACTOR_DISP, case_id,
+                    f"自动放行失败升级人工复核：{e}（BA-BR-01 失败兜底）")
+                out = await self.cases.transition(
+                    case_id, CaseEvent.DISPOSITION_FAILED, self.ACTOR_DISP, version,
+                    basis=f"自动放行失败转人工复核：{e}")
+                return self._result(case_id, out["status"], "failed_manual",
+                                    score, velocity, signals, degraded)
             out = await self.cases.transition(
                 case_id, CaseEvent.DISPOSITION_EXECUTED, self.ACTOR_DISP, version,
                 basis=f"risk_score={score} amount={amount:.2f} action=release 低风险自动放行（BA-CAP-05，SC-01）")
@@ -322,15 +398,29 @@ class AggregationService:
         raise last  # type: ignore[misc]
 
     async def _auto_release(self, case_id: str, amount: float) -> str:
-        """经 AA-MCP-01 execute_disposition 落 DA-T-06（幂等键 DA-INV-03）"""
-        result = await self.core.execute_disposition(
-            case_id=case_id, action="release", amount=None,
-            idempotency_key=f"{case_id}:auto-release")
-        if result.get("code") == "E-IDEMPOTENT-CONFLICT":
-            return result["first_result"]["exec_id"]   # 幂等重放：复用首次凭证
-        if result.get("code"):
-            raise RuntimeError(f"自动放行处置失败：{result}")
-        return result["exec_id"]
+        """经 AA-MCP-01 execute_disposition 落 DA-T-06（幂等键 DA-INV-03）。
+
+        幂等重投按成功处理（复用首次凭证）；瞬时错误/网络异常重试 1 次（0.3s），
+        确定性拒绝与重试耗尽 raise RuntimeError，由调用方转人工复核（B1）。
+        """
+        result = {"code": "E-MCP-UNAVAILABLE", "message": "mcp-core 不可达"}
+        for attempt in range(2):
+            try:
+                result = await self.core.execute_disposition(
+                    case_id=case_id, action="release", amount=None,
+                    idempotency_key=f"{case_id}:auto-release")
+            except Exception as e:  # noqa: BLE001 —— 网络/会话异常 → 重试
+                result = {"code": "E-MCP-UNAVAILABLE", "message": str(e)}
+            else:
+                if result.get("code") == "E-IDEMPOTENT-CONFLICT":
+                    return result["first_result"]["exec_id"]   # 幂等重放：复用首次凭证
+                if not result.get("code"):
+                    return result["exec_id"]
+                if result["code"] in ("E-DISP-AUTH", "E-DISP-SCOPE", "E-EVIDENCE-MISSING"):
+                    raise RuntimeError(f"自动放行处置被拒：{result}")
+            if attempt == 0:
+                await asyncio.sleep(0.3)
+        raise RuntimeError(f"自动放行处置失败：{result}")
 
     @staticmethod
     def _result(case_id: str, status: str, route: str, score: int, velocity: dict,

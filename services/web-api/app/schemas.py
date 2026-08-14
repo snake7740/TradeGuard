@@ -8,21 +8,24 @@ class AlertIn(BaseModel):
     """API-W-01 告警受理入参"""
     subject_ref: str = Field(..., description="事件主体（account_hash 或 tx_id）")
     source_type: str = Field("demo_script", pattern="^(engine_alert|fraud_ticket|tx_anomaly|demo_script)$")
-    severity: int = Field(50, ge=0, le=100)
+    severity: str = Field("medium", pattern="^(low|medium|high)$")
+
+
+# severity 枚举 → 初始风险种子分映射（契约：low=25 / medium=55 / high=85）
+SEVERITY_SCORES = {"low": 25, "medium": 55, "high": 85}
 
 
 class ReviewIn(BaseModel):
     """API-W-07 中风险人工复核（SC-10，BA-BP-05）"""
-    decision: str = Field(..., pattern="^(confirm|dismiss)$", description="confirm=确认欺诈转审批；dismiss=排除欺诈归档")
-    comment: str = Field("", max_length=500)
-    operator: str = Field("human:risk_officer", pattern=r"^human:[a-z_]+$")
+    conclusion: str = Field(..., pattern="^(release|block|escalate)$",
+                            description="release=排除归档；block=确认欺诈建单；escalate=升级建单")
+    opinion: str = Field(..., min_length=5, max_length=500)
 
 
 class DecideIn(BaseModel):
     """API-W-09 批准/驳回（SC-02/SC-03，02 §7 人类触发入口）"""
-    decision: str = Field(..., pattern="^(approved|rejected)$")
-    comment: str = Field("", max_length=500)
-    approver: str = Field("human:approver", pattern=r"^human:[a-z_]+$")
+    decision: str = Field(..., pattern="^(approve|reject)$")
+    opinion: str = Field(..., min_length=5, max_length=500)
 
 
 class VerifyIn(BaseModel):
