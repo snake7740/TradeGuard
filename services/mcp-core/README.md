@@ -18,7 +18,7 @@ Agent（AgentTeams Worker）经 Higress 网关发现并调用本层，是"Agent 
 | create_approval_request | API-M-11 | 审批建单 | tg_app 写角色，案件存在性校验 E-NOT-FOUND，requested_action/requested_amount 随单写入（DA-T-07） |
 | record_case_evidence | API-M-12 | 证据固化 | tg_app 写角色，同 claim+source_ref 幂等不重复插入（DA-T-05 只增） |
 | apply_risk_bonus | API-M-13 | BA-BR-06 关联网络加分 | tg_app 写角色，同案同 basis 仅生效一次，context_json 打标 |
-| record_agent_memory | API-M-14 | Agent 阶段执行摘要 | tg_app 写角色，只增（DA-T-12，赛题 2.4） |
+| record_agent_memory | API-M-14 | Agent 阶段执行摘要 | tg_app 写角色，只增（DA-T-12） |
 | query_case_signals | API-M-15 | 信号聚合回查 | 只读（AA-SK-02 内部依赖） |
 
 ## mcp-external-mock（AA-MCP-02，:8102）外部数据源模拟 · 在码 3 工具

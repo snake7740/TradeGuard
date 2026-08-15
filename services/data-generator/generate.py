@@ -1,7 +1,7 @@
 """合成数据发生器（US-E2-02，04 §8；采样参数借鉴 PaySim，见 docs/09）
 规模参数：演示档 5000 账户 / 10 万交易 / 5 组欺诈团伙；--scale small 出 500 账户冒烟档。
 欺诈行为特征：快进快出（transfer 占比高）、近 1 小时高频聚集（velocity 窗口可触发）、
-同设备多账户。正常交易均匀散布近 60 天。
+同设备多账户、团伙共享联系方式。正常交易均匀散布近 60 天。
 """
 import argparse
 import asyncio
@@ -40,7 +40,8 @@ async def main(accounts: int, txs: int, rings: int):
             [(h, rnd.randint(480, 850)) for h in hashes])
         print(f"accounts: {len(hashes)}")
 
-        # 2. 欺诈团伙：共享设备指纹 + 收款账户（供 SAME_DEVICE/SAME_PAYEE 图谱）
+        # 2. 欺诈团伙：共享设备指纹 + 收款账户 + 联系方式
+        #   （供 SAME_DEVICE/SAME_PAYEE/SAME_CONTACT 图谱，v_graph_edge 四类边全可实证）
         ring_devices, ring_payees, ring_members = [], [], []
         for r in range(rings):
             ring_devices.append(sha(f"ring-device-{r}"))
@@ -49,8 +50,9 @@ async def main(accounts: int, txs: int, rings: int):
             members = rnd.sample(hashes, rnd.randint(8, 12))
             ring_members.append(members)
             await conn.executemany(
-                "UPDATE account SET list_flag='watch', risk_level=3 WHERE account_hash=$1",
-                [(m,) for m in members])
+                "UPDATE account SET list_flag='watch', risk_level=3, contact_hash=$2 "
+                "WHERE account_hash=$1",
+                [(m, sha(f"ring-contact-{r}")) for m in members])
         print(f"fraud rings: {rings}")
 
         # 3. 正常交易

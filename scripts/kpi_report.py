@@ -168,7 +168,7 @@ def render_md(report: dict) -> str:
               "对应 disposition.submit 记录（04 §7 验收口径）。",
               "- 演示口径：主体带 demo- 前缀播种交易（剧本 D1/D2/D3 专用主体），复跑可复现。",
               "- 全量口径含 Sprint 自动化测试案件（source=TEST，pytest 运行残留，多为",
-              "PENDING_APPROVAL 中间态），会抬升 KPI-03/04 全量数值；决赛验收以演示口径为准。",
+              "PENDING_APPROVAL 中间态），会抬升 KPI-03/04 全量数值；验收以演示口径为准。",
               "- KPI-04 演示口径结构性偏高：三剧本中 D2/D3 本身即人机协同审批/申诉场景",
               "（2/3 必入人工通道），自动通道能力由 SC-01 与测试矩阵 169 例覆盖。", ""]
     return "\n".join(lines)

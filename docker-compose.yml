@@ -55,7 +55,7 @@ services:
       JAVA_OPT_EXT: "-Xms512m -Xmx1g"
     # 不挂载 broker.conf：5.3.1 外挂 -c 配置在 Windows 卷上触发 ScheduleMessageService NPE（rocketmq-docker#85）
     # 不挂载 store 卷：镜像内无 /home/rocketmq/store，空卷挂载后属主 root 与容器用户 uid 3000 冲突（Permission denied）
-    # 演示环境事件流允许重放重建；复赛 Linux 环境可恢复卷挂载（scripts/rocketmq-init.md）
+    # 演示环境事件流允许重放重建；生产 Linux 环境可恢复卷挂载（scripts/rocketmq-init.md）
     depends_on:
       rocketmq-namesrv: { condition: service_healthy }
     healthcheck:

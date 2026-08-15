@@ -82,7 +82,7 @@
         :page-sizes="[10, 20, 50]" @current-change="load" @size-change="reload" />
     </div>
 
-    <!-- 详情抽屉：基本信息 / 信号 / 证据链 / 关联图谱 / 审计时间线 五源聚合（API-W-03~06/10） -->
+    <!-- 详情抽屉：基本信息 / 信号 / 证据链 / 关联图谱 / 处置凭证 / 审计时间线 六源聚合（API-W-03~06/10/22） -->
     <el-drawer v-model="detailVisible" :title="`案件详情 · ${detail.caseId}`" size="55%">
       <div v-loading="detailLoading">
         <!-- 闭环进度：五阶段步骤条，由案件状态映射（状态含义悬停可见） -->
@@ -156,11 +156,36 @@
           </el-col>
         </el-row>
 
+        <el-divider content-position="left">处置凭证</el-divider>
+        <el-table :data="detail.dispositions" size="small" stripe max-height="200"
+          empty-text="暂无处置记录。处置动作执行后将在此生成执行凭证（幂等键 + 审批引用）">
+          <el-table-column prop="exec_id" label="凭证号" width="170" show-overflow-tooltip />
+          <el-table-column label="动作" width="100">
+            <template #default="{ row }">{{ actionLabel(row.action) }}</template>
+          </el-table-column>
+          <el-table-column label="金额" width="100">
+            <template #default="{ row }">{{ row.amount != null ? '¥' + row.amount : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="执行状态" width="110">
+            <template #default="{ row }">
+              <el-tag :type="(DISP_STATUS_META[row.status] || {}).tag || 'info'" size="small" effect="light">
+                {{ (DISP_STATUS_META[row.status] || {}).label || row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="审批引用" width="170" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.approval_ref || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="idempotency_key" label="幂等键" show-overflow-tooltip />
+          <el-table-column prop="ts" label="时间" width="170" show-overflow-tooltip />
+        </el-table>
+
         <el-divider content-position="left">审计时间线</el-divider>
         <el-timeline v-if="detail.audit.length">
           <el-timeline-item v-for="(a, i) in detail.audit" :key="i" :timestamp="a.ts">
             <b>{{ a.actor }}</b> · {{ auditActionLabel(a.action) }}
             <div class="hint">{{ a.basis }}</div>
+            <div v-if="a.trace_id" class="hint trace">trace：{{ a.trace_id }}</div>
           </el-timeline-item>
         </el-timeline>
         <el-empty v-else description="暂无审计记录" :image-size="40" />
@@ -226,7 +251,8 @@ import { getCases, postAlert, getCase, getSignals, getEvidence, getGraph, getAud
   postReview, aggregateCase, investigateCase, verifyCase, getDispositions,
   getDemoSubjects, openEventStream } from '../api'
 import { STAGES, STATUS_META, NEXT_STEP, SEVERITY_META, EDGE_LABELS, INFO_LABELS,
-  statusLabel, statusMeta, routeLabel, auditActionLabel, friendlyError } from '../labels'
+  DISP_STATUS_META, statusLabel, statusMeta, routeLabel, actionLabel, auditActionLabel,
+  friendlyError } from '../labels'
 
 const statuses = Object.keys(STATUS_META)
 const tab = ref('all')
@@ -287,7 +313,7 @@ async function triggerDemo(severity = 'high') {
 // ---- 详情抽屉 ----
 const detailVisible = ref(false)
 const detailLoading = ref(false)
-const detail = reactive({ caseId: '', info: {}, signals: [], evidence: [], graph: { nodes: [], links: [] }, audit: [] })
+const detail = reactive({ caseId: '', info: {}, signals: [], evidence: [], graph: { nodes: [], links: [] }, dispositions: [], audit: [] })
 
 // 基本信息按业务顺序展示已知字段，未知字段追加在后（不隐藏数据）
 const infoKeys = computed(() => {
@@ -307,15 +333,16 @@ async function openDetail(row) {
   detail.caseId = row.case_id
   detailVisible.value = true
   detailLoading.value = true
-  // 五源并发拉取，单接口失败不阻塞其余区块
-  const [info, signals, evidence, graph, audit] = await Promise.allSettled([
+  // 六源并发拉取，单接口失败不阻塞其余区块
+  const [info, signals, evidence, graph, dispositions, audit] = await Promise.allSettled([
     getCase(row.case_id), getSignals(row.case_id), getEvidence(row.case_id),
-    getGraph(row.case_id), getAuditTrail(row.case_id),
+    getGraph(row.case_id), getDispositions(row.case_id), getAuditTrail(row.case_id),
   ])
   detail.info = info.status === 'fulfilled' ? info.value.data : { 提示: '基本信息加载失败，请重试' }
   detail.signals = signals.status === 'fulfilled' ? asList(signals.value.data) : []
   detail.evidence = evidence.status === 'fulfilled' ? asList(evidence.value.data) : []
   detail.graph = graph.status === 'fulfilled' ? graph.value.data : { nodes: [], links: [] }
+  detail.dispositions = dispositions.status === 'fulfilled' ? asList(dispositions.value.data) : []
   detail.audit = audit.status === 'fulfilled' ? asList(audit.value.data) : []
   detailLoading.value = false
 }
@@ -396,6 +423,7 @@ onUnmounted(() => { clearInterval(tick); clearTimeout(debounce); es && es.close(
 .stage-card :deep(.el-card__body) { padding: 14px 12px 8px; }
 .stage-note { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .next-step :deep(.el-alert__content) { font-size: 13px; }
+.trace { font-family: Consolas, monospace; }
 .review-radios { display: flex; flex-direction: column; gap: 10px; }
 .review-radios .hint { margin-left: 10px; }
 </style>

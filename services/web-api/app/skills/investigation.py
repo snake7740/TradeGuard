@@ -20,7 +20,7 @@ from .mcp_adapters import remember
 
 ACTOR_INV = "agent:AA-AG-03"      # 调查取证 Agent（02 §3）
 ACTOR_INV_AUDIT = "AA-AG-03"
-BR06_BONUS = 30                   # BA-BR-06：2 跳内命中已确认欺诈主体 +30
+BR06_BONUS = 30                   # BA-BR-06：2 跳内命中已确认欺诈主体 +30（缺省值，热键 br-06-fraud-link-bonus）
 VELOCITY_1H_COUNT = 10            # 跑分假设阈值（与 BA-BR-14 同源）
 LARGE_AMOUNT = 5000               # 盗卡假设阈值（单点大额，BA-BR-01 金额线同源）
 
@@ -52,13 +52,21 @@ def match_hypothesis(signals: list[dict], graph_edge_types: set[str]) -> tuple[s
 
 class InvestigationService:
     """调查编排服务：依赖注入 pool（tg_web 读+状态机）、cases（CaseRepository）、
-    core（AA-MCP-01 CoreClient）、pub（事件发布端口）。"""
+    core（AA-MCP-01 CoreClient）、pub（事件发布端口）、config（SC-06 热值，可选）。"""
 
-    def __init__(self, pool, cases, core, pub):
+    def __init__(self, pool, cases, core, pub, config=None):
         self.pool = pool
         self.cases = cases
         self.core = core
         self.pub = pub
+        self.config = config
+
+    def _cfg_int(self, key: str, default: int) -> int:
+        """SC-06 热值读取（与 aggregation/disposition 同构）：缺键/无 config 回落缺省常量"""
+        try:
+            return int(self.config.values[key])
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return default
 
     async def run(self, case_id: str) -> dict:
         async with skill_span("AA-SK-02", "AA-AG-03", case_id):
@@ -100,7 +108,8 @@ class InvestigationService:
             if not citations:
                 kb_note = "无库内匹配"                    # 未命中显式声明（AA-SK-02 步骤 1）
 
-        # 3. BA-BR-06：2 跳内命中已确认欺诈主体（黑名单）→ +30 分（幂等，API-M-13）
+        # 3. BA-BR-06：2 跳内命中已确认欺诈主体（黑名单）→ 加分（幂等，API-M-13）
+        #    加分值走热键 br-06-fraud-link-bonus（SC-06，docs/01 §5 配置位置=Nacos 动态配置）
         black_hit = []
         if len(nodes) > 1:
             rows = await self.pool.fetch(
@@ -109,8 +118,11 @@ class InvestigationService:
                 [n.ljust(64) for n in nodes])
             black_hit = [r["account_hash"].strip() for r in rows]
         if black_hit:
+            bonus = self._cfg_int("br-06-fraud-link-bonus", BR06_BONUS)
+            # basis 串是 API-M-13 幂等标记的 md5 源（mcp-core br06_<md5前8> 打标），
+            # 必须逐字稳定，不得随加分值/措辞漂移（测试以同串复投验证不叠加）
             await self.core.apply_risk_bonus(
-                case_id, BR06_BONUS, "BA-BR-06 关联网络命中黑名单主体")
+                case_id, bonus, "BA-BR-06 关联网络命中黑名单主体")
 
         # 4. 影响面（图内账户数 + 近 24h 涉险金额，AA-SK-02 步骤 3）
         amount = await self.pool.fetchval(

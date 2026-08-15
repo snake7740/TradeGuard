@@ -1,5 +1,5 @@
 <template>
-  <!-- 审批门户（API-W-08/09 消费方，01 §6 风控审批官旅程，SC-02/03/09） -->
+  <!-- 审批门户（API-W-08/09 消费方，01 §6 风控审批官旅程，SC-02/03/09；SSE 事件驱动实时刷新） -->
   <div class="page">
     <div class="page-head">
       <div>
@@ -7,6 +7,9 @@
         <div class="page-desc">高风险处置必须经人工审批。请结合风险评分、涉事主体与证据链审慎决策——批准后系统将立即执行所请求的处置动作，驳回则案件退回人工复核。创建超过 30 分钟未决策的审批单将自动升级并标红。</div>
       </div>
       <div class="page-actions">
+        <el-tooltip content="待决审批单随 SSE 领域事件实时刷新" placement="top">
+          <el-tag size="small" effect="plain" round type="success">实时</el-tag>
+        </el-tooltip>
         <el-button :loading="loading" @click="load">刷新队列</el-button>
       </div>
     </div>
@@ -102,9 +105,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getApprovals, decideApproval, getEvidence } from '../api'
+import { getApprovals, decideApproval, getEvidence, openEventStream } from '../api'
 import { DECISION_META, actionLabel, friendlyError } from '../labels'
 
 const rows = ref([])
@@ -156,10 +159,21 @@ async function openEvidence(row) {
   finally { evidenceLoading.value = false }
 }
 
-onMounted(load)
+// ---- 实时更新：SSE 事件驱动队列刷新（建单/决策/升级事件到达后防抖重载） ----
+let es, debounce
+function onEvent() {
+  clearTimeout(debounce)
+  debounce = setTimeout(load, 1200)
+}
+onMounted(() => {
+  load()
+  es = openEventStream(onEvent)
+})
+onUnmounted(() => { clearTimeout(debounce); es && es.close() })
 </script>
 
 <style scoped>
 .decide-tip :deep(.el-alert__content) { font-size: 13px; }
 .mt12 { margin-top: 12px; }
+.page-actions { display: flex; align-items: center; gap: 10px; }
 </style>

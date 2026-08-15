@@ -1,10 +1,15 @@
 <template>
-  <!-- 知识库管理（API-W-11~13 消费方，01 §6 风控策略管理员旅程，SC-05） -->
+  <!-- 知识库管理（API-W-11~13 消费方，01 §6 风控策略管理员旅程，SC-05；SSE 事件驱动实时刷新） -->
   <div class="page">
     <div class="page-head">
       <div>
         <div class="page-title">知识库管理</div>
         <div class="page-desc">案件结案后，Agent 复盘产出的欺诈手法知识会以「入库申请」形式进入本队列。知识发布仅限人工审核——确认内容准确后发布入库，供后续案件调查检索引用。</div>
+      </div>
+      <div class="page-actions">
+        <el-tooltip content="入库申请随 SSE 领域事件实时刷新" placement="top">
+          <el-tag size="small" effect="plain" round type="success">实时</el-tag>
+        </el-tooltip>
       </div>
     </div>
     <div class="page-body">
@@ -41,9 +46,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getKbApplications, publishKbDocument, rejectKbDocument } from '../api'
+import { getKbApplications, publishKbDocument, rejectKbDocument, openEventStream } from '../api'
 import { KB_STATUS_META, friendlyError } from '../labels'
 
 const statusOptions = [
@@ -92,7 +97,17 @@ async function confirmReject(row) {
   } catch (e) { ElMessage.error(friendlyError(e, '驳回失败')) }
 }
 
-onMounted(load)
+// ---- 实时更新：SSE 事件驱动刷新（案件归档生成入库申请等事件到达后防抖重载） ----
+let es, debounce
+function onEvent() {
+  clearTimeout(debounce)
+  debounce = setTimeout(load, 1200)
+}
+onMounted(() => {
+  load()
+  es = openEventStream(onEvent)
+})
+onUnmounted(() => { clearTimeout(debounce); es && es.close() })
 </script>
 
 <style scoped>

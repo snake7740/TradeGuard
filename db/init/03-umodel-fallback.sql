@@ -1,8 +1,8 @@
 -- UnifiedModel 语义运行时退化路径（04 §2 替换成本列声明：SQL 视图兜底）
 -- 将 03 §3 的 Node/Link 语义模型以视图实现，query_related_graph（API-M-02）直接查 v_graph_edge
--- 复赛接入 UnifiedModel 运行时后，仅需替换 mcp-core 的查询后端，视图保留作对账
+-- 接入 UnifiedModel 运行时后，仅需替换 mcp-core 的查询后端，视图保留作对账
 
--- 边表：主体间关系（SAME_PAYEE / SAME_DEVICE / SAME_IPSEG）
+-- 边表：主体间关系（SAME_PAYEE / SAME_DEVICE / SAME_IPSEG / SAME_CONTACT，03 §3 四类边全落地）
 CREATE OR REPLACE VIEW v_graph_edge AS
 SELECT DISTINCT
   t1.account_hash            AS src_node,
@@ -32,7 +32,16 @@ JOIN transaction t2
   ON host(network(set_masklen(t1.ip, 24))) = host(network(set_masklen(t2.ip, 24)))
  AND t2.account_hash <> t1.account_hash
  AND t1.ip IS NOT NULL
-GROUP BY t1.account_hash, t2.account_hash;
+GROUP BY t1.account_hash, t2.account_hash
+UNION ALL
+-- 第四类边：同联系方式（主体档案属性 DA-T-01 contact_hash，非交易报文携带，权重恒 1）
+SELECT DISTINCT
+  a1.account_hash, a2.account_hash, 'SAME_CONTACT', 1::bigint
+FROM account a1
+JOIN account a2
+  ON a2.contact_hash = a1.contact_hash
+ AND a2.account_hash <> a1.account_hash
+ AND a1.contact_hash IS NOT NULL;
 
 GRANT SELECT ON v_graph_edge TO tg_web, tg_app;
 

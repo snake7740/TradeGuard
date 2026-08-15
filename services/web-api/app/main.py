@@ -80,7 +80,8 @@ async def lifespan(app: FastAPI):
     # AA-SK-02 欺诈调查确定性内核（US-E4-01~03）：图谱/黑名单/证据固化，移交审批
     app.state.investigation = InvestigationService(
         pool=app.state.pool, cases=app.state.cases,
-        core=core, pub=app.state.publisher)
+        core=core, pub=app.state.publisher,
+        config=app.state.config)   # SC-06 阈值热加载（BR-06 加分值）
     # AA-SK-04 核验审计确定性内核（US-E6-01/02）：一致归档/不一致反向处置
     app.state.verification = VerificationService(
         pool=app.state.pool, cases=app.state.cases,

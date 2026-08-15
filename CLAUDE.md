@@ -1,8 +1,8 @@
 # CLAUDE.md — TradeGuard 项目工作指引
 
-TradeGuard · 交易风控中枢：AI 多 Agent 金融风控竞赛作品（方向四），五阶段闭环
+TradeGuard · 交易风控中枢：AI 多 Agent 金融风控系统，五阶段闭环
 「信号聚合 → 根因定位 → 处置执行 → 核验审计 → 知识沉淀」。
-设计文档体系 v1.4.7（docs/00~09），代码已全量落地（Sprint 1-11，十二轮评审留痕）。
+设计文档体系 v1.4.10（docs/00~09），代码已全量落地（Sprint 1-13，十五轮评审留痕）。
 
 ## 目录结构
 
@@ -18,12 +18,13 @@ docs/openapi/tradeguard-openapi.yaml   REST 契约唯一事实来源（22 路径
 db/init/                   SQL：01-schema / 04-invariants（白名单+双守护触发器）/
                            05-approval-extension / 06-closedloop-fix（幂等迁移，新卷旧卷双写一致）
 skills/                    AA-SK-01~05 官方技能可执行定义 + SKILL-DISPATCH 调度矩阵
-scripts/                   demo_playbook / kpi_report / nacos_register / higress_routes / agentteams_doctor / check_pg / data_retention 等
+scripts/                   start_all / demo_playbook / kpi_report / nacos_register / higress_routes / agentteams_doctor / check_pg / data_retention 等
 ```
 
 ## 常用命令（Windows + Git Bash）
 
 ```bash
+.venv/Scripts/python scripts/start_all.py               # 一键启动+数据通路自证（首选）：拉起全栈→真实探活→端到端取证 20 项，全绿 exit 0
 docker compose up -d --build          # 起全栈（postgres/rocketmq/nacos/higress/studio/mcp×2/web×2）
 .venv/Scripts/python -m pytest services/web-api/tests   # 全量回归（169 例，约 6 分钟；需先起栈）
 .venv/Scripts/python scripts/demo_playbook.py           # 演示=测试回放，D1~D3 三剧本，目标 3/3
@@ -67,8 +68,16 @@ docker compose exec postgres psql -U postgres -d tradeguard
   重启后 controller 可能 Exited(127) 不自愈、worker 停 Sleeping、丢组网与容器层 mcporter 配置——
   一律跑 `scripts/agentteams_doctor.py` 幂等体检恢复（拉起→唤醒→组网→注入 MCP 桥→校验 12+3 工具）。
   端口：controller 18001/18080/18088、manager 18888、dashboard 13000（宿主回环）。
+- **Windows Docker Desktop 宿主端口监听者是引擎进程本身**：发布端口由 `com.docker.backend.exe`
+  进程直接 LISTEN，**绝不能 taskkill 清端口**（会杀掉整个引擎，docker CLI 立即失联）——
+  占用清理只能停归属容器或等自然释放。`docker ps` 归属解析需兼容 `0.0.0.0:`（compose）与
+  `127.0.0.1:`（agentteams 回环发布）两种形态。此坑与解法已固化进 `scripts/start_all.py`。
+- **一键启动入口 `scripts/start_all.py`**：无论服务存活/端口占用与否均可重入——引擎不可达自动拉起
+  Docker Desktop→compose down 保卷→逐端口清障（外部进程才 taskkill）→up→逐服务真实探活→
+  数据就位（空库自动重灌）→Higress 重建→AgentTeams 体检→C1~C9+X1 端到端硬证据，20 项全绿 exit 0。
+  `--build` 重建镜像；`--no-agentteams` 跳过协同栈。
 - **KPI 全量口径未达标是诚实结果**：pytest 残留 source=TEST 案件抬升 KPI-03/04；
-  决赛验收以演示口径为准，报告按口径分列判定，不得以演示达标掩盖全量未达标。
+  验收以演示口径为准，报告按口径分列判定，不得以演示达标掩盖全量未达标。
 - asyncpg 单次 executemany 10 万行会在客户端挂死（pg_stat_activity 呈 ClientRead）——大批量插入必须分批。
 - compose 端口：pg 5433、nacos 8848、higress 控制台 8001/网关 HTTP 8180、studio 3000、mcp 8101/8102、web-api 8200(:8000)、portal 8300。
 

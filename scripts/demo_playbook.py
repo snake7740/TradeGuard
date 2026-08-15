@@ -51,7 +51,7 @@ PASS = 0
 
 
 def step(scenario: str, no: int, desc: str, ok: bool, detail: str = ""):
-    """每步断言的可视化留痕（决赛现场口播依据）"""
+    """每步断言的可视化留痕（演示现场口播依据）"""
     global PASS
     mark = "✓" if ok else "✗"
     print(f"  [{scenario}][{no:02d}] {mark} {desc}" + (f" —— {detail}" if detail else ""))

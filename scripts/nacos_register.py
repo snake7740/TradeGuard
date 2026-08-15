@@ -25,9 +25,11 @@ MCP_REGISTRY = {
     "servers": [
         {"id": "AA-MCP-01", "name": "交易风控业务库 MCP", "endpoint": "http://mcp-core:8101/mcp",
          "host_port": "mcp-core:8101", "transport": "streamable-http",
-         "tools": ["query_transactions", "query_related_graph", "execute_disposition",
-                   "query_disposition_result", "submit_kb_application", "query_audit_trail",
-                   "query_case_signals"],
+         # 与在码 12 工具同源（mcp-core/server.py @mcp.tool，编号 API-M-01~12 见 docs/07 §5.2）
+         "tools": ["query_transactions", "query_related_graph", "query_case_signals",
+                   "query_disposition_result", "execute_disposition", "create_approval_request",
+                   "record_case_evidence", "apply_risk_bonus", "record_case_signals",
+                   "submit_kb_application", "record_agent_memory", "query_audit_trail"],
          "policy": "写工具受审批门控（E-DISP-AUTH）；全部调用落审计（BA-BR-09）"},
         {"id": "AA-MCP-02", "name": "外部数据服务 MCP（防腐层）", "endpoint": "http://mcp-external-mock:8102/mcp",
          "host_port": "mcp-external-mock:8102", "transport": "streamable-http",
@@ -67,6 +69,7 @@ THRESHOLDS = {
     "br-01-auto-amount-limit": "5000",
     "br-05-window-days": "7",
     "br-05-case-count": "3",
+    "br-06-fraud-link-bonus": "30",
     "br-08-verification-timeout-min": "10",
     "br-13-approval-timeout-min": "30",
     "br-14-velocity-1h-count": "10",

@@ -89,8 +89,31 @@ export const SEVERITY_META = {
   high: { label: '高风险', desc: '调查→审批→处置→核验全链路，含人工审批环节' },
 }
 
-/** 图谱关系（03-umodel-fallback 边类型） */
-export const EDGE_LABELS = { SAME_PAYEE: '同收款方', SAME_DEVICE: '同设备', SAME_IPSEG: '同 IP 网段' }
+/** 图谱关系（03-umodel-fallback 四类边，03 §3 语义模型同源） */
+export const EDGE_LABELS = {
+  SAME_PAYEE: '同收款方', SAME_DEVICE: '同设备', SAME_IPSEG: '同 IP 网段', SAME_CONTACT: '同联系方式',
+}
+
+/** 动态阈值键含义（SC-06，与 db/init/01-schema.sql 种子、scripts/nacos_register.py THRESHOLDS 三处同源） */
+export const THRESHOLD_LABELS = {
+  'br-01-auto-block-score': '高风险线（自动处置评分线）',
+  'br-01-mid-review-score': '中风险线下限（以下转人工复核分段）',
+  'br-01-auto-amount-limit': '自动处置金额上限（元）',
+  'br-05-window-days': '高频异常观察窗（天）',
+  'br-05-case-count': '窗口内立案次数阈值',
+  'br-06-fraud-link-bonus': '关联网络命中黑名单加分',
+  'br-08-verification-timeout-min': '核验时限（分钟）',
+  'br-13-approval-timeout-min': '审批超时升级阈值（分钟）',
+  'br-14-velocity-1h-count': '1 小时交易频次阈值',
+  'br-14-velocity-24h-count': '24 小时交易频次阈值',
+  'br-14-velocity-bonus': '频次命中加分',
+}
+
+/** 处置记录执行状态（DA-T-06 status 枚举） */
+export const DISP_STATUS_META = {
+  submitted: { label: '已提交', tag: 'info' }, executed: { label: '已执行', tag: 'success' },
+  failed: { label: '执行失败', tag: 'danger' }, rolled_back: { label: '已回滚', tag: 'warning' },
+}
 
 /** 审计动作 → 业务语言（case.transition.* 前缀按事件名二次翻译） */
 const AUDIT_ACTION_LABELS = {

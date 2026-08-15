@@ -20,8 +20,9 @@
 
 1. **结果核验**：`disposition_record.status` 实际状态 == executed 预期（同库直读，tg_web 只读基线）；
 2. **留痕完整性**：audit_log 覆盖 case.register→disposition.submit 最小动作集（TRACE_REQUIRED），缺口即 trace_complete=false；
-3. **分支**：一致 → 审计报告经 API-M-12 落 DA-T-05 → `VerificationPassed` → VERIFIED → `CaseArchived` → ARCHIVED → 复盘提入库申请（AA-SK-05，pending）；
+3. **三分支（诚实语义）**：一致 → 审计报告经 API-M-12 落 DA-T-05 → `VerificationPassed` → VERIFIED → `CaseArchived` → ARCHIVED → 复盘提入库申请（AA-SK-05，pending）；
    不一致 → `VerificationFailed` → ROLLBACK → 反向处置（幂等键 `{case_id}:{action}:rollback`，freeze/block/reduce→release）→ `RollbackExecuted` → MANUAL_REVIEW + verification.p0 审计升级；
+   无凭证 / 反向处置被拒或失败 → `RollbackEscalated` → MANUAL_REVIEW（**不发 `RollbackExecuted`**，语义不撒谎；与 RollbackExecuted 同状态对，白名单零改动）；
 4. **超时守护**：scan_verification_overdue 十分钟未核验审计提醒 + VerificationOverdue 事件（BA-BR-08，web-api lifespan 30s 轮询，NOT EXISTS 幂等）；
 5. **报告**：audit_report 落 DA-T-05（claim 前缀"审计报告："）+ 审计 verification.run（含 trace_id）。
 

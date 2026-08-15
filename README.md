@@ -1,6 +1,6 @@
 # TradeGuard · 交易风控中枢
 
-信用卡/支付交易反欺诈与自动化处置多 Agent 系统（AI 多 Agent 赛事 · 方向四）。
+信用卡/支付交易反欺诈与自动化处置多 Agent 系统。
 
 - 方案文档：[`docs/`](./docs/00-总则.md)（4A 架构 + BDD/TDD + 敏捷拆分 + OpenAPI 契约 + 数据字典 + 社区对标）
 - 机读契约：[`docs/openapi/tradeguard-openapi.yaml`](./docs/openapi/tradeguard-openapi.yaml)
@@ -23,7 +23,7 @@ docker compose run --rm data-generator python generate.py --scale small   # 冒�
 | Higress 控制台 | http://localhost:8001 |
 | AgentScope Studio | http://localhost:3000 |
 
-AgentTeams（必选协同基点）按官方脚本独立部署，见 [`scripts/install-agentteams.md`](./scripts/install-agentteams.md)；安装后控制台 http://localhost:18088（已接入 tradeguard-net）。
+AgentTeams（多 Agent 协同基点）按官方脚本独立部署，见 [`scripts/install-agentteams.md`](./scripts/install-agentteams.md)；安装后控制台 http://localhost:18088（已接入 tradeguard-net）。
 
 ## 目录结构（对应 docs/04 §3 部署拓扑）
 
@@ -46,6 +46,6 @@ AgentTeams（必选协同基点）按官方脚本独立部署，见 [`scripts/in
 
 ## 本地等价与替换声明
 
-- PolarDB-PG → `pgvector/pgvector:pg16`（复赛可平移，docs/04 §2 替换成本列）；
+- PolarDB-PG → `pgvector/pgvector:pg16`（可平滑迁移，docs/04 §2 替换成本列）；
 - UnifiedModel 语义运行时 → SQL 视图退化路径（`fn_related_graph`），接入正式运行时仅换 mcp-core 查询后端；
 - LLM 凭据生产走 Higress 透传，本地 `.env` 仅调试用，勿提交真实 Key。

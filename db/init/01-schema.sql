@@ -198,6 +198,7 @@ INSERT INTO sys_config (key, value) VALUES
   ('br-01-auto-amount-limit', '5000'),     -- 自动处置金额上限
   ('br-05-window-days', '7'),              -- 高频异常观察窗（天）
   ('br-05-case-count', '3'),               -- 窗口内立案次数阈值
+  ('br-06-fraud-link-bonus', '30'),        -- 关联网络命中黑名单加分（BA-BR-06，investigation 消费）
   ('br-08-verification-timeout-min', '10'),-- 核验时限（分钟）
   ('br-13-approval-timeout-min', '30'),    -- 审批时效升级阈值
   ('br-14-velocity-1h-count', '10'),       -- 1 小时频次阈值

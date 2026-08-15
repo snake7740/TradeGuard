@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Sprint 7 场景矩阵：SC-01~SC-11 紧凑 E2E（决赛出口"11/11 场景通过"的单一取证文件）
+"""Sprint 7 场景矩阵：SC-01~SC-11 紧凑 E2E（验收出口"11/11 场景通过"的单一取证文件）
 
 每个 SC 一条测试，聚焦 06 §2 Gherkin 的 Then 核心断言（细分支由专题测试文件
 test_pipeline / test_disposition / test_verification / test_knowledge 承载）。

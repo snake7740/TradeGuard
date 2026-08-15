@@ -1,10 +1,10 @@
 <template>
-  <!-- 审计查询（API-W-10 消费方，01 §6 合规审计员旅程，SC-08） -->
+  <!-- 审计查询（API-W-10 消费方，01 §6 合规审计员旅程，SC-08；SSE 事件驱动实时刷新） -->
   <div class="page">
     <div class="page-head">
       <div>
         <div class="page-title">审计查询</div>
-        <div class="page-desc">输入案件编号回放完整操作审计链：每一步由谁、在何时、基于什么依据做出，全程留痕、不可篡改，满足合规追溯要求。</div>
+        <div class="page-desc">输入案件编号回放完整操作审计链：每一步由谁、在何时、基于什么依据做出（含追踪标识 trace_id），全程留痕、不可篡改，满足合规追溯要求。</div>
       </div>
     </div>
     <div class="page-body">
@@ -25,6 +25,7 @@
           <b>{{ a.actor }}</b>
           <el-tag size="small" class="action">{{ auditActionLabel(a.action) }}</el-tag>
           <div class="detail">依据：{{ a.basis }}</div>
+          <div v-if="a.trace_id" class="detail trace">trace：{{ a.trace_id }}</div>
         </el-timeline-item>
       </el-timeline>
       <el-empty v-else description="该案件暂无审计记录" />
@@ -35,9 +36,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getAuditTrail, getCases } from '../api'
+import { getAuditTrail, getCases, openEventStream } from '../api'
 import { auditActionLabel, statusLabel, friendlyError } from '../labels'
 
 const caseId = ref('')
@@ -47,10 +48,29 @@ const loading = ref(false)
 const records = ref([])
 const recent = ref([])
 
-// 最近案件快捷选择（API-W-02 取最新 10 笔）
-onMounted(async () => {
+// 最近案件快捷选择（API-W-02 取最新 10 笔）+ SSE 事件驱动实时刷新（全页面实时闭环）
+async function refreshRecent() {
   try { recent.value = (await getCases({ page: 1, size: 10 })).data.items } catch { /* 快捷项失败不阻断手工输入 */ }
+}
+let es, debounce
+function onEvent() {
+  clearTimeout(debounce)
+  debounce = setTimeout(async () => {
+    await refreshRecent()
+    // 已回放的案件若仍有未结留痕（如案件仍在流转），静默刷新审计链
+    if (queried.value && queriedCaseId.value) {
+      try {
+        const d = (await getAuditTrail(queriedCaseId.value)).data
+        records.value = Array.isArray(d) ? d : d?.items || []
+      } catch { /* 刷新失败保留上次结果 */ }
+    }
+  }, 1200)
+}
+onMounted(() => {
+  refreshRecent()
+  es = openEventStream(onEvent)
 })
+onUnmounted(() => { clearTimeout(debounce); es && es.close() })
 
 async function query() {
   const id = caseId.value.trim()
@@ -69,4 +89,5 @@ async function query() {
 .result { margin-top: 16px; }
 .action { margin-left: 8px; }
 .detail { color: var(--tg-text-sub); font-size: 13px; margin-top: 4px; }
+.detail.trace { font-family: Consolas, monospace; }
 </style>

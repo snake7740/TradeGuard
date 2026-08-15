@@ -1,10 +1,10 @@
 <template>
-  <!-- 可观测面板（API-W-14/20 消费方，运维与开发排障视图，US-E7-03/04） -->
+  <!-- 可观测面板（API-W-14/16/20 消费方，运维与开发排障视图，US-E7-03/04） -->
   <div class="page">
     <div class="page-head">
       <div>
         <div class="page-title">可观测面板</div>
-        <div class="page-desc">系统运行状态观测：实时事件流展示案件在风控闭环中的流转，Trace 回放展示各技能环节的执行耗时，外部组件入口供运维排障。本页面面向运维与开发人员。</div>
+        <div class="page-desc">系统运行状态观测：实时事件流展示案件在风控闭环中的流转，Trace 回放展示各技能环节的执行耗时，动态阈值配置展示 SC-06 热加载现值与来源，外部组件入口供运维排障。本页面面向运维与开发人员。</div>
       </div>
     </div>
     <el-row :gutter="12">
@@ -34,8 +34,28 @@
         </el-card>
       </el-col>
     </el-row>
+    <!-- 动态阈值配置（API-W-16）：SC-06 Nacos 5s 热快照现值；source 字段暴露权威源/降级来源 -->
+    <el-card class="mt12">
+      <template #header>
+        <div class="th-head">
+          <span>动态阈值配置（SC-06 热加载，变更不重启生效）</span>
+          <el-tag v-if="thresholds" size="small" effect="plain" round
+            :type="thresholds.source === 'nacos' ? 'success' : 'warning'">
+            {{ thresholds.source === 'nacos' ? '来源：Nacos 权威源' : '来源：sys_config 降级' }}
+          </el-tag>
+          <span v-if="thresholds?.updated_at" class="hint">加载于 {{ fmtIso(thresholds.updated_at) }}</span>
+          <el-button size="small" :loading="thLoading" @click="loadThresholds" style="margin-left:auto">刷新</el-button>
+        </div>
+      </template>
+      <el-table :data="thRows" v-loading="thLoading" size="small" stripe
+        empty-text="暂无阈值数据（Nacos 与 sys_config 均不可达时才会出现）">
+        <el-table-column prop="key" label="配置键" width="260" show-overflow-tooltip />
+        <el-table-column prop="label" label="业务含义" show-overflow-tooltip />
+        <el-table-column prop="value" label="当前值" width="120" />
+      </el-table>
+    </el-card>
     <!-- Trace 回放：GET /api/observability/traces，按案件编号查询技能执行 span -->
-    <el-card header="技能执行 Trace 回放">
+    <el-card header="技能执行 Trace 回放" class="mt12">
       <el-space class="toolbar">
         <el-input v-model="traceCaseId" placeholder="输入案件编号" clearable
           style="width:260px" @keyup.enter="loadTraces" />
@@ -64,10 +84,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { openEventStream, getTraces } from '../api'
-import { eventLabel, friendlyError } from '../labels'
+import { openEventStream, getTraces, getThresholds } from '../api'
+import { eventLabel, friendlyError, THRESHOLD_LABELS } from '../labels'
 
 // ---- 外链可达性探测：no-cors fetch，服务端有响应即视为可达（连接拒绝/超时=不可达） ----
 // 外链文案如实标注数据连通状态：Studio/Nacos 已真实打通；Higress 已承载门户业务流量（04 §5）
@@ -88,12 +108,29 @@ const messages = ref([])
 let es
 onMounted(() => {
   extLinks.forEach(probe)
+  loadThresholds()
   es = openEventStream((d) => {
     messages.value.unshift({ ...d, time: new Date().toLocaleTimeString() })
     if (messages.value.length > 20) messages.value.pop()
   })
 })
 onUnmounted(() => es && es.close())
+
+// ---- 动态阈值配置（API-W-16）：快照 {source, updated_at, values} ----
+const thresholds = ref(null)
+const thLoading = ref(false)
+const thRows = computed(() => {
+  const values = thresholds.value?.values || {}
+  return Object.entries(values)
+    .map(([key, value]) => ({ key, value, label: THRESHOLD_LABELS[key] || key }))
+    .sort((a, b) => a.key.localeCompare(b.key))
+})
+const fmtIso = (v) => { try { return new Date(v).toLocaleString() } catch { return v } }
+async function loadThresholds() {
+  thLoading.value = true
+  try { thresholds.value = (await getThresholds()).data }
+  catch (e) { ElMessage.error(friendlyError(e, '阈值查询失败')) } finally { thLoading.value = false }
+}
 
 // ---- Trace 回放 ----
 const fmtTs = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : '-')
@@ -121,4 +158,6 @@ async function loadTraces() {
 .ext-row { display: flex; align-items: center; justify-content: space-between; }
 .ext-link .hint { margin-top: 3px; }
 .toolbar { margin-bottom: 12px; }
+.mt12 { margin-top: 12px; }
+.th-head { display: flex; align-items: center; gap: 10px; }
 </style>

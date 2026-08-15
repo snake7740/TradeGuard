@@ -5,13 +5,6 @@
         <span class="logo-mark">TG</span>
         <span class="logo-text">TradeGuard<small>交易风控中枢</small></span>
       </div>
-      <div class="switcher">
-        <div class="switcher-label">当前角色</div>
-        <el-select v-model="role" size="small" @change="onRoleChange">
-          <el-option v-for="r in ROLES" :key="r" :value="r" :label="r" />
-        </el-select>
-        <div class="switcher-tip">四个角色对应风控闭环中值班、审批、审计、知识管理四个环节，切换以体验不同岗位视角</div>
-      </div>
       <el-menu :default-active="$route.path" router class="side-menu"
         background-color="transparent" text-color="#b6c2d9" active-text-color="#ffffff">
         <el-menu-item v-for="m in visibleMenus" :key="m.path" :index="m.path">
@@ -24,7 +17,13 @@
       <el-header class="topbar">
         <div class="topbar-title">{{ $route.meta.title || 'TradeGuard' }}</div>
         <div class="topbar-right">
-          <el-tag effect="plain" round>{{ role }}</el-tag>
+          <!-- 顶栏角色一键切换（localStorage 承载 + 路由白名单守卫，01 §6） -->
+          <el-tooltip placement="bottom"
+            content="四个角色对应风控闭环中值班、审批、审计、知识管理四个环节，切换以体验不同岗位视角">
+            <el-select v-model="role" size="small" class="role-select" @change="onRoleChange">
+              <el-option v-for="r in ROLES" :key="r" :value="r" :label="r" />
+            </el-select>
+          </el-tooltip>
           <!-- 中间件健康探针（API-W-15，10s 轮询）：DEGRADED 时悬停可见故障组件 -->
           <el-tooltip placement="bottom" :content="healthTip">
             <span class="health">
@@ -106,19 +105,6 @@ onUnmounted(() => clearInterval(timer))
 .logo-text { font-weight: 700; font-size: 16px; line-height: 1.2; display: flex; flex-direction: column; }
 .logo-text small { font-weight: 400; font-size: 11px; color: #8fa0c2; margin-top: 2px; }
 
-.switcher { padding: 4px 16px 14px; }
-.switcher-label { font-size: 11px; color: #8fa0c2; margin-bottom: 6px; }
-.switcher-tip { font-size: 11px; color: #64748f; line-height: 1.5; margin-top: 8px; }
-.sidebar .el-select .el-input__wrapper {
-  background: rgba(255, 255, 255, 0.08); box-shadow: none;
-}
-.sidebar .el-select .el-input__wrapper:hover,
-.sidebar .el-select .el-input__wrapper.is-focus {
-  background: rgba(255, 255, 255, 0.14);
-}
-.sidebar .el-select .el-input__inner { color: #fff; }
-.sidebar .el-select .el-select__caret { color: #b6c2d9; }
-
 /* 菜单项：圆角块状，激活态品牌色填充 */
 .side-menu { border-right: none; padding: 0 12px; flex: 1; }
 .side-menu .el-menu-item {
@@ -139,6 +125,7 @@ onUnmounted(() => clearInterval(timer))
 }
 .topbar-title { font-size: 16px; font-weight: 700; color: var(--tg-text-main); }
 .topbar-right { display: flex; align-items: center; gap: 14px; }
+.role-select { width: 158px; }
 .health { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--tg-text-sub); }
 .health .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .health .dot.up { background: #52c41a; box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.15); }

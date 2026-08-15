@@ -1,6 +1,6 @@
-# TradeGuard Agent Skills（官方技能库，赛题 2.1 必选）
+# TradeGuard Agent Skills（官方技能库，9 属性规范）
 
-本目录是 [02 §4 Skill 清单](../docs/02-应用架构AA.md#4-skill-清单赛题-21-必选9-属性全量) 的落地产物：
+本目录是 [02 §4 Skill 清单](../docs/02-应用架构AA.md#4-skill-清单9-属性全量) 的落地产物：
 5 个官方 Agent 技能的可执行定义，供 AgentTeams Worker（AA-AG-02~05）加载执行，
 元数据经 `scripts/nacos_register.py` 注册到 Nacos Skills Registry（TA-C-05，US-E1-03）。
 

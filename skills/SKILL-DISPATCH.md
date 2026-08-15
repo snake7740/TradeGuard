@@ -16,14 +16,14 @@ Review 必须过五道元 skill 门控**（防止多 Agent 协作幻觉叠加）
 | Docker/编排/镜像 | docker、devops-deploy | S1（重建镜像）、S7 |
 | 数据管道（合成数据/velocity） | data-pipeline、analytics-data-analysis | S2 |
 | 演示剧本与评估 | analytics-data-analysis、summarize | S7 |
-| Word/PDF 交付物（如需） | docx、pdf | 决赛材料 |
+| Word/PDF 交付物（如需） | docx、pdf | 交付材料 |
 
 ## 2. 每 Sprint Review 必过五道元 skill 门控
 
 | 元 skill | 评审问题 |
 |---|---|
 | ao-essence-injector | 完成是否有证据（命令输出/测试结果）？是否存在无依据声称？ |
-| meta-cognitive-evolution | 本 Sprint 产出是否服务全局业务闭环（M1→M3→决赛）？ |
+| meta-cognitive-evolution | 本 Sprint 产出是否服务全局业务闭环（M1→M3→验收）？ |
 | engineering-first-principles | 五问门控：需求/边界/证据/回滚/幻觉检测是否全部有答案？ |
 | engineering-problem-solving | 是否减法优先（复用 Sprint 0 模板而非新写）？改动是否外科手术式？ |
 | engineering-execution-protocol | P0 中断恢复模板是否可用？执行模式（独立/受编排）是否声明？ |
