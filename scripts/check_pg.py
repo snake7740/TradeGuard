@@ -6,6 +6,8 @@ import os
 import asyncpg
 
 PORT = os.getenv("PGPORT", "5433")
+if not PORT.isdigit():      # R-37：外部可控输入塑形校验，拒绝拼进 DSN
+    raise SystemExit(f"PGPORT 非法：{PORT!r}（应为数字，compose 宿主映射缺省 5433）")
 
 
 async def t():

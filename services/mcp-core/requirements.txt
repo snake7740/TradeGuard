@@ -1,2 +1,7 @@
-mcp==1.9.4
+# R-37：mcp≥1.23.0 修复 CVE-2025-66416（DNS rebinding 攻击面）
+mcp==1.29.0
 asyncpg==0.30.0
+# R-37 复审收口：starlette 显式钉版——mcp streamable-http 传输层基座，
+# 此前随 pip 解析漂移；钉 1.6.0 对齐 starlette CVE 全修复线（含
+# CVE-2026-48710 Host 污染、DoS 两枚），供应链可复现
+starlette==1.6.0

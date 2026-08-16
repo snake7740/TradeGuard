@@ -7,13 +7,16 @@
 
 启动顺序（含依赖）：
   0 预检：docker 引擎不可达时自动拉起 Docker Desktop 并等待就绪
+  0.5 凭证自举（R-37）：.env 缺失/含 CHANGE_ME → 按 .env.example 格式自动生成
+    随机强凭据（gitignore 排除，克隆后零手工配置即可启动）
   1 docker compose down（释放 compose 占用的端口，保留数据卷）
-  2 清端口：外部进程占用 → taskkill；Docker 自身端口代理占用 →
-    停掉归属容器释放（Windows Docker Desktop 的端口监听者是引擎进程，
-    绝不能 taskkill，否则整个引擎消失）；合法归属者保留
+  2 清端口：外部进程占用 → taskkill（杀前二次复核映像名防误杀）；Docker 引擎
+    家族（含 vpnkit/wsl 端口代理）占用 → 停掉归属容器释放（Windows Docker
+    Desktop 的端口监听者是引擎进程，绝不能 taskkill）；合法归属者保留
   3 docker compose up -d [--build]（数据层→总线→治理→观测→自研服务）
   4 逐个服务真实探活（HTTP/TCP 探针，不是只看容器状态）
-  5 数据就位（DB 为空 → data-generator 重灌 + nacos_register 播种阈值）
+  5 数据就位（DB 为空 → 优先恢复仓库内 db/export 导出，缺导出回退
+    data-generator 合成；nacos_register 播种元数据/阈值，恒定执行且校验退出码）
   6 Higress 路由重建（scripts/higress_routes.py，down -v 清卷后必备）
   7 AgentTeams 体检恢复（scripts/agentteams_doctor.py：拉起/唤醒/组网/MCP 桥）
   8 真实数据通路验证（C1~C9 核心：健康/网关/门户/阈值/立案→DISPOSED 自动闭环/
@@ -29,10 +32,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import gzip
 import hashlib
 import os
 import random
 import re
+import secrets as _secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -113,6 +120,55 @@ def ensure_docker_engine(timeout: float = 180):
     raise RuntimeError("Docker Desktop 启动超时（180s），请人工检查")
 
 
+# ---------------------------------------------------------------- 凭证自举（R-37）
+ENV_FILE = ROOT / ".env"
+ENV_EXAMPLE = ROOT / ".env.example"
+EXPORT_DUMP = ROOT / "db" / "export" / "tradeguard-data.sql.gz"
+
+
+def _gen_env_values() -> dict[str, str]:
+    """CHANGE_ME 占位符 → 随机强凭据（每次生成都不同，gitignore 排除不外泄）"""
+    return {
+        # 网关 API 令牌：64 位十六进制
+        "TG_API_TOKEN": _secrets.token_hex(32),
+        # Nacos 服务端互信头值
+        "NACOS_AUTH_IDENTITY_VALUE": _secrets.token_hex(16),
+        # Nacos AUTH_TOKEN 要求 base64（底层密钥 ≥32 字符）
+        "NACOS_AUTH_TOKEN": base64.b64encode(_secrets.token_bytes(36)).decode(),
+    }
+
+
+def ensure_dotenv():
+    """凭证自举（R-37 凭据治理）：
+    - .env 不存在 → 以 .env.example 为模板生成，CHANGE_ME 占位替换为随机强凭据；
+    - .env 存在但仍有 CHANGE_ME → 仅替换占位行，其余用户已填值原样保留；
+    - 生成/补全后将键值 setdefault 进进程环境（宿主侧 headers()/子脚本可直接读）。
+    克隆仓库后零手工配置即可启动；真实值只落在被 gitignore 的 .env 中。"""
+    generated = False
+    if not ENV_FILE.exists():
+        if not ENV_EXAMPLE.exists():
+            raise RuntimeError("缺少 .env.example 模板，无法生成 .env（R-37）")
+        ENV_FILE.write_text(ENV_EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+        generated = True
+    text = ENV_FILE.read_text(encoding="utf-8")
+    if "CHANGE_ME" in text:
+        for key, val in _gen_env_values().items():
+            text = re.sub(rf"^{re.escape(key)}=CHANGE_ME$", f"{key}={val}",
+                          text, flags=re.MULTILINE)
+        ENV_FILE.write_text(text, encoding="utf-8")
+        note("凭证", ".env 占位符已替换为随机强凭据" + ("（首次生成）" if generated else ""))
+    elif generated:
+        note("凭证", ".env 已生成")
+    # 装载进进程环境（setdefault：不覆盖用户显式导出的值）
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if v.strip() and v.strip() != "CHANGE_ME":
+            os.environ.setdefault(k.strip(), v.strip())
+
+
 # ---------------------------------------------------------------- 端口清理
 def listening_pids(port: int) -> set[int]:
     """netstat 解析：返回监听指定端口的 PID 集合（Windows）"""
@@ -162,9 +218,19 @@ def _wait_port_free(port: int, timeout: float = 20) -> bool:
     return False
 
 
+# R-37：Docker 引擎家族映像名特征（com.docker.backend / vpnkit / wsl 均为端口
+# 代理或引擎组件，taskkill 任何一个都会导致引擎失联——匹配即走"杀容器/等待"路径）
+ENGINE_FAMILY = ("docker", "vpnkit", "wsl", "hyperkit")
+
+
+def _is_engine_process(img: str) -> bool:
+    return bool(img) and any(k in img for k in ENGINE_FAMILY)
+
+
 def free_ports(all_ports: dict[int, str], is_agentteams_phase: bool):
-    """释放必用端口。铁律：Docker 引擎进程（com.docker.backend 等）是端口代理，
-    绝不能 taskkill（杀之整个引擎消失）——改为停掉归属容器或等待其自然释放。"""
+    """释放必用端口。铁律：Docker 引擎家族进程（com.docker.backend/vpnkit/wsl 等）
+    是端口代理，绝不能 taskkill（杀之整个引擎消失）——改为停掉归属容器或等待其
+    自然释放。外部进程杀前二次复核映像名，防 PID 复用误杀（R-37）。"""
     owned = docker_published_ports()
     for port, who in all_ports.items():
         pids = listening_pids(port) - {0, 4}
@@ -174,7 +240,7 @@ def free_ports(all_ports: dict[int, str], is_agentteams_phase: bool):
         for pid in pids:
             img = pid_image(pid)
             owner = owned.get(port, "")
-            if "docker" in img:
+            if _is_engine_process(img):
                 if owner.startswith("agentteams-worker-") or (
                         not is_agentteams_phase and owner):
                     # Worker 随机宿主端口撞线 / compose 阶段残留归属容器：
@@ -195,7 +261,18 @@ def free_ports(all_ports: dict[int, str], is_agentteams_phase: bool):
                         raise RuntimeError(f":{port} 被 Docker 残留占用无法释放，"
                                            "建议重启 Docker Desktop 后重试")
             else:
-                note("端口", f":{port}({who}) 被外部进程 {img} PID={pid} 占用 → taskkill")
+                # R-37：杀前二次复核——PID 可能已被复用为引擎/系统进程；
+                # 复核结果落入引擎家族或读取失败 → 拒绝 taskkill，改等自然释放
+                img_recheck = pid_image(pid)
+                if _is_engine_process(img_recheck) or not img_recheck:
+                    note("端口", f":{port}({who}) PID={pid} 复核为 {img_recheck or '不可读'}，"
+                                 "判定引擎/未知进程禁止 taskkill，等待释放……")
+                    acted = True
+                    if not _wait_port_free(port):
+                        raise RuntimeError(
+                            f":{port}({who}) 被 {img_recheck or '未知进程'} 占用无法释放")
+                    break
+                note("端口", f":{port}({who}) 被外部进程 {img_recheck} PID={pid} 占用 → taskkill")
                 subprocess.run(["taskkill", "/F", "/PID", str(pid)],
                                capture_output=True, text=True,
                                encoding="utf-8", errors="replace")
@@ -272,19 +349,56 @@ def db_count(table: str) -> int:
         return -1
 
 
+def restore_from_export() -> bool:
+    """空库 → 从仓库内数据导出（db/export/tradeguard-data.sql.gz）恢复全量数据，
+    使克隆/复制的项目无需重新合成即可完整启动。导出缺失返回 False，调用方回退
+    data-generator 合成路径。恢复前先 TRUNCATE public 全表（幂等，超级用户执行）。"""
+    if not EXPORT_DUMP.exists():
+        note("数据", f"未见导出 {EXPORT_DUMP.relative_to(ROOT)}，走 data-generator 合成")
+        return False
+    note("数据", f"DB 为空 → 从 {EXPORT_DUMP.relative_to(ROOT)} 恢复（克隆即完整启动）")
+    trunc = ("DO $$ DECLARE stmt text; BEGIN "
+             "SELECT 'TRUNCATE ' || string_agg(format('%I', tablename), ', ') || ' CASCADE' "
+             "INTO stmt FROM pg_tables WHERE schemaname='public'; "
+             "IF stmt IS NOT NULL THEN EXECUTE stmt; END IF; END $$;")
+    sh(["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "postgres",
+        "-d", "tradeguard", "-v", "ON_ERROR_STOP=1", "-c", trunc])
+    # R-37 复审收口：--single-transaction 整体原子恢复——中途失败则全量回滚，
+    # 杜绝"前半表已灌入、后半失败"的部分库被下次启动门禁误判为健康
+    proc = subprocess.Popen(
+        ["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "postgres",
+         "-d", "tradeguard", "-v", "ON_ERROR_STOP=1", "--single-transaction", "-q"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=ROOT)
+    with gzip.open(EXPORT_DUMP, "rb") as f:
+        shutil.copyfileobj(f, proc.stdin)
+    proc.stdin.close()
+    _, err = proc.communicate(timeout=600)
+    if proc.returncode != 0:
+        raise RuntimeError("导出恢复失败：" + err.decode("utf-8", "replace")[-500:])
+    return True
+
+
 def ensure_data():
     txs = db_count("transaction")
     accts = db_count("account")
     if txs > 0 and accts > 0:
         note("数据", f"已有数据（account={accts}, transaction={txs}），跳过重灌")
         record("业务数据就位", True, f"account={accts}, transaction={txs}")
-        return
-    note("数据", "DB 为空 → data-generator 重灌（约 2 分钟）+ nacos_register 播种阈值")
-    sh(["docker", "compose", "run", "--rm", "data-generator"], timeout=600)
-    subprocess.run([PY, str(ROOT / "scripts" / "nacos_register.py")],
-                   capture_output=True, text=True, encoding="utf-8", errors="replace")
-    txs2 = db_count("transaction")
-    record("业务数据就位", txs2 > 0, f"重灌后 transaction={txs2}")
+    else:
+        note("数据", "DB 为空 → 优先恢复仓库导出，缺导出回退 data-generator 合成（约 2 分钟）")
+        if not restore_from_export():
+            sh(["docker", "compose", "run", "--rm", "data-generator"], timeout=600)
+        txs2 = db_count("transaction")
+        record("业务数据就位", txs2 > 0, f"恢复/重灌后 transaction={txs2}")
+    # R-37：nacos_register 恒定执行——nacos 容器因凭据轮换/配置变更重建后其
+    # 容器层配置即丢失，仅"空库时播种"会在换凭据后漏种；退出码显式校验（P3-4）
+    r = subprocess.run([PY, str(ROOT / "scripts" / "nacos_register.py")],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+    record("Nacos 元数据/阈值播种", r.returncode == 0, (tail or ["无输出"])[-1][:80])
+    if r.returncode != 0:
+        raise RuntimeError("nacos_register 播种失败：\n"
+                           + ((r.stdout or "") + (r.stderr or ""))[-800:])
 
 
 # ---------------------------------------------------------------- 数据通路验证
@@ -342,7 +456,8 @@ async def verify_data_path():
             # C5 Nacos 阈值经 web-api 快照可读（SC-06 接线证据）
             r = await c.get(f"{API}/api/config/thresholds")
             record("C5 Nacos 阈值快照可读", r.status_code == 200,
-                   f"keys={len(r.json()) if r.status_code == 200 else 'n/a'}")
+                   f"keys={len(r.json().get('values', {})) if r.status_code == 200 else 'n/a'},"
+                   f" source={r.json().get('source') if r.status_code == 200 else 'n/a'}")
             # C6~C9 端到端立案→自动闭环（复刻 D1）
             subject = find_clean_subject()
             now = datetime.now(timezone.utc)
@@ -411,6 +526,10 @@ def main():
         # 0 预检
         ensure_docker_engine()
         sh(["docker", "compose", "version"], timeout=30)
+
+        # 0.5 凭证自举（R-37）：compose up 读取 .env，必须先行；宿主侧验证
+        # （headers()/C1~C9）也依赖其中的 TG_API_TOKEN
+        ensure_dotenv()
 
         # 1 down（释放 compose 端口，保留数据卷）
         note("启动", "docker compose down（保留数据卷，释放端口）……")

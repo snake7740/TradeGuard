@@ -243,7 +243,7 @@ class DispositionService:
 
     async def review_confirm(self, case_id: str, operator: str, comment: str = "",
                              escalated: bool = False) -> dict:
-        """复核确认自动建单（US-E4-05，API-W-07 block/escalate 分支）：
+        """复核确认自动建单（US-E5-04，API-W-07 block/escalate 分支）：
         ReviewConfirmed（human_only）→ 建处置审批工单（API-M-11）→ 返回工单号。
         escalate 升级建单：审计 basis 与 context_json 额外标记 escalated=true。
         定性仍须人工审批（02 §3.3 人机边界），本方法只建工单不执行处置。"""
@@ -257,7 +257,7 @@ class DispositionService:
             case_id, CaseEvent.REVIEW_CONFIRMED, operator, case["version"], basis=basis)
         appr = await self.core.create_approval_request(
             case_id, "freeze", None,
-            reason=f"人工复核确认欺诈（{operator}）：{comment}（US-E4-05，BA-BR-01）")
+            reason=f"人工复核确认欺诈（{operator}）：{comment}（US-E5-04，BA-BR-01）")
         await self.pool.execute(
             "UPDATE approval_record SET opinion=$2 WHERE approval_id=$1",
             appr["approval_id"], comment or "复核确认转审批")
@@ -298,13 +298,16 @@ class DispositionService:
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                    VALUES ($1, $2, 'approval.decide', $3, $4, $5)""",
                 uuid.uuid4().hex, approver, approval_id,
-                f"case={case_id},decision={decision},opinion={opinion}", trace_id)
+                # R-37 复审收口：截断对齐 audit_log.basis varchar(300)；完整 opinion
+                # 已由 approval_record.opinion varchar(500) 同事务留存，审计不丢要件
+                f"case={case_id},decision={decision},opinion={opinion}"[:300], trace_id)
 
     async def _audit(self, case_id: str, action: str, basis: str, trace_id: str):
         await self.pool.execute(
             """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                VALUES ($1, $2, $3, $4, $5, $6)""",
-            uuid.uuid4().hex, ACTOR_DISP_AUDIT, action, case_id, basis, trace_id)
+            # R-37 复审收口：basis 截断对齐 varchar(300)，防超长值击穿事务
+            uuid.uuid4().hex, ACTOR_DISP_AUDIT, action, case_id, basis[:300], trace_id)
 
 
 async def scan_pending_escalations(pool, pub, minutes: int = ESCALATION_MINUTES) -> list[dict]:

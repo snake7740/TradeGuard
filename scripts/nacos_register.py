@@ -5,18 +5,43 @@ Nacos v3 admin Open API（v1/v2 端点已在 v3.2 镜像移除）：
 - 实例：POST /nacos/v3/admin/ns/instance（best-effort，失败不阻断）
 鉴权：serverIdentity 服务端互信头（compose NACOS_AUTH_IDENTITY_KEY/VALUE 同源）。
 
+鉴权凭据来源（R-37）：进程环境变量 → 仓库根 .env（gitignore，start_all 自动生成），
+不再有代码内缺省值（原缺省即公开仓库可见凭据）；缺失时报错退出。
+
 用法：python scripts/nacos_register.py [--addr http://localhost:8848]
 """
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-IDENTITY_KEY = "serverIdentity"
-IDENTITY_VALUE = "tradeguard_dev"
 GROUP = "TRADEGUARD"
+IDENTITY_KEY: str | None = None
+IDENTITY_VALUE: str | None = None
+
+
+def load_identity() -> tuple[str, str]:
+    """互信头装载：进程 env → 仓库根 .env → 报错退出（R-37：无代码内缺省凭据）"""
+    key = os.getenv("NACOS_AUTH_IDENTITY_KEY")
+    val = os.getenv("NACOS_AUTH_IDENTITY_VALUE")
+    if not val or val == "CHANGE_ME":
+        env_file = Path(__file__).resolve().parent.parent / ".env"
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("NACOS_AUTH_IDENTITY_KEY="):
+                    key = line.split("=", 1)[1].strip()
+                elif line.startswith("NACOS_AUTH_IDENTITY_VALUE="):
+                    val = line.split("=", 1)[1].strip()
+    if not val or val == "CHANGE_ME":
+        print("[config] 错误：NACOS_AUTH_IDENTITY_VALUE 缺失（进程环境或仓库根 .env 均未配置）。\n"
+              "  克隆后请先运行 scripts/start_all.py 自动生成 .env 凭据（R-37）。", file=sys.stderr)
+        sys.exit(1)
+    return key or "serverIdentity", val
 
 # ---------- 注册内容（元数据权威源：docs/02 §4/§5，skills/*.md） ----------
 
@@ -78,9 +103,14 @@ THRESHOLDS = {
 }
 
 
-def fetch_config(addr: str, data_id: str) -> dict | None:
+def fetch_config(addr: str, data_id: str) -> dict:
     """读现值（D4）：仅缺键补默认，防重跑覆盖 PUT /api/config/thresholds 改过的值。
-    注意执行顺序——本脚本只应在首次部署/补键时运行；演示改阈值一律走 PUT 端点。"""
+    注意执行顺序——本脚本只应在首次部署/补键时运行；演示改阈值一律走 PUT 端点。
+
+    R-37 失败语义修正：网络/鉴权异常 → 抛错中止（此前吞异常返回空 dict，
+    重跑时 {**THRESHOLDS, **existing} 会以缺省集整体覆盖 PUT 改过的现值）；
+    配置确实不存在（HTTP 404 或 code!=0：首次部署/容器重建后配置层清空）
+    → 返回 {} 属正常播种路径。"""
     qs = urllib.parse.urlencode({"dataId": data_id, "groupName": GROUP,
                                  "namespaceId": "public"})
     req = urllib.request.Request(f"{addr}/nacos/v3/admin/cs/config?{qs}",
@@ -88,11 +118,26 @@ def fetch_config(addr: str, data_id: str) -> dict | None:
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             body = json.loads(resp.read().decode())
-        if body.get("code") == 0:
-            return json.loads(body["data"]["content"])
-    except Exception:
-        pass
-    return None
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {}   # 配置不存在（首次部署 / 容器重建），允许全量播种
+        raise RuntimeError(
+            f"Nacos 读取 {data_id} 失败：HTTP {e.code}（{e.read().decode('utf-8', 'replace')[:120]}）"
+            "——拒绝继续写回，防止鉴权/权限异常被误判为'空配置'而覆盖现值（R-37）") from e
+    except Exception as e:
+        raise RuntimeError(
+            f"Nacos 读取 {data_id} 失败（{type(e).__name__}: {str(e)[:120]}）——"
+            "拒绝继续写回，防止网络异常被误判为'空配置'而覆盖现值（R-37）") from e
+    if body.get("code") != 0:
+        return {}   # 配置不存在（首次部署），允许全量播种
+    try:
+        content = json.loads(body["data"]["content"])
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return {}   # content 缺失/非 JSON：按空配置处理（后续写回会重建合法文档）
+    if not isinstance(content, dict):
+        raise RuntimeError(f"Nacos {data_id} content 非对象（{type(content).__name__}），"
+                           "拒绝合并写回以防破坏现值（R-37）")
+    return content
 
 SERVICE_INSTANCES = [
     {"serviceName": "web-api", "ip": "web-api", "port": 8000},
@@ -133,17 +178,29 @@ def register_instance(addr: str, inst: dict) -> bool:
 
 
 def main() -> int:
+    global IDENTITY_KEY, IDENTITY_VALUE
     ap = argparse.ArgumentParser()
     ap.add_argument("--addr", default="http://localhost:8848")
     args = ap.parse_args()
+    IDENTITY_KEY, IDENTITY_VALUE = load_identity()   # R-37：凭据缺失直接退出
 
     # 阈值发放前读现值：仅缺键补默认，已有键（含 PUT 改过的）一律保留（D4）
-    existing = fetch_config(args.addr, "ba-br-thresholds") or {}
-    thresholds = {**THRESHOLDS, **{k: str(v) for k, v in existing.items()}}
-    filled = sorted(set(thresholds) - set(existing))
+    try:
+        existing = fetch_config(args.addr, "ba-br-thresholds")
+    except RuntimeError as e:
+        print(f"[config] 中止：{e}", file=sys.stderr)
+        return 1
+    # R-37：只接纳标量现值（dict/list 等结构值 str() 后会污染阈值文档）
+    scalar_existing = {k: v for k, v in existing.items()
+                       if isinstance(v, (str, int, float, bool))}
+    skipped = sorted(set(existing) - set(scalar_existing))
+    if skipped:
+        print(f"[config] 忽略非标量现值键: {', '.join(skipped)}（R-37）")
+    thresholds = {**THRESHOLDS, **{k: str(v) for k, v in scalar_existing.items()}}
+    filled = sorted(set(thresholds) - set(scalar_existing))
     if filled:
         print(f"[config] ba-br-thresholds 补键: {', '.join(filled)}")
-    elif existing:
+    elif scalar_existing:
         print("[config] ba-br-thresholds 现值完整，不覆盖任何已有键")
 
     ok = all([

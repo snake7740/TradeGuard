@@ -9,6 +9,8 @@ if [ ! -f /tmp/ds.env ]; then
   echo "缺少 /tmp/ds.env：先执行 docker cp secrets/dashscope.env tradeguard-as-studio-1:/tmp/ds.env" >&2
   exit 1
 fi
+# 安全加固：真实 Key 只在执行窗口内存在，脚本退出（含异常）即清理落盘文件
+trap 'rm -f /tmp/ds.env' EXIT
 . /tmp/ds.env
 if [ -z "$DASHSCOPE_API_KEY" ]; then
   echo "/tmp/ds.env 未包含 DASHSCOPE_API_KEY" >&2

@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 class AlertIn(BaseModel):
     """API-W-01 告警受理入参"""
-    subject_ref: str = Field(..., description="事件主体（account_hash 或 tx_id）")
+    # R-37 复审收口：max_length 对齐 risk_case.subject_ref varchar(64)，超长入口拒绝防截断 500
+    subject_ref: str = Field(..., max_length=64, description="事件主体（account_hash 或 tx_id）")
     source_type: str = Field("demo_script", pattern="^(engine_alert|fraud_ticket|tx_anomaly|demo_script)$")
     severity: str = Field("medium", pattern="^(low|medium|high)$")
 
@@ -35,5 +36,7 @@ class VerifyIn(BaseModel):
 
 class KbPublishIn(BaseModel):
     """API-W-12/13 知识发布确认/驳回（DA-INV-06 人工门控）"""
-    operator: str = Field("human:kb_admin", pattern=r"^human:[a-z_]+$")
-    comment: str = Field("", max_length=500)
+    # R-37 复审收口：operator 总长 ≤40（audit_log.actor / kb_document.reviewer
+    # 均 varchar(40)，此前正则无长度上限可致截断 500）；comment 对齐 basis varchar(300)
+    operator: str = Field("human:kb_admin", pattern=r"^human:[a-z_]{1,34}$")
+    comment: str = Field("", max_length=300)

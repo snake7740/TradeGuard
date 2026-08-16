@@ -83,7 +83,9 @@ async def publish_and_index(pool, doc_id: str, operator: str, comment: str = "")
         await conn.execute(
             """INSERT INTO audit_log (log_id, actor, action, target, basis)
                VALUES ($1, $2, 'kb.publish', $3, $4)""",
-            uuid.uuid4().hex, operator, doc_id, comment or "->published（人工门控，BA-BR-11）")
+            # R-37 复审收口：comment 截断对齐 audit_log.basis varchar(300)
+            uuid.uuid4().hex, operator, doc_id,
+            (comment or "->published（人工门控，BA-BR-11）")[:300])
     chunks = await _vectorize(pool, doc_id, doc["content"])
     return {"doc_id": doc_id, "status": "published", "reviewer": operator, "chunks": chunks}
 

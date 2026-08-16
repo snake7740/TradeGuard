@@ -238,7 +238,7 @@ paths:
       description: |
         写 DA-T-03 状态 + 审计留痕（BA-BR-09），actor 取 X-Operator 头（human_only 守卫）。
         release→ReviewDismissed 排除欺诈归档 ARCHIVED；
-        block/escalate→委托 AA-SK-03 review_confirm 自动建处置审批工单（API-M-11，US-E4-05），
+        block/escalate→委托 AA-SK-03 review_confirm 自动建处置审批工单（API-M-11，US-E5-04），
         escalate 额外审计标记升级。
       parameters:
         - { $ref: '#/components/parameters/CaseIdPath' }
@@ -444,11 +444,12 @@ paths:
     get:
       tags: [实时推送]
       operationId: eventStream
-      security: []
       summary: 领域事件实时推送（SSE，订阅进程内事件总线）
       description: |
         演示时事件流转现场可见。事件源为 web-api 进程内总线（InMemoryPublisher fan-out），
         RocketMQ 为旁路广播通道（尽力而为）；15s keepalive 心跳防代理断链。
+        R-37：SSE 不再豁免鉴权，随全局 bearerAuth 校验 TG_API_TOKEN
+        （门户 nginx envsubst 注入，浏览器无感）。
       responses:
         '200':
           description: SSE 流
@@ -613,7 +614,8 @@ components:
         source_type:
           type: string
           enum: [engine_alert, fraud_ticket, tx_anomaly, demo_script]
-        subject_ref: { type: string, description: 账户哈希或交易哈希 }
+        # R-37 复审收口：maxLength 对齐 risk_case.subject_ref varchar(64)，超长拒绝防 500
+        subject_ref: { type: string, maxLength: 64, description: 账户哈希或交易哈希 }
         severity: { type: string, enum: [low, medium, high], default: medium }
         payload:
           type: object

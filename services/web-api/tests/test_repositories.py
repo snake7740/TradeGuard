@@ -45,14 +45,21 @@ async def test_transition_happy_path_version_increment(case_repo):
 
 
 async def test_transition_illegal_rejected_and_state_unchanged(case_repo):
-    """应用层守护第一道：REGISTERED 直接审批 → 拒绝且状态不变"""
+    """应用层守护第一道：REGISTERED 直接审批 → 拒绝且无迁移留痕
+
+    R-37 复审加固：尾随"状态相等"断言在 compose EventWorker 同库抢跑
+    REGISTERED 案件时会被并发推进干扰（拒绝断言本身恒成立——自动链路
+    到不了 PENDING_APPROVAL，APPROVAL_APPROVED 从任何中间态均非法）。
+    改断言"审计链无 ApprovalApproved 迁移痕"：被拒迁移在 next_state 处
+    先抛、不进事务，原子无部分写入的语义不受并发推进影响，竞态免疫。"""
     repo, _ = case_repo
     r = await _new_case(repo)
     from app.core.state_machine import InvalidTransition
     with pytest.raises(InvalidTransition) as ei:
         await repo.transition(r["case_id"], CaseEvent.APPROVAL_APPROVED, "human:x", 0)
     assert ei.value.code == "E-BAD-TRANSITION"
-    assert (await repo.get(r["case_id"]))["status"] == "REGISTERED"
+    trail = await repo.audit_trail(r["case_id"])
+    assert not any(a["action"] == "case.transition.ApprovalApproved" for a in trail)
 
 
 async def test_optimistic_lock_conflict(case_repo):

@@ -56,5 +56,7 @@ async def _decide(request: Request, doc_id: str, body: KbPublishIn, status: str,
         await conn.execute(
             """INSERT INTO audit_log (log_id, actor, action, target, basis)
                VALUES ($1, $2, $3, $4, $5)""",
-            uuid.uuid4().hex, body.operator, action, doc_id, body.comment or f"->{status}")
+            # R-37 复审收口：comment 截断对齐 audit_log.basis varchar(300)
+            uuid.uuid4().hex, body.operator, action, doc_id,
+            (body.comment or f"->{status}")[:300])
     return {"doc_id": doc_id, "status": status, "reviewer": body.operator}

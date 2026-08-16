@@ -12,6 +12,7 @@ import json
 import os
 import urllib.parse
 import uuid
+from datetime import datetime, timezone
 
 import asyncpg
 import pytest
@@ -60,7 +61,10 @@ def _execute(query: str, *args) -> None:
 
 def _set_status(case_id: str, status: str) -> None:
     """测试装配直改 status（旁路应用层）：07 actor 门控要求事务内先声明 tg.actor，
-    否则撞 E-ACTOR-REQUIRED。白名单触发器仍校验迁移合法性（双道防线，工作流 E）。"""
+    否则撞 E-ACTOR-REQUIRED。白名单触发器仍校验迁移合法性（双道防线，工作流 E）。
+
+    ⚠ 竞态警示：勿用于推进 REGISTERED 案件——compose EventWorker 2s 轮询同库，
+    停留 REGISTERED 的窗口会被抢跑（见 _reviewable_case 直插法说明）。"""
     async def go():
         conn = await asyncpg.connect(PG_DSN)
         try:
@@ -85,12 +89,28 @@ def _alert(client, subject: str, severity: str | None = None,
 
 
 def _reviewable_case(client, severity: str = "high") -> str:
-    """立案后沿状态机合法逐步推进至 INVESTIGATING（DB 触发器 DA-INV-01 拒绝跳变），
-    该状态支持 review 三结论（02 §7 迁移表）"""
-    reg = _alert(client, _subject("routes-mr"), severity)
-    _set_status(reg["case_id"], "AGGREGATING")
-    _set_status(reg["case_id"], "INVESTIGATING")
-    return reg["case_id"]
+    """测试装配：单事务直插 INVESTIGATING（原子落位，对 EventWorker 零窗口）。
+
+    为什么不再「API 立案 + 两步 UPDATE 推进」：compose 的 web-api 运行着
+    EventWorker（TG_EVENT_WORKER=on，2s 轮询 status='REGISTERED'），与测试共用
+    同一库。立案提交到测试推进完成之间，案件停留在 REGISTERED 的窗口（POST 审计
+    中间件 + 两次独立 asyncpg 连接，Windows 上累计可达秒级）会被 worker 抢跑——
+    自动链路一路驱至 DISPOSED（score<40 → 自动 release），随后测试的 _set_status
+    撞 E-BAD-TRANSITION 假失败（对照实验：docker compose stop web-api 后本文件
+    全绿；restart 即复现，7/7）。
+
+    直插法天然免疫该竞态：两道 DB 守护触发器（04-invariants 白名单 /
+    07-case-actor-gate）均为 BEFORE UPDATE OF status，不拦 INSERT；EventWorker
+    只轮询 REGISTERED，生于 INVESTIGATING 的案件对其完全不可见。立案受理契约
+    （202 / severity 映射 / 操作者审计）由 alerts 组测试独立覆盖，不受影响。
+    """
+    score = {"low": 25, "medium": 55, "high": 85}[severity]   # 与 SEVERITY_SCORES 同源
+    case_id = f"CASE-{datetime.now(timezone.utc):%Y%m%d}-{uuid.uuid4().hex[:6]}"
+    _execute(
+        """INSERT INTO risk_case (case_id, subject_ref, status, risk_score, trace_id)
+           VALUES ($1, $2, 'INVESTIGATING', $3, $4)""",
+        case_id, _subject("routes-mr"), score, uuid.uuid4().hex)
+    return case_id
 
 
 # ---------- API-W-15 健康探针 ----------
@@ -211,7 +231,7 @@ def test_review_block_creates_approval(client):
     assert body["status"] == "PENDING_APPROVAL" and body["approval_id"]
     rec = _fetch("SELECT decision FROM approval_record WHERE approval_id=$1",
                  body["approval_id"])
-    assert rec and rec[0]["decision"] == "pending"              # US-E4-05 自动建单
+    assert rec and rec[0]["decision"] == "pending"              # US-E5-04 自动建单
 
 
 def test_review_escalate_marks_context(client):

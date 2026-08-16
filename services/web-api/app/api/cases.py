@@ -130,7 +130,7 @@ async def verify_case(request: Request, case_id: str, body: VerifyIn):
 async def submit_review(request: Request, case_id: str, body: ReviewIn,
                         x_operator: str | None = Header(None)):
     """API-W-07：中风险人工复核（SC-10，BA-BP-05）
-    状态机人类触发入口：block/escalate→委托 DispositionService.review_confirm（US-E4-05
+    状态机人类触发入口：block/escalate→委托 DispositionService.review_confirm（US-E5-04
     自动创建处置审批单，escalate 额外审计标记）；release→ARCHIVED（排除欺诈归档）。
     actor 从 X-Operator 头解码，守卫 human_only（02 §7）。"""
     case = await request.app.state.cases.get(case_id)

@@ -1,1 +1,4 @@
-mcp==1.9.4
+# R-37：mcp≥1.23.0 修复 CVE-2025-66416（DNS rebinding 攻击面）
+mcp==1.29.0
+# R-37 复审收口：starlette 显式钉版（mcp 传输层基座），对齐 CVE 全修复线
+starlette==1.6.0

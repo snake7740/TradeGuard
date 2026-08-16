@@ -18,7 +18,10 @@ from datetime import datetime, timezone
 
 NACOS_ADDR = os.getenv("NACOS_ADDR", "http://nacos:8848")
 NACOS_IDENTITY_KEY = os.getenv("NACOS_AUTH_IDENTITY_KEY", "serverIdentity")
-NACOS_IDENTITY_VALUE = os.getenv("NACOS_AUTH_IDENTITY_VALUE", "tradeguard_dev")
+# R-37：互信值不再内置代码缺省（原缺省即公开仓库可见的开发凭据）。
+# 容器经 compose `${NACOS_AUTH_IDENTITY_VALUE:?}` 强制注入；缺省时 Nacos 通道
+# 自动降级（_fetch/_publish 直接返回 None/False），走 sys_config DB 降级路径。
+NACOS_IDENTITY_VALUE = os.getenv("NACOS_AUTH_IDENTITY_VALUE")
 DATA_ID = "ba-br-thresholds"
 GROUP = "TRADEGUARD"
 POLL_SECONDS = float(os.getenv("CONFIG_POLL_SECONDS", "5"))
@@ -26,6 +29,8 @@ POLL_SECONDS = float(os.getenv("CONFIG_POLL_SECONDS", "5"))
 
 def _fetch_nacos(addr: str, data_id: str, group: str) -> dict | None:
     """同步拉取 Nacos v3 admin 配置；任何异常返回 None 触发降级"""
+    if not NACOS_IDENTITY_VALUE:   # R-37：互信值未注入 → Nacos 通道不可用，走 DB 降级
+        return None
     qs = urllib.parse.urlencode({"dataId": data_id, "groupName": group, "namespaceId": "public"})
     req = urllib.request.Request(f"{addr}/nacos/v3/admin/cs/config?{qs}",
                                  headers={NACOS_IDENTITY_KEY: NACOS_IDENTITY_VALUE})
@@ -42,6 +47,8 @@ def _fetch_nacos(addr: str, data_id: str, group: str) -> dict | None:
 def _publish_nacos(addr: str, data_id: str, group: str, values: dict) -> bool:
     """同步写回 Nacos v3 admin 配置（SC-06 D3：Nacos 为权威源，PUT 必须先写回）。
     写回失败时调用方仍写 DB 镜像并暴露 source，不阻断变更（降级路径）。"""
+    if not NACOS_IDENTITY_VALUE:   # R-37：互信值未注入 → 写回视为失败（调用方降级 DB）
+        return False
     data = urllib.parse.urlencode({
         "dataId": data_id, "groupName": group, "namespaceId": "public",
         "type": "json", "content": json.dumps(values, ensure_ascii=False)}).encode()

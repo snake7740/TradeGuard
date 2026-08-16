@@ -38,6 +38,25 @@ WEB_DSN = os.getenv("TG_PLAYBOOK_DSN", "postgresql://tg_web:tg_web_dev@localhost
 APP_DSN = os.getenv("TG_PLAYBOOK_APP_DSN", "postgresql://tg_app:tg_app_dev@localhost:5433/tradeguard")
 os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,mcp-core")
 os.environ.setdefault("no_proxy", "localhost,127.0.0.1,mcp-core")
+
+
+def _load_dotenv_token():
+    """R-37：从仓库根 .env（gitignore，start_all 自动生成）装载 TG_API_TOKEN——
+    web-api bearer 强制后，宿主侧脚本必须带令牌；缺省/CHANGE_ME 时保持开发直通。"""
+    env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    try:
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("TG_API_TOKEN="):
+                    val = line.split("=", 1)[1].strip()
+                    if val and val != "CHANGE_ME":
+                        os.environ.setdefault("TG_API_TOKEN", val)
+    except OSError:
+        pass
+
+
+_load_dotenv_token()
 MCP_CORE_URL = os.getenv("TG_PLAYBOOK_MCP_CORE", "http://127.0.0.1:8101/mcp/")
 
 # D3 实证固定哈希：complaint 命中 2 条 + credit low + 无舆情（见文件尾探针注释）

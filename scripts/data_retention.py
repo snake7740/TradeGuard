@@ -24,10 +24,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 
 import asyncpg
 
 DSN = os.getenv("PG_DSN", "postgresql://postgres:tradeguard_dev@localhost:5433/tradeguard")
+
+_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _safe_ident(name: str) -> str:
+    """R-37：分区名虽来自 pg 目录，仍经白名单正则复核后才允许内插 SQL（纵深防御）"""
+    if not _IDENT.match(name):
+        raise ValueError(f"非法标识符，拒绝拼入 SQL：{name!r}")
+    return name
 
 # 归档表：脱敏后的交易留存（无个人标识列约束，哈希已截断）
 ARCHIVE_DDL = """
@@ -68,14 +78,14 @@ async def plan_transaction(conn, cutoff_years: int) -> dict:
         expired = await conn.fetchval(  # 上界文本入参，SQL 侧转 timestamptz 比较
             "SELECT $1::text::timestamptz <= $2", upper, cutoff)
         (drop_parts if expired else keep_parts).append(r["part"])
-    # 整分区行数（归档量）与非过期分区中的超期散行
+    # 整分区行数（归档量）与非过期分区中的超期散行（R-37：标识符白名单复核）
     part_rows = 0
     for p in drop_parts:
-        part_rows += await conn.fetchval(f'SELECT count(*) FROM "{p}"')
+        part_rows += await conn.fetchval(f'SELECT count(*) FROM "{_safe_ident(p)}"')
     stray_rows = 0
     for p in keep_parts:
         stray_rows += await conn.fetchval(
-            f'SELECT count(*) FROM "{p}" WHERE ts < $1', cutoff)
+            f'SELECT count(*) FROM "{_safe_ident(p)}" WHERE ts < $1', cutoff)
     return {"cutoff": cutoff, "drop_parts": drop_parts,
             "part_rows": part_rows, "stray_rows": stray_rows}
 
@@ -88,11 +98,12 @@ async def execute_transaction(conn, plan: dict) -> None:
     async with conn.transaction():
         await conn.execute(ARCHIVE_DDL)
         for p in plan["drop_parts"]:
+            ident = _safe_ident(p)   # R-37：执行路径再次复核（不信任跨函数传递的标识符）
             await conn.execute(
                 f"""INSERT INTO transaction_archive
                     (tx_id, account_mask, payee_mask, amount, mcc, channel, ts)
-                    {sel_masked} FROM "{p}" ON CONFLICT DO NOTHING""")
-            await conn.execute(f'DROP TABLE "{p}"')  # 08 §4 分区裁剪归档
+                    {sel_masked} FROM "{ident}" ON CONFLICT DO NOTHING""")
+            await conn.execute(f'DROP TABLE "{ident}"')  # 08 §4 分区裁剪归档
         if plan["stray_rows"]:
             await conn.execute(
                 f"""INSERT INTO transaction_archive

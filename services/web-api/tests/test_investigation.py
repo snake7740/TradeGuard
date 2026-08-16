@@ -3,7 +3,7 @@
 
 覆盖：AA-SK-02 假设匹配（规则兜底 + KB 检索引用 doc_id / 未命中显式声明）、
 BA-BR-06 关联网络黑名单加分（幂等）、影响面统计、证据固化（DA-T-05 只增）、
-DA-INV-04 冻结缺证据拒绝（E-EVIDENCE-MISSING）、复核确认自动建单（US-E4-05）。
+DA-INV-04 冻结缺证据拒绝（E-EVIDENCE-MISSING）、复核确认自动建单（US-E5-04）。
 """
 import uuid
 
@@ -151,7 +151,7 @@ async def test_impact_report_and_evidence_fixed(pool, app_pool, investigation):
     assert all(e["confidence"] > 0 for e in evs)
 
 
-# ---------- 复核确认自动建单（US-E4-05，清 cases.py TODO） ----------
+# ---------- 复核确认自动建单（US-E5-04，清 cases.py TODO） ----------
 
 async def test_review_confirm_creates_approval_ticket(pool, disposition):
     """人工复核确认欺诈 → PENDING_APPROVAL + 自动建处置审批工单（API-M-11）"""

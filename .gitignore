@@ -11,10 +11,11 @@ node_modules/
 dist/
 .vite/
 
-# 环境
+# 环境（真实凭据只存在于本机 .env 与 secrets/ 实际文件，绝不入库）
 .env
 *.local
-secrets/
+secrets/*
+!secrets/*.example
 key
 
 # IDE / OS

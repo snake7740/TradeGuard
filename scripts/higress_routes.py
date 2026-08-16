@@ -24,6 +24,7 @@ higress-data）。`docker compose down -v` 会清空该卷，网关退回空路�
 依赖：docker compose 可用、higress/web-api 容器在 tradeguard-net 上。
 """
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -116,9 +117,28 @@ def write_into(cid, content, dest):
         Path(tmp).unlink(missing_ok=True)
 
 
-def probe(url, timeout=4):
+def _api_token() -> str:
+    """R-37：从进程环境/仓库根 .env（gitignore，start_all 自动生成）装载 TG_API_TOKEN。
+    web-api bearer 守卫（US-E7-01）生效后，网关探活 /api/cases 必须携令牌，
+    否则 401 造成"路由重建假失败"。"""
+    token = os.getenv("TG_API_TOKEN", "")
+    if token and token != "CHANGE_ME":
+        return token
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        for line in (COMPOSE / ".env").read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("TG_API_TOKEN="):
+                val = line.split("=", 1)[1].strip()
+                if val and val != "CHANGE_ME":
+                    return val
+    except OSError:
+        pass
+    return ""
+
+
+def probe(url, timeout=4, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read()[:80]
     except Exception as e:  # noqa: BLE001
         return None, str(e)[:80]
@@ -134,6 +154,10 @@ def main():
     if not cid:
         print("[higress] 容器未运行，先 docker compose up -d higress"); return 1
     print(f"[higress] 容器 {cid[:12]}")
+    tok = _api_token()
+    hdrs = {"Authorization": f"Bearer {tok}"} if tok else {}
+    if not tok:
+        print("[higress] 警告：未取到 TG_API_TOKEN，带鉴权端点探活将 401（R-37）")
 
     # 前置：确认 *.tg.local 别名已由 compose 生效（dns 型服务源解析依赖）
     aliases = sh(["docker", "compose", "exec", "-T", "higress", "sh", "-c",
@@ -152,7 +176,7 @@ def main():
         # 等待网关数据面就绪
         ok = False
         for _ in range(40):
-            code, _ = probe(args.addr + "/api/health")
+            code, _ = probe(args.addr + "/api/health", headers=hdrs)
             if code == 200:
                 ok = True; break
             time.sleep(3)
@@ -160,9 +184,9 @@ def main():
             print("[higress] 重启后 /api/health 未达 200，请查 docker compose logs higress")
             return 1
 
-    code, body = probe(args.addr + "/api/health")
+    code, body = probe(args.addr + "/api/health", headers=hdrs)
     print(f"[higress] {args.addr}/api/health -> {code} {body!r}")
-    code2, body2 = probe(args.addr + "/api/cases?page=1&page_size=1")
+    code2, body2 = probe(args.addr + "/api/cases?page=1&page_size=1", headers=hdrs)
     print(f"[higress] {args.addr}/api/cases -> {code2} {body2!r}")
     if code == 200 and code2 == 200:
         print("RESULT: OK —— 网关已承载 web-api 业务流量（/api 路由生效）")

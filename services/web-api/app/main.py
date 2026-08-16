@@ -118,10 +118,17 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
+# R-37：CORS 收敛——通配 * 改为显式白名单（门户 8300 / Vite dev 5173），
+# 可用 TG_CORS_ORIGINS（逗号分隔）按环境覆盖；生产门户同源反代，实际不依赖 CORS
+CORS_ORIGINS = [o.strip() for o in os.getenv(
+    "TG_CORS_ORIGINS", "http://localhost:8300,http://localhost:5173").split(",") if o.strip()]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="TradeGuard web-api", version="0.4.0", lifespan=lifespan,
                   description="API-W-01~20 契约实现（docs/openapi/tradeguard-openapi.yaml）")
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS,
+                       allow_methods=["*"], allow_headers=["*"])
     for module in (health, alerts, cases, approvals, audit, kb, events_stream,
                    config, observability, demo):
         app.include_router(module.router)

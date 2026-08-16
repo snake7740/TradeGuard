@@ -103,7 +103,9 @@ class CaseRepository:
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                    VALUES ($1, $2, $3, $4, $5, $6)""",
                 uuid.uuid4().hex, actor, f"case.transition.{event.value}", case_id,
-                basis or f"{r['status']}->{target.value}", r["trace_id"])
+                # R-37 复审收口：basis 截断对齐 varchar(300)——opinion 等长文本经
+                # 迁移 basis 入审计，此前超长值令事务回滚 500（业务操作被审计列宽击穿）
+                (basis or f"{r['status']}->{target.value}")[:300], r["trace_id"])
         await self._pub.publish(case_id, event.value,
                                 {"from": r["status"], "to": target.value}, actor,
                                 trace_id=r["trace_id"])

@@ -17,7 +17,9 @@ set -a; . <(tr -d '\r' < "$SECRETS"); set +a
 : "${DASHSCOPE_API_KEY:?secrets 中无 DASHSCOPE_API_KEY}"
 
 MODEL="${AGENTTEAMS_DEFAULT_MODEL:-qwen3.8-max}"
-BASE_URL="${AGENTTEAMS_OPENAI_BASE_URL:-https://llm-sazuoz6vca4t33w4.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}"
+# R-37：租户专属 endpoint 不再内置缺省值（此前硬编码进公开仓库=租户拓扑泄露），
+# 一律强制来自 secrets/dashscope.env（上方 set -a 已导出）或进程环境
+BASE_URL="${AGENTTEAMS_OPENAI_BASE_URL:?缺少 AGENTTEAMS_OPENAI_BASE_URL（仅经 secrets/dashscope.env 流转，R-37）}"
 
 cp -a "$ENV_FILE" "$ENV_FILE.bak.$(date +%Y%m%d%H%M%S)"
 sed -i \

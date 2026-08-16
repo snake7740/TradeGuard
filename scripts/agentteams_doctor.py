@@ -16,9 +16,11 @@
 1. controller 不在跑 → docker start（内置 minio/tuwunel-matrix/higress/element 随 supervisord 起）；
 2. `agt worker wake` 唤醒全部 Sleeping Worker（Manager 由 controller 自管）；
 3. 为 controller/manager/全部 worker 连接 tradeguard_tradeguard-net（已连则跳过）；
-4. 逐 Worker 注入 mcporter 配置（tg-core=mcp-core:8101，tg-external=mcp-external-mock:8102，
+4. R-37 复审收口：校验 Worker 控制台口（8088）仅回环发布，非 127.0.0.1:(18090+N)
+   即快照重建容器收口（防止局域网暴露无鉴权控制台）；
+5. 逐 Worker 注入 mcporter 配置（tg-core=mcp-core:8101，tg-external=mcp-external-mock:8102，
    均为 streamable-http 端点），`mcporter list` 校验 12+3 工具在场；
-5. 汇总打印体检结果。
+6. 汇总打印体检结果。
 
 用法：python scripts/agentteams_doctor.py [--skip-mcp]
 依赖：docker CLI 可与 Docker Desktop 守护进程通信；agt 在 agentteams-controller 容器内。
@@ -38,6 +40,11 @@ for _stream in (sys.stdout, sys.stderr):
 
 WORKERS = ["aa-ag-02", "aa-ag-03", "aa-ag-04", "aa-ag-05"]
 NET = "tradeguard_tradeguard-net"
+# R-37 复审收口：Worker CoPaw 控制台（容器内 8088）必须仅以回环固定位发布
+# （aa-ag-0N → 127.0.0.1:(18090+N)，即 18092~18095）。此前为 0.0.0.0:动态端口，
+# 等效局域网可达的无鉴权控制台——发现非回环绑定即重建容器收口（见
+# ensure_console_loopback；auth 令牌存命名卷不随重建丢失，mcporter 由本脚本重注）。
+WORKER_CONSOLE_BASE = 18090
 MCP_SERVERS = {
     "tg-core": "http://mcp-core:8101/mcp/",
     "tg-external": "http://mcp-external-mock:8102/mcp/",
@@ -151,6 +158,60 @@ def inject_mcp():
     return ok
 
 
+def ensure_console_loopback():
+    """R-37 复审收口：校验全部 Worker 控制台（8088）仅以 127.0.0.1 固定位发布；
+    发现非回环绑定（0.0.0.0:动态端口 = 局域网暴露的无鉴权控制台）即快照
+    env/labels/image 重建容器，改绑 127.0.0.1:(18090+N)。env 含密钥：仅内存快照
+    + 临时文件传递，用后即删，不进命令行参数、不回显、不落盘。"""
+    import os
+    import tempfile
+    recreated = []
+    for w in WORKERS:
+        c = f"agentteams-worker-{w}"
+        port = WORKER_CONSOLE_BASE + int(w.rsplit("-", 1)[1])
+        raw = sh(["docker", "inspect", c, "--format",
+                  "{{json .HostConfig.PortBindings}}"], check=False)
+        try:
+            pb = json.loads(raw or "{}") or {}
+        except json.JSONDecodeError:
+            pb = {}
+        entries = pb.get("8088/tcp") or []
+        if entries and all(e.get("HostIp") in ("127.0.0.1", "::1")
+                           and e.get("HostPort") == str(port) for e in entries):
+            print(f"[doctor] {c} 控制台口 127.0.0.1:{port} 回环 OK")
+            continue
+        print(f"[doctor] {c} 控制台口非回环发布，重建 → 127.0.0.1:{port}……")
+        img = sh(["docker", "inspect", c, "--format", "{{.Config.Image}}"])
+        envs = sh(["docker", "inspect", c, "--format",
+                   "{{range .Config.Env}}{{println .}}{{end}}"]).splitlines()
+        labels = [l for l in sh(["docker", "inspect", c, "--format",
+                                 "{{range $k,$v := .Config.Labels}}{{$k}}={{$v}}\n{{end}}"])
+                  .splitlines() if l and not l.startswith("com.docker.")]
+        restart = sh(["docker", "inspect", c, "--format",
+                      "{{.HostConfig.RestartPolicy.Name}}"]) or "no"
+        fd, envfile = tempfile.mkstemp(prefix=f"{c}-", suffix=".env")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(envs) + "\n")
+            sh(["docker", "stop", c])
+            sh(["docker", "rm", c])
+            cmd = ["docker", "run", "-d", "--name", c, "--network", "agentteams-net",
+                   "-p", f"127.0.0.1:{port}:8088", "--restart", restart,
+                   "--env-file", envfile, "-v", f"{c}-auth:/var/run/secrets/agentteams"]
+            for kv in labels:
+                cmd += ["--label", kv]
+            cmd.append(img)
+            sh(cmd)
+            recreated.append(w)
+        finally:
+            os.unlink(envfile)   # 密钥快照不留盘
+    if recreated:
+        print(f"[doctor] {len(recreated)} 个 Worker 已重建，重新唤醒并组网……")
+        wake_workers()
+        connect_net()
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-mcp", action="store_true", help="只做拉起/唤醒/组网，不注入 MCP 配置")
@@ -162,6 +223,7 @@ def main():
     time.sleep(5)
     wake_workers()
     connect_net()
+    ensure_console_loopback()   # R-37：控制台口非回环即重建收口（幂等）
     mcp_ok = True
     if not args.skip_mcp:
         mcp_ok = inject_mcp()

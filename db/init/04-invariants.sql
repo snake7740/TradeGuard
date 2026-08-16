@@ -4,7 +4,8 @@
 -- 变更纪律：迁移路径先改 02 §7/OpenAPI 枚举，再同步本文件与应用层状态机。
 
 -- DA-INV-01：状态迁移白名单表（与 app/core/state_machine.py TRANSITIONS 逐条对齐）
-CREATE TABLE case_state_transition (
+-- R-37 复审收口：IF NOT EXISTS / ON CONFLICT / DROP-IF-EXISTS 使本文件可安全重跑
+CREATE TABLE IF NOT EXISTS case_state_transition (
     from_status varchar(20) NOT NULL,
     to_status   varchar(20) NOT NULL,
     PRIMARY KEY (from_status, to_status)
@@ -28,7 +29,8 @@ INSERT INTO case_state_transition (from_status, to_status) VALUES
   ('ROLLBACK',         'MANUAL_REVIEW'),     -- 反向处置完成→升级 P0 转人工
   ('MANUAL_REVIEW',    'PENDING_APPROVAL'),
   ('MANUAL_REVIEW',    'ARCHIVED'),
-  ('VERIFIED',         'ARCHIVED');
+  ('VERIFIED',         'ARCHIVED')
+ON CONFLICT DO NOTHING;   -- 幂等重跑不重复插入（主键冲突即跳过）
 
 CREATE OR REPLACE FUNCTION trg_case_transition_guard() RETURNS trigger AS $$
 BEGIN
@@ -42,6 +44,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS case_transition_guard ON risk_case;
 CREATE TRIGGER case_transition_guard
     BEFORE UPDATE OF status ON risk_case
     FOR EACH ROW EXECUTE FUNCTION trg_case_transition_guard();
@@ -58,6 +61,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS kb_human_gate ON kb_document;
 CREATE TRIGGER kb_human_gate
     BEFORE UPDATE OF status ON kb_document
     FOR EACH ROW EXECUTE FUNCTION trg_kb_human_gate();

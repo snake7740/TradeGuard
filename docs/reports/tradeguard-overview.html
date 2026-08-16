@@ -12,6 +12,8 @@
     --line:#e3e9f2; --chip:#eef3fb;
   }
   *{margin:0;padding:0;box-sizing:border-box}
+  a{color:inherit;text-decoration:none;border-bottom:1px dashed currentColor}
+  a:hover{color:var(--blue);border-bottom-color:var(--blue)}
   html,body{height:100%;background:#060b14;font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;overflow:hidden}
   #stage{width:1280px;height:720px;position:absolute;left:50%;top:50%;transform-origin:center center}
   .slide{width:1280px;height:720px;position:absolute;inset:0;display:none;background:var(--bg);color:var(--ink);padding:48px 60px 66px;overflow:hidden}
@@ -88,8 +90,8 @@
     <span class="step">⑤ 知识沉淀</span>
   </div>
   <div class="meta">
-    五阶段闭环全命中 ｜ 5 Agent 协同（AgentTeams）｜ 文档体系 v1.4.10（docs/00~09）｜ Sprint 1-13 全量落地<br>
-    测试 169/169 全绿 ｜ 演示剧本 3/3（24 步断言）｜ 一键启动自证 20/20 ｜ 展示日期 2026-08-15<br>
+    五阶段闭环全命中 ｜ 5 Agent 协同（AgentTeams）｜ 文档体系 v1.4.11（docs/00~09）｜ Sprint 1-13 全量落地<br>
+    测试 169/169 全绿 ｜ 演示剧本 3/3（24 步断言）｜ 一键启动自证核心 19 项全绿 ｜ 展示日期 2026-08-16<br>
     <b style="color:#e8c98a">本材料每一条演示陈述均经实际运行验证（验证证据见末章），非文档宣称。</b>
   </div>
 </section>
@@ -123,7 +125,7 @@
     <h4>价值主张：以多 Agent 协同替代「人工告警流水线」</h4>
     <p>低风险事件<b>自动处置</b>、高风险事件<b>证据化调查</b>、全部处置动作<b>合规留痕</b>——告警响应时效从小时级压缩到分钟级（演示口径实测 KPI-01：低风险案件立案→处置完成 0.0 分钟，达标）。</p>
   </div>
-  <div class="foot"><span>来源：docs/01 BA §1 · 04 TA §10.1 ｜ KPI 实测：docs/reports/kpi-report.md</span><span>03</span></div>
+  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §1 · 04 TA §10.1 ｜ KPI 实测：<a href="kpi-report.md">docs/reports/kpi-report.md</a></span><span>03</span></div>
 </section>
 
 <!-- ============ 4 项目场景 ============ -->
@@ -140,7 +142,7 @@
     <tr><td>风险事件复盘与风控知识库沉淀</td><td>BA-CAP-07 · BA-BP-04</td><td>结案复盘→入库申请→人工发布（向量化检索）；SC-05 实测 ✓</td></tr>
   </table>
   <div style="margin-top:14px"><span class="pill">处置动作四元：交易拦截</span><span class="pill">账户冻结</span><span class="pill">额度调整</span><span class="pill">放行</span><span class="pill">高风险动作一律人工审批</span><span class="pill">全部执行留痕可回溯</span></div>
-  <div class="foot"><span>来源：docs/01 BA §2.2 ｜ 验收场景：docs/06 SC-01~SC-11</span><span>04</span></div>
+  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §2.2 ｜ 验收场景：<a href="../06-BDD-TDD工程验证体系.md">docs/06</a> SC-01~SC-11</span><span>04</span></div>
 </section>
 
 <!-- ============ 5 业务能力模型 ============ -->
@@ -164,7 +166,7 @@
     <div class="card"><h4>KPI 指标体系（BA-KPI-01~05）</h4><p>响应时效（低风险≤5 分钟）· 召回率≥85% · 误报率≤10% · 人工介入率≤30% · 留痕完整率 100%。<b>演示口径实测：01/02/03/05 达标，04 结构性偏高（D2/D3 本身即人机协同场景）；全量口径 01/03/04/05 未达标、仅 02 达标（pytest 残留 TEST 案件抬升）——报告如实分列，不以演示达标掩盖全量未达标。</b></p></div>
     <div class="card"><h4>合规边界（01 §8）</h4><p>征信数据生产须经持牌机构授权通道（本方案以确定性子模拟替代并声明）；征信/舆情查询强制记录查询事由（BA-BR-10）；事件与交易数据保留 5 年超期脱敏归档（BA-BR-12）。</p></div>
   </div>
-  <div class="foot"><span>来源：docs/01 BA §3 / §7 / §8</span><span>05</span></div>
+  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §3 / §7 / §8</span><span>05</span></div>
 </section>
 
 <!-- ============ 6 核心业务对象 ============ -->
@@ -186,7 +188,7 @@
     <div class="card"><h4>关联网络</h4><p>同设备/同收款方/同 IP 段/同联系方式四类边，2 跳扩展（03 §3 语义模型，SQL 视图退化路径）。</p></div>
   </div>
   <div class="card" style="margin-top:12px"><h4>不变量双守护（DA-INV）</h4><p>幂等键强制（DA-INV-03）· 高风险 ≥70 禁入自动处置（DA-INV-02）· 逆动作对授权（DA-INV-03 延伸）· 冻结证据链强制（DA-INV-04）· 知识入库人工门控（DA-INV-06）· 审计 append-only 任何账号无 UPDATE/DELETE（DA-INV-05）——<b>双守护</b>：应用层纯函数状态机 + DB 触发器（case_transition_guard 迁移白名单 + case_actor_gate 按 tg.actor 前缀拦截，事务内同写）。</p></div>
-  <div class="foot"><span>来源：docs/03 DA §3-§4 / §9 · docs/08 数据字典（13 表字段级契约）</span><span>06</span></div>
+  <div class="foot"><span>来源：<a href="../03-数据架构DA.md">docs/03</a> DA §3-§4 / §9 · <a href="../08-数据模型与数据字典.md">docs/08</a> 数据字典（13 表字段级契约）</span><span>06</span></div>
 </section>
 
 <!-- ============ 7 主流程 ============ -->
@@ -209,7 +211,7 @@
     <div class="card" style="border-left:3px solid var(--gold)"><h4>中风险 40–69：人工复核</h4><p>一律不得自动处置，转人工复核队列（SC-10）；结论 release / block / escalate。</p></div>
     <div class="card" style="border-left:3px solid var(--red)"><h4>高风险 ≥70：调查 + 审批（SC-02）</h4><p>调查取证→处置建议→人工审批：批准→执行；驳回→回滚人工复核且<b>禁止再入自动通道</b>（BA-BR-07）。<b>实测 D2 全链通过。</b></p></div>
   </div>
-  <div class="foot"><span>来源：docs/01 BA §4.1 ｜ 实测：scripts/demo_playbook.py D1/D2</span><span>07</span></div>
+  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §4.1 ｜ 实测：<a href="../../scripts/demo_playbook.py">scripts/demo_playbook.py</a> D1/D2</span><span>07</span></div>
 </section>
 
 <!-- ============ 8 子流程 + 规则 ============ -->
@@ -230,7 +232,7 @@
     <tr><td><b>BR-06</b></td><td>2 跳内存在已确认欺诈主体 → 风险分 +30</td><td>Nacos</td><td><b>BR-13</b></td><td>审批时效 30 分钟，超时升级值班员</td><td>Nacos</td></tr>
     <tr><td><b>BR-07</b></td><td>审批驳回回滚人工复核，禁再入自动通道</td><td>硬编码</td><td><b>BR-14</b></td><td>信号强制携带 velocity 频次特征参与评分</td><td>Nacos</td></tr>
   </table>
-  <div class="foot"><span>来源：docs/01 BA §4.2-§5 ｜ 阈值热更新实测：SC-06（PUT /api/config/thresholds 即时生效不重启）</span><span>08</span></div>
+  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §4.2-§5 ｜ 阈值热更新实测：SC-06（PUT /api/config/thresholds 即时生效不重启）</span><span>08</span></div>
 </section>
 
 <!-- ============ 9 业务角色与操作 ============ -->
@@ -247,9 +249,9 @@
   </table>
   <div class="card" style="margin-top:12px;border-left:4px solid var(--red)">
     <h4>人机边界原则（01 §6，硬性；02 §3.3/§4 同声明）</h4>
-    <p>Agent 可建议、可执行低风险动作；<b>账户冻结与高金额处置必须由人最终确认</b>；人类动作一律经真实 HTTP API（门户同路径），不存在绕过界面的后门写路径。全部 22 个 REST 接口编号 API-W-01~22，契约唯一事实来源 docs/openapi/tradeguard-openapi.yaml。</p>
+    <p>Agent 可建议、可执行低风险动作；<b>账户冻结与高金额处置必须由人最终确认</b>；人类动作一律经真实 HTTP API（门户同路径），不存在绕过界面的后门写路径。全部 22 个 REST 接口编号 API-W-01~22，契约唯一事实来源 <a href="../openapi/tradeguard-openapi.yaml">docs/openapi/tradeguard-openapi.yaml</a>。</p>
   </div>
-  <div class="foot"><span>来源：docs/01 BA §6 · 04 TA §10 ｜ 角色切换实测：web-portal/src/role.js + router.js</span><span>09</span></div>
+  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §6 · 04 TA §10 ｜ 角色切换实测：<a href="../../web-portal/src/role.js">web-portal/src/role.js</a> + <a href="../../web-portal/src/router.js">router.js</a></span><span>09</span></div>
 </section>
 
 <!-- ============ 10 五 Agent 协同 ============ -->
@@ -272,7 +274,7 @@
     <tr><td>协同执行</td><td>Worker 经 mcporter 工具桥调 MCP</td><td>4 Worker 注入 tg-core(12)+tg-external(3)，实测调 query_transactions 返回真实库数据</td></tr>
     <tr><td>状态追踪</td><td>状态机 + RocketMQ + 审计表 + Studio span</td><td>21 迁移全留痕；房间历史 + 审计双留痕</td></tr>
   </table>
-  <div class="foot"><span>来源：docs/02 AA §1/§3 · 04 TA §4 ｜ 实测：scripts/agentteams_doctor.py（幂等体检恢复）</span><span>10</span></div>
+  <div class="foot"><span>来源：<a href="../02-应用架构AA.md">docs/02</a> AA §1/§3 · 04 TA §4 ｜ 实测：<a href="../../scripts/agentteams_doctor.py">scripts/agentteams_doctor.py</a>（幂等体检恢复）</span><span>10</span></div>
 </section>
 
 <!-- ============ 11 Skill 与 MCP ============ -->
@@ -293,7 +295,7 @@
     <div class="card"><h4>AA-MCP-02 外部数据服务 MCP（mock :8102，3 工具）</h4>
       <p>query_credit（征信评分/逾期）· query_sentiment（涉诈舆情）· query_complaint（客服投诉）。<b>确定性播种</b>（哈希种子可复现，演示=测试回放的前提）；等价集成契约固化（Schema/鉴权/重试/审计/降级），真实源仅协议适配即可替换。百炼 MCP 广场适配器按业务场景原则评估后<b>不做</b>（02 §5 留痕）。</p></div>
   </div>
-  <div class="foot"><span>来源：docs/02 AA §4-§5 ｜ API-M-01~15 编号见 docs/07 §5</span><span>11</span></div>
+  <div class="foot"><span>来源：<a href="../02-应用架构AA.md">docs/02</a> AA §4-§5 ｜ API-M-01~15 编号见 <a href="../07-敏捷拆分与API契约.md">docs/07</a> §5</span><span>11</span></div>
 </section>
 
 <!-- ============ 12 技术栈 ============ -->
@@ -312,9 +314,9 @@
     <tr><td>TA-C-07</td><td>AgentScope Studio</td><td>Trace 可视化 + 评估</td><td>OTLP 直推实测落库，按案件分组回放技能 span</td></tr>
     <tr><td>TA-C-08</td><td>UnifiedModel</td><td>实体-关系语义层</td><td>SQL 视图退化路径落地，正式运行时仅换查询后端</td></tr>
     <tr><td>TA-C-09</td><td>LLM/Embedding（Qwen·DashScope）</td><td>推理与向量化</td><td>qwen3.8-max 经安全链路注入（Key 加密，不落仓库）</td></tr>
-    <tr><td>TA-C-10</td><td>Docker / Compose</td><td>编排</td><td>一键 start_all.py 全栈自证（20/20）</td></tr>
+    <tr><td>TA-C-10</td><td>Docker / Compose</td><td>编排</td><td>一键 start_all.py 全栈自证（21/21）</td></tr>
   </table>
-  <div class="foot"><span>来源：docs/04 TA §2 ｜ 核心技术栈全部真实参与业务架构，零部署摆设</span><span>12</span></div>
+  <div class="foot"><span>来源：<a href="../04-技术架构TA.md">docs/04</a> TA §2 ｜ 核心技术栈全部真实参与业务架构，零部署摆设</span><span>12</span></div>
 </section>
 
 <!-- ============ 13 部署拓扑 ============ -->
@@ -354,9 +356,9 @@
   <div class="card" style="margin-top:12px">
     <h4>一键启动入口（实测可重入，任意初始状态）</h4>
     <div class="code"><span class="c"># 引擎不可达自动拉起 Docker Desktop → 清端口（外部进程才杀，Docker 引擎进程绝不杀）→ up → 真实探活 → 数据就位 → 路由重建 → 协同体检 → 端到端取证</span>
-<span class="g">.venv/Scripts/python scripts/start_all.py</span>        <span class="y"># 20/20 全绿 exit 0（--build 重建镜像 / --no-agentteams 跳过协同栈）</span></div>
+<span class="g">.venv/Scripts/python <a href="../../scripts/start_all.py">scripts/start_all.py</a></span>        <span class="y"># 21/21 全绿 exit 0（--build 重建镜像 / --no-agentteams 跳过协同栈）</span></div>
   </div>
-  <div class="foot"><span>来源：docs/04 TA §3 ｜ CLAUDE.md 已知环境实况</span><span>13</span></div>
+  <div class="foot"><span>来源：<a href="../04-技术架构TA.md">docs/04</a> TA §3 ｜ CLAUDE.md 已知环境实况</span><span>13</span></div>
 </section>
 
 <!-- ============ 14 数据流全景 ============ -->
@@ -381,7 +383,7 @@
     <div class="card"><h4>④ 观测与治理旁路</h4><p>web-api 技能 span → OTLP/HTTP → Studio（按案件分组）；Nacos ← MCP/Skill 注册 + 阈值快照 5s；Higress ← 文件仓路由下发；RocketMQ case-events 4 读写队列实测有消息。</p></div>
   </div>
   <div class="card" style="margin-top:10px"><h4>刻意取舍（不为用而用）</h4><p>web-api→MCP 内核通道保持直连：处置是状态机关键路径，不耦合网关单点；三 MCP 已全量注册为网关服务源，生产形态按需加路由即开（04 §5 如实声明）。</p></div>
-  <div class="foot"><span>来源：docs/04 TA §3/§5/§10.1 ｜ envoy upstream_rq_200 计数与经网关读真实数据取证</span><span>14</span></div>
+  <div class="foot"><span>来源：<a href="../04-技术架构TA.md">docs/04</a> TA §3/§5/§10.1 ｜ envoy upstream_rq_200 计数与经网关读真实数据取证</span><span>14</span></div>
 </section>
 
 <!-- ============ 15 状态机与闭环 ============ -->
@@ -398,7 +400,7 @@
     <div class="fbox red"><b>异常回路</b>ROLLBACK → MANUAL_REVIEW<br>（事件 RollbackExecuted/Escalated）</div>
   </div>
   <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="card"><h4>规模</h4><p><span class="num">12</span> 态 · <span class="num">19</span> 事件 · <span class="num">21</span> 迁移，纯函数状态机（app/core/state_machine.py）。扁平信封 {case_id, trace_id, occurred_at, event, actor, payload}。</p></div>
+    <div class="card"><h4>规模</h4><p><span class="num">12</span> 态 · <span class="num">18</span> 事件 · <span class="num">21</span> 迁移，纯函数状态机（<a href="../../services/web-api/app/core/state_machine.py">app/core/state_machine.py</a>）。扁平信封 {case_id, trace_id, occurred_at, event, actor, payload}。</p></div>
     <div class="card"><h4>双守护</h4><p>应用层状态机 + DB 白名单表触发器（case_state_transition）；写路径事务内 set tg.actor，trg_case_actor_gate 按 actor 前缀拦截——五对人类迁移仅 human:* 可执行。</p></div>
     <div class="card"><h4>事件投递语义</h4><p>进程内总线必达（SSE 实时推送；慢消费者 64 槽上限降级丢弃，不阻塞主链路）+ RocketMQ 尽力而为（case-events 实测连通）+ EventWorker DB 轮询保底（单飞锁防重、失败不重试）——不依赖单一中间件可用性。</p></div>
   </div>
@@ -406,7 +408,7 @@
     <h4>核验三分支（AA-SK-04，诚实语义）</h4>
     <p>执行一致→归档（trace 残缺仅告警<b>绝不回滚</b>）；不一致→反向处置回滚（逆动作对授权）；无凭证/拒回滚→RollbackEscalated 升级人工（不发 RollbackExecuted，语义不撒谎）。实测 D3 全分支通过。</p>
   </div>
-  <div class="foot"><span>来源：app/core/state_machine.py · docs/03 §9.2 · docs/02 §7</span><span>15</span></div>
+  <div class="foot"><span>来源：<a href="../../services/web-api/app/core/state_machine.py">app/core/state_machine.py</a> · <a href="../03-数据架构DA.md">docs/03</a> §9.2 · <a href="../02-应用架构AA.md">docs/02</a> §7</span><span>15</span></div>
 </section>
 
 <!-- ============ 16 演示入口 ============ -->
@@ -416,9 +418,9 @@
   <div class="subtitle">系统启动后，经以下任一数据输入面注入业务数据，配合角色切换即可完成端到端演示（全部实测）</div>
   <div class="grid" style="grid-template-columns:1fr 1fr">
     <div>
-      <div class="card" style="margin-bottom:10px"><h4>Step 1 · 一键启动（任意初始状态可重入）</h4>
-        <div class="code"><span class="g">.venv/Scripts/python scripts/start_all.py</span>
-<span class="c"># 20 项检查全绿 exit 0：探活→数据→网关→协同→C1~C9 取证</span></div></div>
+      <div class="card" style="margin-bottom:10px"><h4>Step 0 · 下载后配置（可选，仅 AgentTeams 协同需要）</h4><p>核心链路（web-api/门户/MCP/中间件）确定性运行、<b>不依赖 LLM</b>，克隆后可直接 Step 1。如需 AgentTeams 5 Agent 协同：复制 <b>secrets/dashscope.env.example</b> → <b>secrets/dashscope.env</b>，填入 <b>DASHSCOPE_API_KEY</b>（LLM Key 位置与步骤详见 <a href="../../README.md">README.md · 快速开始</a>）。</p></div><div class="card" style="margin-bottom:10px"><h4>Step 1 · 一键启动（任意初始状态可重入）</h4>
+        <div class="code"><span class="g">.venv/Scripts/python <a href="../../scripts/start_all.py">scripts/start_all.py</a></span>
+<span class="c"># 21 项检查全绿 exit 0：探活→数据→网关→协同→C1~C9 取证</span></div></div>
       <div class="card" style="margin-bottom:10px"><h4>Step 2 · 打开门户并切换角色</h4>
         <p>http://localhost:8300 → 顶栏角色下拉切换：<b>风控值班员 / 风控审批官 / 合规审计员 / 风控策略管理员</b>（路由白名单自动导向各自主页面；可观测面板全角色可见）。</p></div>
       <div class="card"><h4>Step 3 · 观察实时流转</h4>
@@ -437,7 +439,7 @@
         </table></div>
     </div>
   </div>
-  <div class="foot"><span>实测：start_all.py 20/20（两轮，含全绿态重入）· 门户角色切换 role.js/router.js 在码验证</span><span>16</span></div>
+  <div class="foot"><span>实测：start_all.py 21/21（两轮，含全绿态重入）· 门户角色切换 role.js/router.js 在码验证</span><span>16</span></div>
 </section>
 
 <!-- ============ 17 D1 ============ -->
@@ -463,7 +465,7 @@
       </table>
       <p style="margin-top:8px"><b>门户回放案件号：CASE-20260815-f31387</b></p></div>
   </div>
-  <div class="foot"><span>验证命令：scripts/demo_playbook.py ｜ KPI-01 演示口径实测 0.0 分钟（低风险自动通道）</span><span>17</span></div>
+  <div class="foot"><span>验证命令：<a href="../../scripts/demo_playbook.py">scripts/demo_playbook.py</a> ｜ KPI-01 演示口径实测 0.0 分钟（低风险自动通道）</span><span>17</span></div>
 </section>
 
 <!-- ============ 18 D2 ============ -->
@@ -516,19 +518,19 @@
   <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
     <div class="card" style="text-align:center"><div class="num">169/169</div><p>pytest 全量回归<br>（约 6 分钟，全绿）</p></div>
     <div class="card" style="text-align:center"><div class="num">3/3</div><p>演示剧本 D1~D3<br>24 步断言全绿</p></div>
-    <div class="card" style="text-align:center"><div class="num">20/20</div><p>start_all.py 一键自证<br>（两轮：脏态 + 全绿态重入）</p></div>
+    <div class="card" style="text-align:center"><div class="num">21/21</div><p>start_all.py 一键自证<br>（两轮：脏态 + 全绿态重入）</p></div>
     <div class="card" style="text-align:center"><div class="num">12+3</div><p>Worker mcporter 工具桥<br>健康（4 Worker 全注入）</p></div>
   </div>
   <table>
     <tr><th>验证维度</th><th>手段</th><th>结果</th></tr>
-    <tr><td>一键启动与端口治理</td><td>start_all.py（引擎自拉起/清障/探活/取证）</td><td>20/20 exit 0；首跑实证并修复「Docker 引擎进程不可 taskkill」与 source_type 契约外 422 共 2 处真问题</td></tr>
+    <tr><td>一键启动与端口治理</td><td>start_all.py（引擎自拉起/清障/探活/取证）</td><td>21/21 exit 0；首跑实证并修复「Docker 引擎进程不可 taskkill」与 source_type 契约外 422 共 2 处真问题</td></tr>
     <tr><td>数据通路 C1~C9</td><td>真实立案→自动闭环→审计/凭证/span</td><td>全绿（含经网关读真实案件 total、门户经网关 /api）</td></tr>
     <tr><td>演示路径有效性</td><td>demo_playbook.py（演示=测试回放）</td><td>3/3 剧本、24 步断言，回放案件号见 D1/D2/D3 页</td></tr>
     <tr><td>网关真实承载</td><td>envoy upstream_rq_200 计数 + 经网关读库</td><td>Sprint 10 取证（R-32），非旁路宣称</td></tr>
     <tr><td>协同执行</td><td>agt get workers + mcporter list + 真实工具调用</td><td>4 Worker Running，调 query_transactions 返回真实库内交易行</td></tr>
     <tr><td>KPI（诚实分列）</td><td>kpi_report.py 全量/演示双口径</td><td>演示口径 01/02/03/05 达标、04 结构性偏高如实标注；全量口径 01/03/04/05 未达标（仅 02 达标，TEST 残留影响）不掩饰</td></tr>
   </table>
-  <div class="foot"><span>证据文件：docs/reports/kpi-report.md ｜ 评审留痕：docs/05（累计 35 处问题修复，R-01~R-35）</span><span>20</span></div>
+  <div class="foot"><span>证据文件：<a href="kpi-report.md">docs/reports/kpi-report.md</a> ｜ 评审留痕：<a href="../05-追溯矩阵与整体评审报告.md">docs/05</a>（累计 37 处问题修复，R-01~R-37）</span><span>20</span></div>
 </section>
 
 <!-- ============ 21 总结 ============ -->
@@ -538,11 +540,11 @@
   <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:22px">
     <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">业务完整性</h4><p style="color:#c6d3e6">7 业务能力 / 4 端到端流程 / 14 业务规则 / 4 人类角色全操作面，五大业务场景逐条命中；人机边界硬约束：高风险处置必经人批，全链留痕可回溯。</p></div>
     <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">技术真实性</h4><p style="color:#c6d3e6">核心技术栈（AgentTeams/Nacos/RocketMQ/Higress/Studio/OTLP）全部真实参与业务流量并逐一取证；12 态状态机双守护；事件闭环第一跳零人工。</p></div>
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">演示确定性</h4><p style="color:#c6d3e6">演示=测试回放：确定性数据播种 + 三剧本 24 步断言 + 门户同契约回放；一键 start_all.py 任意状态可重入，20 项自证全绿才宣称可用。</p></div>
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">工程诚实性</h4><p style="color:#c6d3e6">累计 35 处评审问题修复留痕（R-01~R-35）；KPI 双口径分列判定不以演示达标掩盖全量未达标；网关控制台未初始化等保留项如实声明，不伪造。</p></div>
+    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">演示确定性</h4><p style="color:#c6d3e6">演示=测试回放：确定性数据播种 + 三剧本 24 步断言 + 门户同契约回放；一键 start_all.py 任意状态可重入，21 项自证全绿才宣称可用。</p></div>
+    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">工程诚实性</h4><p style="color:#c6d3e6">累计 37 处评审问题修复留痕（R-01~R-37）；KPI 双口径分列判定不以演示达标掩盖全量未达标；网关控制台未初始化等保留项如实声明，不伪造。</p></div>
   </div>
   <div style="margin-top:30px;font-size:15px;color:#e8c98a;letter-spacing:1px">TradeGuard · 交易风控中枢 —— 让每一次处置都有据可查，让每一条路径都经得起实测。</div>
-  <div class="foot" style="color:#6d81a0"><span>docs/00~09 v1.4.10 ｜ 2026-08-16</span><span>21</span></div>
+  <div class="foot" style="color:#6d81a0"><span>docs/00~09 v1.4.11 ｜ 2026-08-16</span><span>21</span></div>
 </section>
 
 </div><!-- /stage -->

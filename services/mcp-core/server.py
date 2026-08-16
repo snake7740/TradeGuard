@@ -61,14 +61,19 @@ async def _cfg_int(conn, key: str, default: int) -> int:
 
 
 async def _approval_valid(conn, approval_ref: str, case_id: str, action: str) -> bool:
-    """C1 凭证验真：已批准 + 同案 + 动作匹配（含逆动作对——批准原动作即含纠正授权）"""
+    """C1 凭证验真：已批准 + 同案 + 动作匹配（含逆动作对——批准原动作即含纠正授权）
+
+    R-37 失败关闭：requested_action 为 NULL 的批准单不再视为"通配凭证"——
+    历史 NULL 行只能说明建单时未携带动作，不能推定其授权了任意动作。"""
     rec = await conn.fetchrow(
         "SELECT case_id, decision, requested_action FROM approval_record WHERE approval_id=$1",
         approval_ref)
     if not rec or rec["decision"] != "approved" or rec["case_id"] != case_id:
         return False
     req = rec["requested_action"]
-    if req is None or req == action:
+    if req is None:
+        return False
+    if req == action:
         return True
     return INVERSE_ACTION.get(req) == action
 
@@ -136,6 +141,25 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
     """API-M-03：处置执行（审批门控 DA-INV-02 + 幂等 DA-INV-03）"""
     if action not in ("block", "freeze", "reduce", "release"):
         return json.dumps({"code": "E-BAD-ACTION", "message": f"非法处置动作 {action}"})
+    # R-37：金额入口校验——允许 None（非 reduce 动作不携金额），
+    # 有值必须为 [0, 1e7] 内有限数（拒绝负数/NaN/Inf/超额，防脏值落 disposition_record）
+    if amount is not None:
+        try:
+            amt = float(amount)
+        except (TypeError, ValueError):
+            return json.dumps({"code": "E-BAD-AMOUNT", "message": f"金额不可解析为数值：{amount!r}"})
+        if amt != amt or amt in (float("inf"), float("-inf")) or not (0 <= amt <= 10_000_000):
+            return json.dumps({"code": "E-BAD-AMOUNT",
+                               "message": f"金额超出 [0, 1e7] 有效区间：{amount!r}"})
+    # R-37 复审收口：标识符长度闸门（对齐 disposition_record 列宽）——超长值先以
+    # 干净错误信封拒绝，防审计 basis / approval_ref varchar(40) / 幂等键 varchar(60)
+    # 截断把 E-DISP-AUTH 退化为传输层错误（处置仍绝不执行，失败关闭不变）
+    if idempotency_key and len(idempotency_key) > 60:
+        return json.dumps({"code": "E-BAD-KEY",
+                           "message": "幂等键超过 60 字符（idempotency_key 列宽上限）"})
+    if approval_ref and len(approval_ref) > 40:
+        return json.dumps({"code": "E-DISP-AUTH",
+                           "message": "审批凭证形态非法（approval_ref 超 40 字符）"})
     conn = await _conn()
     try:
         case = await conn.fetchrow(
@@ -175,10 +199,12 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
             # C2：高风险无凭证——唯一豁免是 ROLLBACK 态的反向 release（核验回滚上下文）
             if not (action == "release" and case["status"] == "ROLLBACK"):
                 # 兜底：按同一谓词查已批准凭证（本动作优先、逆对次之、decided_at DESC）
+                # R-37：兜底查询不再接纳 requested_action IS NULL 的历史行（失败关闭，
+                # 与 _approval_valid 同源）——NULL 行无法证明授权了当前动作
                 approved = await conn.fetchrow(
                     """SELECT approval_id FROM approval_record
                        WHERE case_id=$1 AND decision='approved'
-                         AND (requested_action IS NULL OR requested_action = ANY($2))
+                         AND requested_action = ANY($2)
                        ORDER BY (requested_action = $3) DESC,
                                 decided_at DESC NULLS LAST LIMIT 1""",
                     case_id, _allowed_requested_actions(action), action)
@@ -300,6 +326,11 @@ async def apply_risk_bonus(case_id: str, points: int, basis: str) -> str:
     """API-M-13：关联网络命中加分（BA-BR-06，US-E4-02，tg_app 写角色）
     幂等：同案同 basis 仅生效一次（context_json.risk_bonus_<md5前8位> 打标），
     风险分封顶 100；加分与依据落审计（BA-BR-09）。"""
+    # R-37：只允许正向加分（1~100）——负数/零加分实为降分后门，
+    # 可被用于静默压低风险分绕过处置门控，一律拒绝
+    if not isinstance(points, int) or not (0 < points <= 100):
+        return json.dumps({"code": "E-BAD-POINTS",
+                           "message": f"加分值必须为 1~100 的整数（拒绝降分/越界）：{points!r}"})
     import hashlib
     mark = "br06_" + hashlib.md5(basis.encode()).hexdigest()[:8]
     conn = await _conn()
@@ -322,7 +353,9 @@ async def apply_risk_bonus(case_id: str, points: int, basis: str) -> str:
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                    VALUES ($1, 'AA-AG-03', 'risk.bonus', $2, $3, $4)""",
                 uuid.uuid4().hex, case_id,
-                f"+{points} -> {new_score}（{basis}）", case["trace_id"])
+                # R-37 复审收口：审计展示截断对齐 varchar(300)；幂等 mark 仍按完整
+                # basis 计算（md5 不受截断影响），加分语义不变
+                f"+{points} -> {new_score}（{basis[:250]}）", case["trace_id"])
         return json.dumps({"applied": True, "risk_score": new_score})
     finally:
         await conn.close()
@@ -335,6 +368,27 @@ async def record_case_signals(case_id: str, risk_score: int, signals: list[dict]
     signals 为数组（元素含 source/type/confidence/raw_ref/query_reason/degraded/velocity_json）；
     签名用 list[dict] 而非 JSON 字符串：FastMCP 会对形似 JSON 的字符串参数预解析，
     str 注解收到数组字符串会被转成 list 导致校验失败，故直收数组（兼容字符串入参）。"""
+    # R-37：入口校验——risk_score 必须落在 [0,100]（越界值会污染处置门控分段），
+    # 信号元素必须携带契约字段（缺字段此前在事务内抛 KeyError 造成整批回滚且报错含糊）
+    try:
+        score_val = int(risk_score)
+    except (TypeError, ValueError):
+        return json.dumps({"code": "E-BAD-SCORE",
+                           "message": f"risk_score 不可解析为整数：{risk_score!r}"})
+    if not (0 <= score_val <= 100):
+        return json.dumps({"code": "E-BAD-SCORE",
+                           "message": f"risk_score 超出 [0,100]：{risk_score!r}"})
+    if not isinstance(signals, list):
+        return json.dumps({"code": "E-BAD-SIGNALS", "message": "signals 必须为数组"})
+    required = ("source", "type", "confidence", "query_reason")
+    for i, s in enumerate(signals):
+        if not isinstance(s, dict):
+            return json.dumps({"code": "E-BAD-SIGNALS",
+                               "message": f"signals[{i}] 必须为对象，实际为 {type(s).__name__}"})
+        missing = [k for k in required if k not in s]
+        if missing:
+            return json.dumps({"code": "E-BAD-SIGNALS",
+                               "message": f"signals[{i}] 缺少契约字段：{','.join(missing)}"})
     sigs = signals
     conn = await _conn()
     try:
@@ -350,14 +404,14 @@ async def record_case_signals(case_id: str, risk_score: int, signals: list[dict]
                     json.dumps(s["velocity_json"]) if s.get("velocity_json") else None)
             await conn.execute(
                 "UPDATE risk_case SET risk_score=$2, updated_at=now() WHERE case_id=$1",
-                case_id, risk_score)
+                case_id, score_val)
             await conn.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                    VALUES ($1, 'AA-AG-02', 'signals.record', $2, $3, $4)""",
-                uuid.uuid4().hex, case_id, f"signals={len(sigs)},risk_score={risk_score}",
+                uuid.uuid4().hex, case_id, f"signals={len(sigs)},risk_score={score_val}",
                 await conn.fetchval(
                     "SELECT trace_id FROM risk_case WHERE case_id=$1", case_id))
-        return json.dumps({"ok": True, "recorded": len(sigs), "risk_score": risk_score})
+        return json.dumps({"ok": True, "recorded": len(sigs), "risk_score": score_val})
     finally:
         await conn.close()
 

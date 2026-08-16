@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS vector;   -- pgvector（DA-T-10 HNSW）
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid 备用
 
 -- DA-T-01 account
-CREATE TABLE account (
+CREATE TABLE IF NOT EXISTS account (
     account_hash      char(64) PRIMARY KEY,
     risk_level        smallint     NOT NULL DEFAULT 0 CHECK (risk_level BETWEEN 0 AND 5),
     list_flag         varchar(8)   NOT NULL DEFAULT 'none'
@@ -17,7 +17,7 @@ CREATE TABLE account (
 );
 
 -- DA-T-02 transaction（按月分区，BA-BR-12 归档）
-CREATE TABLE transaction (
+CREATE TABLE IF NOT EXISTS transaction (
     tx_id         varchar(40)    NOT NULL,
     account_hash  char(64)       NOT NULL,
     payee_hash    char(64),
@@ -31,34 +31,34 @@ CREATE TABLE transaction (
     PRIMARY KEY (tx_id, ts)
 ) PARTITION BY RANGE (ts);
 
-CREATE TABLE transaction_2026_01 PARTITION OF transaction FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
-CREATE TABLE transaction_2026_02 PARTITION OF transaction FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
-CREATE TABLE transaction_2026_03 PARTITION OF transaction FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
-CREATE TABLE transaction_2026_04 PARTITION OF transaction FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
-CREATE TABLE transaction_2026_05 PARTITION OF transaction FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
-CREATE TABLE transaction_2026_06 PARTITION OF transaction FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
-CREATE TABLE transaction_2026_07 PARTITION OF transaction FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
-CREATE TABLE transaction_2026_08 PARTITION OF transaction FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
-CREATE TABLE transaction_2026_09 PARTITION OF transaction FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
-CREATE TABLE transaction_2026_10 PARTITION OF transaction FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
-CREATE TABLE transaction_2026_11 PARTITION OF transaction FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
-CREATE TABLE transaction_2026_12 PARTITION OF transaction FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
-CREATE TABLE transaction_2027_01 PARTITION OF transaction FOR VALUES FROM ('2027-01-01') TO ('2027-02-01');
-CREATE TABLE transaction_2027_02 PARTITION OF transaction FOR VALUES FROM ('2027-02-01') TO ('2027-03-01');
-CREATE TABLE transaction_2027_03 PARTITION OF transaction FOR VALUES FROM ('2027-03-01') TO ('2027-04-01');
-CREATE TABLE transaction_2027_04 PARTITION OF transaction FOR VALUES FROM ('2027-04-01') TO ('2027-05-01');
-CREATE TABLE transaction_2027_05 PARTITION OF transaction FOR VALUES FROM ('2027-05-01') TO ('2027-06-01');
-CREATE TABLE transaction_2027_06 PARTITION OF transaction FOR VALUES FROM ('2027-06-01') TO ('2027-07-01');
-CREATE TABLE transaction_2027_07 PARTITION OF transaction FOR VALUES FROM ('2027-07-01') TO ('2027-08-01');
-CREATE TABLE transaction_2027_08 PARTITION OF transaction FOR VALUES FROM ('2027-08-01') TO ('2027-09-01');
-CREATE TABLE transaction_2027_09 PARTITION OF transaction FOR VALUES FROM ('2027-09-01') TO ('2027-10-01');
-CREATE TABLE transaction_2027_10 PARTITION OF transaction FOR VALUES FROM ('2027-10-01') TO ('2027-11-01');
-CREATE TABLE transaction_2027_11 PARTITION OF transaction FOR VALUES FROM ('2027-11-01') TO ('2027-12-01');
-CREATE TABLE transaction_2027_12 PARTITION OF transaction FOR VALUES FROM ('2027-12-01') TO ('2028-01-01');
-CREATE TABLE transaction_default PARTITION OF transaction DEFAULT;
+CREATE TABLE IF NOT EXISTS transaction_2026_01 PARTITION OF transaction FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_02 PARTITION OF transaction FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_03 PARTITION OF transaction FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_04 PARTITION OF transaction FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_05 PARTITION OF transaction FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_06 PARTITION OF transaction FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_07 PARTITION OF transaction FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_08 PARTITION OF transaction FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_09 PARTITION OF transaction FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_10 PARTITION OF transaction FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_11 PARTITION OF transaction FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
+CREATE TABLE IF NOT EXISTS transaction_2026_12 PARTITION OF transaction FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_01 PARTITION OF transaction FOR VALUES FROM ('2027-01-01') TO ('2027-02-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_02 PARTITION OF transaction FOR VALUES FROM ('2027-02-01') TO ('2027-03-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_03 PARTITION OF transaction FOR VALUES FROM ('2027-03-01') TO ('2027-04-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_04 PARTITION OF transaction FOR VALUES FROM ('2027-04-01') TO ('2027-05-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_05 PARTITION OF transaction FOR VALUES FROM ('2027-05-01') TO ('2027-06-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_06 PARTITION OF transaction FOR VALUES FROM ('2027-06-01') TO ('2027-07-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_07 PARTITION OF transaction FOR VALUES FROM ('2027-07-01') TO ('2027-08-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_08 PARTITION OF transaction FOR VALUES FROM ('2027-08-01') TO ('2027-09-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_09 PARTITION OF transaction FOR VALUES FROM ('2027-09-01') TO ('2027-10-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_10 PARTITION OF transaction FOR VALUES FROM ('2027-10-01') TO ('2027-11-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_11 PARTITION OF transaction FOR VALUES FROM ('2027-11-01') TO ('2027-12-01');
+CREATE TABLE IF NOT EXISTS transaction_2027_12 PARTITION OF transaction FOR VALUES FROM ('2027-12-01') TO ('2028-01-01');
+CREATE TABLE IF NOT EXISTS transaction_default PARTITION OF transaction DEFAULT;
 
 -- DA-T-03 risk_case（聚合根，乐观锁 DA-INV-01）
-CREATE TABLE risk_case (
+CREATE TABLE IF NOT EXISTS risk_case (
     case_id       varchar(20) PRIMARY KEY,
     subject_ref   varchar(64)  NOT NULL,
     status        varchar(20)  NOT NULL DEFAULT 'REGISTERED'
@@ -77,7 +77,7 @@ CREATE TABLE risk_case (
 );
 
 -- DA-T-04 risk_signal（🔒 只增）
-CREATE TABLE risk_signal (
+CREATE TABLE IF NOT EXISTS risk_signal (
     signal_id    varchar(40) PRIMARY KEY,
     case_id      varchar(20)  NOT NULL REFERENCES risk_case(case_id),
     source       varchar(12)  NOT NULL CHECK (source IN ('tx','credit','sentiment','complaint')),
@@ -91,7 +91,7 @@ CREATE TABLE risk_signal (
 );
 
 -- DA-T-05 case_evidence（🔒 只增）
-CREATE TABLE case_evidence (
+CREATE TABLE IF NOT EXISTS case_evidence (
     evidence_id varchar(40) PRIMARY KEY,
     case_id     varchar(20)  NOT NULL REFERENCES risk_case(case_id),
     claim       varchar(500) NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE case_evidence (
 );
 
 -- DA-T-06 disposition_record（幂等键 DA-INV-03）
-CREATE TABLE disposition_record (
+CREATE TABLE IF NOT EXISTS disposition_record (
     exec_id         varchar(40) PRIMARY KEY,
     case_id         varchar(20)   NOT NULL REFERENCES risk_case(case_id),
     action          varchar(10)   NOT NULL CHECK (action IN ('block','freeze','reduce','release')),
@@ -115,7 +115,7 @@ CREATE TABLE disposition_record (
 );
 
 -- DA-T-07 approval_record（AG-04 创建、人类回填，BA-BR-13 时效）
-CREATE TABLE approval_record (
+CREATE TABLE IF NOT EXISTS approval_record (
     approval_id varchar(40) PRIMARY KEY,
     case_id     varchar(20)  NOT NULL REFERENCES risk_case(case_id),
     approver    varchar(40),
@@ -127,7 +127,7 @@ CREATE TABLE approval_record (
 );
 
 -- DA-T-08 audit_log（🔒 append-only，DA-INV-05）
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     log_id   varchar(40) PRIMARY KEY,
     actor    varchar(40)  NOT NULL,
     action   varchar(60)  NOT NULL,
@@ -138,7 +138,7 @@ CREATE TABLE audit_log (
 );
 
 -- DA-T-09 kb_document（DA-INV-06：发布仅人工）
-CREATE TABLE kb_document (
+CREATE TABLE IF NOT EXISTS kb_document (
     doc_id      varchar(40) PRIMARY KEY,
     category    varchar(12)  NOT NULL CHECK (category IN ('case','regulation','runbook')),
     title       varchar(200) NOT NULL,
@@ -152,7 +152,7 @@ CREATE TABLE kb_document (
 );
 
 -- DA-T-10 kb_embedding（pgvector HNSW）
-CREATE TABLE kb_embedding (
+CREATE TABLE IF NOT EXISTS kb_embedding (
     doc_id    varchar(40) NOT NULL REFERENCES kb_document(doc_id),
     chunk_id  int         NOT NULL,
     embedding vector(1024) NOT NULL,
@@ -161,7 +161,7 @@ CREATE TABLE kb_embedding (
 );
 
 -- DA-T-11 sys_config（Nacos 镜像落盘）
-CREATE TABLE sys_config (
+CREATE TABLE IF NOT EXISTS sys_config (
     key        varchar(60) PRIMARY KEY,
     value      varchar(200) NOT NULL,
     version    int          NOT NULL DEFAULT 0,
@@ -170,7 +170,7 @@ CREATE TABLE sys_config (
 );
 
 -- DA-T-12 agent_memory（Agent 长期记忆，写/读时机见 03 §4）
-CREATE TABLE agent_memory (
+CREATE TABLE IF NOT EXISTS agent_memory (
     memory_id varchar(40) PRIMARY KEY,
     agent_id  varchar(16) NOT NULL,
     case_id   varchar(20),
@@ -179,16 +179,16 @@ CREATE TABLE agent_memory (
 );
 
 -- ---------- 索引（08 §4） ----------
-CREATE INDEX idx_tx_account_ts     ON transaction (account_hash, ts DESC);
-CREATE INDEX idx_tx_device         ON transaction (device_fp_hash);
-CREATE INDEX idx_case_queue        ON risk_case (status, risk_score DESC);
-CREATE INDEX idx_case_subject      ON risk_case (subject_ref);
-CREATE INDEX idx_signal_case       ON risk_signal (case_id);
-CREATE INDEX idx_evidence_case     ON case_evidence (case_id);
-CREATE INDEX idx_approval_queue    ON approval_record (decision, created_at);
-CREATE INDEX idx_audit_target_ts   ON audit_log (target, ts);
-CREATE INDEX idx_embedding_hnsw    ON kb_embedding USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX idx_memory_agent_ts   ON agent_memory (agent_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_tx_account_ts     ON transaction (account_hash, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_tx_device         ON transaction (device_fp_hash);
+CREATE INDEX IF NOT EXISTS idx_case_queue        ON risk_case (status, risk_score DESC);
+CREATE INDEX IF NOT EXISTS idx_case_subject      ON risk_case (subject_ref);
+CREATE INDEX IF NOT EXISTS idx_signal_case       ON risk_signal (case_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_case     ON case_evidence (case_id);
+CREATE INDEX IF NOT EXISTS idx_approval_queue    ON approval_record (decision, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_target_ts   ON audit_log (target, ts);
+CREATE INDEX IF NOT EXISTS idx_embedding_hnsw    ON kb_embedding USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_ts   ON agent_memory (agent_id, ts DESC);
 
 -- ---------- BA-BR 阈值种子（sys_config，正式值经 Nacos 下发，SC-06） ----------
 -- 全部为消费侧活键：聚合/处置/核验按同名键读取（06-closedloop-fix 补播同批）
@@ -203,4 +203,5 @@ INSERT INTO sys_config (key, value) VALUES
   ('br-13-approval-timeout-min', '30'),    -- 审批时效升级阈值
   ('br-14-velocity-1h-count', '10'),       -- 1 小时频次阈值
   ('br-14-velocity-24h-count', '50'),      -- 24 小时频次阈值
-  ('br-14-velocity-bonus', '30');          -- 频次命中加分
+  ('br-14-velocity-bonus', '30')           -- 频次命中加分
+ON CONFLICT (key) DO NOTHING;              -- R-37 复审收口：迁移幂等，重跑不覆盖现值
