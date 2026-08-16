@@ -1,5 +1,10 @@
 # web-api 后端设计（Sprint 0 架构模板 → Sprint 1-8 全量落地）
 
+> **这是什么 / 给谁看**：TradeGuard 的后端服务（FastAPI）——人类操作面的唯一后端，也是事件驱动闭环的承接侧。
+> 面向**后端开发者**。零基础请先读[根 README](../../README.md) 的「快速开始 / 技术栈一览 / 项目地图」，
+> 再读 [docs/02 应用架构](../../docs/02-应用架构AA.md) 了解 5 Agent / 5 Skill 分工，最后看本文档的分层结构。
+> 启动：`docker compose up -d --build web-api`（或一键 `scripts/start_all.py`）；代码入口 `app/main.py`。
+
 FastAPI 应用，承载 API-W-01~22 契约（docs/openapi/tradeguard-openapi.yaml，22 路径）。
 三端真实调用链（04 §10.1）中"人类操作面"的唯一后端，也是事件驱动闭环的承接侧
 （EventWorker 自动消费 CaseRegistered，AA-CL-01/02）。
@@ -10,7 +15,7 @@ FastAPI 应用，承载 API-W-01~22 契约（docs/openapi/tradeguard-openapi.yam
 app/
 ├─ main.py               # 应用工厂 + lifespan 装配（pool/publisher/repositories/
 │                        #   EventWorker 启停/30s 扫描循环：审批升级 BA-BR-13 + 核验超时 BA-BR-08）
-├─ schemas.py            # Pydantic 入参模型（与 openapi.yaml 逐条对齐）
+├─ schemas.py            # Pydantic 入参模型（与 openapi.yaml 逐项对齐）
 ├─ repositories.py       # 仓储层：一聚合根一仓储（Case/Approval/Kb）；
 │                        #   transition 事务内 set_config('tg.actor') 供 DB actor 守卫
 ├─ api_guards.py         # bearer 鉴权（TG_API_TOKEN）+ 写操作审计 api.request（US-E7-01）
@@ -19,7 +24,7 @@ app/
 │  ├─ events.py          # 事件发布端口/适配器：进程内总线（必达）+ RocketMQ（尽力而为）
 │  ├─ event_worker.py    # 闭环承接：DB 轮询主力 2s 扫 REGISTERED + case_id 单飞锁（TG_EVENT_WORKER 开关）
 │  ├─ config_service.py  # Nacos 阈值快照 5s 热加载 + sys_config 镜像（SC-06）
-│  └─ tracing.py         # skill_span 埋点（US-E7-04，API-W-20 回放）
+│  └─ tracing.py         # skill_span 埋点（US-E7-04，API-W-20 追溯）
 ├─ skills/               # 四内核技能（确定性内核，纯函数 + 编排分离）
 │  ├─ aggregation.py     # AA-SK-01：velocity/降噪/加权评分/四路由裁决（noise/auto_release/investigate/all_fail）
 │  ├─ investigation.py   # AA-SK-02：假设匹配 + 图谱 + 黑名单加分 + 证据固化
@@ -30,18 +35,18 @@ app/
    ├─ alerts.py          # W-01 立案（202 + trace_id，CaseRegistered 事件源）
    ├─ cases.py           # W-02~07/17~19/22（列表/详情/信号/图谱/证据/复核/聚合/调查/核验/处置凭证列表）
    ├─ approvals.py       # W-08/09（审批队列含 requested_action/escalated_at / 批准驳回→状态机）
-   ├─ audit.py           # W-10 审计回放
+   ├─ audit.py           # W-10 审计追溯
    ├─ kb.py              # W-11~13（知识申请/发布/驳回）
    ├─ events_stream.py   # W-14 SSE（进程内总线，21 事件名扁平信封）
    ├─ config.py          # W-16 阈值 GET/PUT（Nacos 写回 + DB 镜像）
-   ├─ observability.py   # W-20 技能 span 回放
+   ├─ observability.py   # W-20 技能 span 追溯
    └─ demo.py            # W-21 演示候选主体（无在办案件的账户）
 ```
 
 ## 核心设计模式
 
 | 模式 | 落点 | 依据 |
-|---|---|---|
+| --- | --- | --- |
 | 状态机 | `core/state_machine.py` 纯函数迁移表 + actor 守卫（human_only） | 02 §7、DA-INV-01 |
 | 仓储 | `repositories.py` 聚合根边界即模块边界 | 03 §9.1/§9.4 |
 | 端口/适配器 | EventPublisher：进程内总线必达 + RocketMQ 尽力而为（可替换） | 03 §9.2、TA-C-06 |

@@ -5,7 +5,7 @@
 ## 九属性契约（02 §4）
 
 | 属性 | 内容 |
-|---|---|
+| --- | --- |
 | 用途 | 生成复盘摘要、提取欺诈手法特征、提交知识入库申请（BA-BP-04） |
 | 输入 | `{case_id, full_case_context}` |
 | 输出 | `{retrospective, pattern_candidate, kb_application_id}` |

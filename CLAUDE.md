@@ -28,8 +28,8 @@ scripts/                   start_all / demo_playbook / kpi_report / nacos_regist
 .venv/Scripts/python scripts/start_all.py               # 一键启动+数据通路自证（首选）：.env 凭证自举→拉起全栈→真实探活→数据就位（空库先读 db/export）→端到端取证核心 19 项，全绿 exit 0
 docker compose up -d --build          # 起全栈（postgres/rocketmq/nacos/higress/studio/mcp×2/web×2）
 .venv/Scripts/python -m pytest services/web-api/tests   # 全量回归（169 例，约 6 分钟；需先起栈）
-.venv/Scripts/python scripts/demo_playbook.py           # 演示=测试回放，D1~D3 三剧本，目标 3/3
-.venv/Scripts/python scripts/kpi_report.py              # KPI 报告重生成（全量/演示口径分列判定）
+.venv/Scripts/python scripts/demo_playbook.py           # 演示=测试复现，D1~D3 三个场景，目标 3/3
+.venv/Scripts/python scripts/kpi_report.py              # KPI 报告重生成（全量/演示范围分列判定）
 cd web-portal && npm run build                          # 前端构建
 # PG 宿主侧端口 5433（容器间仍 postgres:5432；宿主 5432 被本机 PG 占用）：
 docker compose exec postgres psql -U postgres -d tradeguard
@@ -52,7 +52,7 @@ docker compose exec postgres psql -U postgres -d tradeguard
   ①UPDATE 直改 status 必须先 set tg.actor；②需要 INVESTIGATING 等目标态时优先
   **单事务直插**（test_routes._reviewable_case 模式）——compose EventWorker 只轮询
   REGISTERED，直插案件对其不可见，杜绝同库抢跑竞态（R-37 实测教训）。
-- **处置门控**（mcp-core execute_disposition）：approval_ref 验真 = case 匹配 + requested_action
+- **处置准入**（mcp-core execute_disposition）：approval_ref 验真 = case 匹配 + requested_action
   匹配或逆动作对。`INVERSE_ACTION = {freeze/block/reduce→release, release→block}`
   在 mcp-core server.py 与 web-api verification.py **双处同源**，改一处必须同步另一处。
   高风险 release 豁免仅限案件 ROLLBACK 态；70 分线经 sys_config `br-01-auto-block-score` 双端同源。
@@ -95,14 +95,14 @@ docker compose exec postgres psql -U postgres -d tradeguard
   导出件 TRUNCATE+psql 恢复，导出缺失才回退 data-generator 重灌）→Higress 重建→AgentTeams
   体检→C1~C9+X1 端到端硬证据，核心 19 项全绿 exit 0。`--build` 重建镜像；`--no-agentteams`
   跳过协同栈。克隆/复制的项目零手工配置即可完整启动（凭据自举 + 卷导出恢复）。
-- **KPI 全量口径未达标是诚实结果**：pytest 残留 source=TEST 案件抬升 KPI-03/04；
-  验收以演示口径为准，报告按口径分列判定，不得以演示达标掩盖全量未达标。
+- **KPI 全量范围未达标是诚实结果**：pytest 残留 source=TEST 案件抬升 KPI-03/04；
+  验收以演示范围为准，报告按范围分列判定，不得以演示达标掩盖全量未达标。
 - asyncpg 单次 executemany 10 万行会在客户端挂死（pg_stat_activity 呈 ClientRead）——大批量插入必须分批。
 - compose 端口：pg 5433、nacos 8848、higress 控制台 8001/网关 HTTP 8180、studio 3000、mcp 8101/8102、web-api 8200(:8000)、portal 8300。**宿主侧全部仅绑定 127.0.0.1**（R-37），容器间互访不受影响。
 - **db/export 卷导出件**：pg-data→tradeguard-data.sql.gz（data-only，schema 由 db/init 幂等迁移建立）、
   higress-data→higress-data.tar.gz（离线快照，路由实际由 higress_routes.py 重建；打包剔除
   data/secrets/ 与 *.key/*.pem 私钥素材）。数据演进后用 `scripts/volume_export.py` 再生成
-  （内置密钥扫描闸门：明文/base64 封装 PEM、sk-*、GitHub/AWS 凭据特征，命中即删件报错）并随代码提交。
+  （内置密钥扫描闸门：明文/base64 封装 PEM、sk-*、GitHub/AWS 凭据特征，检出即删件报错）并随代码提交。
 
 ## 文档回写纪律
 

@@ -7,6 +7,7 @@
 - InMemoryPublisher（Sprint 0 默认）：进程内 fan-out 到 SSE 订阅者（API-W-14），
   保证演示链路"事件可见"不因 MQ 客户端缺位而断链。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,12 +21,19 @@ logger = logging.getLogger("tradeguard.events")
 
 
 class EventPublisher(Protocol):
-    async def publish(self, case_id: str, event: str, payload: dict, actor: str,
-                      trace_id: str | None = None) -> dict: ...
+    async def publish(
+        self,
+        case_id: str,
+        event: str,
+        payload: dict,
+        actor: str,
+        trace_id: str | None = None,
+    ) -> dict: ...
 
 
-def _envelope(case_id: str, event: str, payload: dict, actor: str,
-              trace_id: str | None = None) -> dict:
+def _envelope(
+    case_id: str, event: str, payload: dict, actor: str, trace_id: str | None = None
+) -> dict:
     """03 §9.2 消息体 Schema：case_id / trace_id / occurred_at / payload
 
     trace_id 透传案件 trace_id（A4 闭环修复）：使同案事件在可观测侧可串联回放；
@@ -56,8 +64,14 @@ class InMemoryPublisher:
         if q in self._subscribers:
             self._subscribers.remove(q)
 
-    async def publish(self, case_id: str, event: str, payload: dict, actor: str,
-                      trace_id: str | None = None) -> dict:
+    async def publish(
+        self,
+        case_id: str,
+        event: str,
+        payload: dict,
+        actor: str,
+        trace_id: str | None = None,
+    ) -> dict:
         msg = _envelope(case_id, event, payload, actor, trace_id)
         for q in list(self._subscribers):
             try:
@@ -77,23 +91,33 @@ class RocketMQPublisher:
         self._fallback = fallback
         self._producer = None
         try:
-            from rocketmq.client import Producer  # A2 预检通过入 requirements；仍保留降级
+            from rocketmq.client import Producer  # pyright: ignore[reportMissingImports]
+
             producer = Producer("tg-web")
             # 版本拼写差异（实测容器内 dir(Producer) 为准）：0.5.0rc2（cp312 唯一轮子）
             # 为 set_namesrv_addr；历史版本另有 set_name_server_addr / 2.x set_name_server_address。
             # 按存在性探测，全部缺失才降级。
-            for setter in ("set_namesrv_addr", "set_name_server_address", "set_name_server_addr"):
+            for setter in (
+                "set_namesrv_addr",
+                "set_name_server_address",
+                "set_name_server_addr",
+            ):
                 if hasattr(producer, setter):
                     getattr(producer, setter)(namesrv)
                     break
             else:
-                raise AttributeError("rocketmq Producer 无 namesrv 设置方法（版本不兼容）")
+                raise AttributeError(
+                    "rocketmq Producer 无 namesrv 设置方法（版本不兼容）"
+                )
             producer.start()
             self._producer = producer
             logger.info("RocketMQPublisher 已连接 namesrv=%s", namesrv)
         except Exception as e:  # noqa: BLE001 —— 未安装/不可达一律降级
-            logger.warning("RocketMQ 客户端不可用（%s: %s），降级 InMemory fan-out",
-                           type(e).__name__, e)
+            logger.warning(
+                "RocketMQ 客户端不可用（%s: %s），降级 InMemory fan-out",
+                type(e).__name__,
+                e,
+            )
 
     def subscribe(self) -> asyncio.Queue:
         return self._fallback.subscribe()
@@ -101,12 +125,21 @@ class RocketMQPublisher:
     def unsubscribe(self, q: asyncio.Queue) -> None:
         self._fallback.unsubscribe(q)
 
-    async def publish(self, case_id: str, event: str, payload: dict, actor: str,
-                      trace_id: str | None = None) -> dict:
-        msg = await self._fallback.publish(case_id, event, payload, actor, trace_id)  # SSE 不断链
+    async def publish(
+        self,
+        case_id: str,
+        event: str,
+        payload: dict,
+        actor: str,
+        trace_id: str | None = None,
+    ) -> dict:
+        msg = await self._fallback.publish(
+            case_id, event, payload, actor, trace_id
+        )  # SSE 不断链
         if self._producer is not None:
             try:
-                from rocketmq.client import Message
+                from rocketmq.client import Message  # pyright: ignore[reportMissingImports]
+
                 m = Message("case-events")
                 m.set_tags(event)
                 m.set_body(json.dumps(msg, ensure_ascii=False))

@@ -5,7 +5,7 @@
 ## 九属性契约（02 §4）
 
 | 属性 | 内容 |
-|---|---|
+| --- | --- |
 | 用途 | 匹配欺诈手法假设、扩展关联网络、输出影响面（BA-BP-03） |
 | 输入 | `{case_id, signals[], risk_score}` |
 | 输出 | `{hypothesis, graph{nodes,links}, impact, evidence[]}` |

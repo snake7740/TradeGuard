@@ -2,9 +2,45 @@
 
 信用卡/支付交易反欺诈与自动化处置多 Agent 系统。
 
+> **解决什么问题**：交易欺诈已从「单笔攻击」演变为「团伙化、工业化」——测卡攻击、账户盗用、
+> 跑分洗钱靠单交易视角的规则引擎无法发现跨账户关联；多源信号（流水/征信/舆情/投诉）分散、
+> 告警疲劳、处置留痕缺失。本系统以多 Agent 协同实现「信号聚合 → 根因定位 → 处置执行 →
+> 核验审计 → 知识沉淀」五阶段闭环：低风险自动处置、高风险证据化调查、全部处置合规留痕。
+
 - 方案文档：[`docs/`](./docs/00-总则.md)（4A 架构 + BDD/TDD + 敏捷拆分 + OpenAPI 契约 + 数据字典 + 社区对标）
 - 机读契约：[`docs/openapi/tradeguard-openapi.yaml`](./docs/openapi/tradeguard-openapi.yaml)
 - 方案总览（HTML，含业务逻辑与操作流程）：[`docs/reports/tradeguard-overview.html`](./docs/reports/tradeguard-overview.html)
+
+## 技术栈一览
+
+| 层 | 组件 | 作用 |
+| --- | --- | --- |
+| 多 Agent 协同 | AgentTeams（Manager + 4 Worker） | 任务拆解 / 上下文传递 / 协同执行 |
+| 后端 | FastAPI（web-api） | 12 态状态机 + 5 Skill 内核，22 REST 路径 |
+| 业务库 MCP | mcp-core（12 工具） | 处置执行唯一通道（审批把关 + 幂等） |
+| 外部源 MCP | mcp-external-mock（3 工具） | 征信 / 舆情 / 投诉（确定性模拟） |
+| 前端 | Vue 3 + Element Plus | 5 页面 × 4 角色人机操作面 |
+| 存储 | PostgreSQL（pgvector） | 业务 / 向量 / 审计一体 |
+| 事件 | RocketMQ | 事件驱动闭环（尽力而为） |
+| 配置 / 治理 | Nacos + Higress | 阈值热更新 + AI 网关统一入口 |
+| 可观测 | AgentScope Studio | OTLP Trace 可视化 |
+| LLM | DashScope（Qwen） | 语义 RAG + 根因假设排序（可选，无 Key 降级） |
+
+详细选型与替换成本见 [`docs/04 §2`](./docs/04-技术架构TA.md)。
+
+## 项目地图（先读什么）
+
+| 你要找 | 去哪 |
+| --- | --- |
+| 完整方案（4A 架构） | [`docs/00-总则.md`](./docs/00-总则.md)（索引）→ 01~09 |
+| 业务场景 / 痛点 / 演示 | [`docs/reports/tradeguard-overview.html`](./docs/reports/tradeguard-overview.html)（浏览器打开） |
+| 后端代码 | `services/web-api/app/`（入口 `main.py`） |
+| 处置执行 | `services/mcp-core/server.py` |
+| 前端页面 | `web-portal/src/views/` |
+| 数据库结构 | `db/init/01-schema.sql` |
+| 一键启动 | `scripts/start_all.py` |
+| 演示场景 | `scripts/demo_playbook.py` |
+| 各模块设计 | `services/*/README.md`、`db/README.md`、`skills/README.md` |
 
 ## 快速开始（下载即可用）
 
@@ -15,6 +51,11 @@
 - Windows 10/11 + [Docker Desktop](https://www.docker.com/products/docker-desktop/)（Docker Compose v2，引擎在运行）
 - Git（或直接下载 ZIP 解压）
 - 首次构建需拉取镜像，建议网络可达镜像仓库
+
+> **操作系统说明**：本仓库按 Windows 优先开发验证（Docker Desktop + PowerShell，命令用
+> `.venv\Scripts\python`、`copy`）。macOS / Linux 将命令替换为 `.venv/bin/python`、`cp` 即可；
+> Windows 专属注意——宿主端口由 `com.docker.backend.exe` 引擎进程监听，**绝不能 taskkill 清端口**
+> （会杀掉整个 Docker 引擎），详见 [`CLAUDE.md`](./CLAUDE.md)。
 
 ### 1. 获取代码
 
@@ -67,64 +108,42 @@ Higress 路由重建 → AgentTeams 体检 → C1~C9 端到端取证，**全绿 
 | --- | --- | --- |
 | 风控门户 | <http://localhost:8300> | 顶栏切换 4 角色，完整演示五阶段闭环 |
 | OpenAPI 文档 | <http://localhost:8200/docs> | 22 个 REST 路径契约 |
-| 方案总览 | `docs/reports/tradeguard-overview.html` | 浏览器打开，含业务逻辑 + 操作流程 + 演示剧本 |
+| 方案总览 | `docs/reports/tradeguard-overview.html` | 浏览器打开，含业务逻辑 + 操作流程 + 演示场景 |
 
----
+### 5. 操作指引（启动后怎么用）
 
-## Sprint 0 一键起栈（克隆即完整启动）
+1. 打开门户 <http://localhost:8300，顶栏切换角色（风控值班员> / 风控审批官 / 合规审计员 / 风控策略管理员）。
+2. 在「案件工作台」新建演示案件（选 low / medium / high 严重度）→ 观察案件状态沿五阶段闭环自动流转。
+3. 三个演示场景（详见 HTML「端到端演示」章节，或 `scripts/demo_playbook.py` 追溯）：
+   - **D1 低风险自动放行**：立案后零人工，EventWorker 自动推进至 DISPOSED。
+   - **D2 调查后冻结 + 人工审批**：高风险 → 调查 → 人工批准 → 执行 → 核验 → 归档。
+   - **D3 误报申诉回滚**：执行后故障注入 → 核验不一致 → 反向处置 → 人工复核申诉成立。
 
-```powershell
-.venv\Scripts\python scripts\start_all.py
-```
+## 安全基线（R-37）
 
-一条命令可重入起栈 + 端到端自证：`.env` 缺失时自动生成随机强凭据（TG_API_TOKEN /
-Nacos 互信值等，R-37 凭证自举）→ `docker compose up -d` → 逐服务真实探活 →
-数据就位（空库优先从 `db/export/` 提交在库的卷导出件恢复，缺失才回退
-`data-generator` 合成）→ Higress 路由重建 → AgentTeams 体检 → C1~C9 数据通路硬证据。
-
-手工分步起栈（等价路径）：
-
-```powershell
-copy .env.example .env              # 然后把其中 CHANGE_ME 换成随机强值（必填项带 ? 插值校验）
-docker compose up -d --build        # 中间件 + 自研服务（web-portal 首次构建较慢）
-python scripts\nacos_register.py    # 阈值/元数据播种（凭据从 .env 装载）
-```
-
-> 安全基线（R-37）：`.env`/`secrets/` 不入库（gitignore），仓库只含 CHANGE_ME 模板；
-> 全部宿主端口仅绑定 `127.0.0.1`；`/api` 全量需 `Authorization: Bearer <TG_API_TOKEN>`
-> （仅 `/api/health` 豁免；门户 nginx 自动注入令牌，浏览器无感）。直连 API 调试示例：
-> `curl -H "Authorization: Bearer $TG_API_TOKEN" http://localhost:8200/api/cases`
-
-| 入口 | 地址 |
-| --- | --- |
-| 风控门户（web-portal） | <http://localhost:8300> |
-| web-api（OpenAPI 文档） | <http://localhost:8200/docs> |
-| mcp-core（AA-MCP-01） | <http://localhost:8101/mcp> |
-| mcp-external-mock（AA-MCP-02） | <http://localhost:8102/mcp> |
-| Nacos 控制台 | <http://localhost:8848/nacos> |
-| Higress 控制台 | <http://localhost:8001> |
-| AgentScope Studio | <http://localhost:3000> |
-
-AgentTeams（多 Agent 协同基点）按官方脚本独立部署，见 [`scripts/install-agentteams.md`](./scripts/install-agentteams.md)；安装后控制台 <http://localhost:18088（已接入> tradeguard-net）。
+- `.env` / `secrets/` 不入库（gitignore），仓库只含 CHANGE_ME 模板；
+- 全部宿主端口仅绑定 `127.0.0.1`（局域网不可达）；
+- `/api` 全量需 `Authorization: Bearer <TG_API_TOKEN>`（仅 `/api/health` 豁免；门户 nginx 自动注入令牌，浏览器无感）；
+- CORS 走 `TG_CORS_ORIGINS` 白名单。
 
 ## 目录结构（对应 docs/04 §3 部署拓扑）
 
 ```
-├── docker-compose.yml          # US-E1-01 中间件编排（healthcheck 依赖顺序）
+├── docker-compose.yml          # 中间件编排（healthcheck 依赖顺序）
 ├── db/
-│   ├── init/01-schema.sql      # 12 表 DDL + 索引（08 §3/§4，含 velocity_json BA-BR-14）
-│   ├── init/02-roles.sql       # 权限矩阵账号（03 §6，只增表禁改）
-│   ├── init/03-umodel-fallback.sql  # UnifiedModel 退化路径（图视图 + 2 跳查询）
+│   ├── init/                   # 01-schema 12 表 + 02-roles 权限矩阵 + 03 图退化 + 04 不变量 + 05~07 迁移
 │   ├── export/                 # 命名卷数据导出件（克隆即完整启动，密钥扫描闸门，R-37）
-│   └── backup.sh               # US-E1-04 备份/恢复
+│   └── backup.sh               # 备份/恢复
 ├── config/rocketmq/broker.conf
 ├── services/
-│   ├── web-api/                # FastAPI（04 §10.1 三端真实调用链）
-│   ├── mcp-core/               # AA-MCP-01（审批门控 + 幂等）
-│   ├── mcp-external-mock/      # AA-MCP-02（唯一允许的数据源模拟）
-│   └── data-generator/         # PaySim 式合成数据（09 对标借鉴）
-├── web-portal/                 # Vue 3 + Element Plus（4 页面 × 4 角色）
-└── docs/                       # 方案文档集 v1.4
+│   ├── web-api/                # FastAPI 后端（12 态状态机 + 5 Skill 内核）
+│   ├── mcp-core/               # AA-MCP-01 业务库 MCP（12 工具，处置执行唯一通道）
+│   ├── mcp-external-mock/      # AA-MCP-02 外部数据源模拟（3 工具）
+│   └── data-generator/         # PaySim 式合成数据
+├── web-portal/                 # Vue 3 + Element Plus 前端（5 页面 × 4 角色）
+├── skills/                     # AA-SK-01~05 官方技能定义
+├── scripts/                    # start_all / demo_playbook / kpi_report / offline_eval 等
+└── docs/                       # 方案文档集（00~09 + openapi + reports）
 ```
 
 ## 本地等价与替换声明

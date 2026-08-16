@@ -1,593 +1,1524 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TradeGuard · 交易风控中枢 — 方案展示</title>
-<style>
-  :root{
-    --navy:#0d1f3c; --navy2:#13294f; --ink:#1c2733; --muted:#5a6b7f;
-    --gold:#c99b4a; --gold-l:#e8c98a; --blue:#2f7bff; --teal:#14a08a;
-    --red:#d64545; --green:#1f9d55; --bg:#f4f6fb; --card:#ffffff;
-    --line:#e3e9f2; --chip:#eef3fb;
-  }
-  *{margin:0;padding:0;box-sizing:border-box}
-  a{color:inherit;text-decoration:none;border-bottom:1px dashed currentColor}
-  a:hover{color:var(--blue);border-bottom-color:var(--blue)}
-  html,body{height:100%;background:#060b14;font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;overflow:hidden}
-  #stage{width:1280px;height:720px;position:absolute;left:50%;top:50%;transform-origin:center center}
-  .slide{width:1280px;height:720px;position:absolute;inset:0;display:none;background:var(--bg);color:var(--ink);padding:48px 60px 66px;overflow:hidden}
-  .slide.active{display:block}
-  /* ---------- 通用组件 ---------- */
-  .kicker{font-size:13px;letter-spacing:4px;color:var(--gold);font-weight:700;margin-bottom:6px}
-  h2.title{font-size:30px;color:var(--navy);font-weight:800;margin-bottom:4px}
-  .subtitle{font-size:14px;color:var(--muted);margin-bottom:22px}
-  .tag{display:inline-block;font-size:11px;padding:2px 10px;border-radius:20px;font-weight:700;vertical-align:middle}
-  .tag.ok{background:#e2f6ea;color:var(--green)} .tag.info{background:#e7efff;color:var(--blue)}
-  .tag.gold{background:#faf0dc;color:#9a7128} .tag.red{background:#fdeaea;color:var(--red)}
-  .grid{display:grid;gap:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:0 1px 3px rgba(16,32,64,.05)}
-  .card h4{font-size:15px;color:var(--navy);margin-bottom:6px}
-  .card p,.card li{font-size:12.5px;color:var(--muted);line-height:1.75}
-  .card .num{font-size:22px;font-weight:800;color:var(--gold)}
-  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;font-size:12.5px}
-  th{background:var(--navy);color:#fff;padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap}
-  td{padding:7px 10px;border-bottom:1px solid var(--line);color:var(--ink);line-height:1.6;vertical-align:top}
-  tr:nth-child(even) td{background:#fafbfe}
-  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:nowrap}
-  .fbox{background:var(--card);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.6;text-align:center;flex:1;min-width:0}
-  .fbox b{display:block;color:var(--navy);font-size:13px;margin-bottom:3px}
-  .fbox.hl{border-color:var(--gold);background:#fffaf0}
-  .fbox.blue{border-color:var(--blue);background:#f0f6ff}
-  .fbox.green{border-color:var(--green);background:#f0faf4}
-  .fbox.red{border-color:var(--red);background:#fdf3f3}
-  .arrow{align-self:center;color:var(--gold);font-weight:800;font-size:20px;padding:0 6px;flex:none}
-  .down{ text-align:center;color:var(--gold);font-weight:800;font-size:18px;margin:6px 0}
-  .pill{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:11.5px;margin:2px 3px 2px 0;color:var(--navy)}
-  .code{font-family:Consolas,"Courier New",monospace;background:#0f2038;color:#d7e3f4;border-radius:8px;padding:10px 14px;font-size:12px;line-height:1.8;white-space:pre-wrap}
-  .code .g{color:#7ee2a8}.code .y{color:#f0c96e}.code .c{color:#7d93ad}
-  .foot{position:absolute;left:60px;right:60px;bottom:18px;display:flex;justify-content:space-between;font-size:11px;color:#9aa8ba}
-  .badge-v{position:absolute;top:44px;right:60px}
-  /* ---------- 封面 ---------- */
-  .cover{background:radial-gradient(1200px 700px at 78% 18%,#1d3a6d 0%,var(--navy) 45%,#081226 100%);color:#fff}
-  .slide.active.cover{display:flex;flex-direction:column;justify-content:center}
-  .cover .logo{display:flex;align-items:center;gap:14px;margin-bottom:26px}
-  .cover .mark{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,var(--gold),#8a6420);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:900;color:#fff;box-shadow:0 6px 18px rgba(201,155,74,.35)}
-  .cover h1{font-size:52px;font-weight:900;letter-spacing:2px;line-height:1.25}
-  .cover h1 span{color:var(--gold-l)}
-  .cover .sub{font-size:19px;color:#b9c8de;margin-top:14px;letter-spacing:1px}
-  .cover .loop{margin-top:34px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .cover .loop .step{border:1px solid rgba(232,201,138,.5);color:var(--gold-l);border-radius:24px;padding:7px 18px;font-size:14px;background:rgba(20,41,79,.55)}
-  .cover .loop .a{color:var(--gold-l);font-size:16px}
-  .cover .meta{margin-top:44px;font-size:13px;color:#8fa2bd;line-height:2}
-  /* ---------- 导航 ---------- */
-  #nav{position:fixed;right:18px;bottom:14px;display:flex;gap:8px;z-index:50}
-  #nav button{width:38px;height:38px;border-radius:8px;border:none;background:rgba(13,31,60,.85);color:#fff;font-size:16px;cursor:pointer}
-  #counter{position:fixed;left:18px;bottom:18px;color:#8fa2bd;font-size:12px;z-index:50;background:rgba(13,31,60,.6);padding:4px 10px;border-radius:6px}
-  #bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--gold),var(--blue));z-index:60;transition:width .25s}
-  @media print{
-    html,body{background:#fff;overflow:visible}
-    #stage{position:static;transform:none!important;width:auto;height:auto}
-    .slide{display:block!important;page-break-after:always;position:relative;margin:0 auto}
-    #nav,#counter,#bar{display:none}
-  }
-</style>
-</head>
-<body>
-<div id="bar"></div>
-<div id="stage">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TradeGuard · 交易风控中枢 — 方案展示</title>
+    <style>
+      :root {
+        --navy: #0d1f3c;
+        --navy2: #13294f;
+        --ink: #1c2733;
+        --muted: #5a6b7f;
+        --gold: #c99b4a;
+        --gold-l: #e8c98a;
+        --blue: #2f7bff;
+        --teal: #14a08a;
+        --red: #d64545;
+        --green: #1f9d55;
+        --bg: #f4f6fb;
+        --card: #ffffff;
+        --line: #e3e9f2;
+        --chip: #eef3fb;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+        border-bottom: 1px dashed currentColor;
+      }
+      a:hover {
+        color: var(--blue);
+        border-bottom-color: var(--blue);
+      }
+      html,
+      body {
+        height: 100%;
+        background: #060b14;
+        font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+        overflow: hidden;
+      }
+      #stage {
+        width: 1280px;
+        height: 720px;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform-origin: center center;
+      }
+      .slide {
+        width: 1280px;
+        height: 720px;
+        position: absolute;
+        inset: 0;
+        display: none;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 48px 60px 66px;
+        overflow: hidden;
+      }
+      .slide.active {
+        display: block;
+      }
+      /* ---------- 通用组件 ---------- */
+      .kicker {
+        font-size: 13px;
+        letter-spacing: 4px;
+        color: var(--gold);
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      h2.title {
+        font-size: 30px;
+        color: var(--navy);
+        font-weight: 800;
+        margin-bottom: 4px;
+      }
+      .subtitle {
+        font-size: 14px;
+        color: var(--muted);
+        margin-bottom: 22px;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 10px;
+        border-radius: 20px;
+        font-weight: 700;
+        vertical-align: middle;
+      }
+      .tag.ok {
+        background: #e2f6ea;
+        color: var(--green);
+      }
+      .tag.info {
+        background: #e7efff;
+        color: var(--blue);
+      }
+      .tag.gold {
+        background: #faf0dc;
+        color: #9a7128;
+      }
+      .tag.red {
+        background: #fdeaea;
+        color: var(--red);
+      }
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 18px;
+        box-shadow: 0 1px 3px rgba(16, 32, 64, 0.05);
+      }
+      .card h4 {
+        font-size: 15px;
+        color: var(--navy);
+        margin-bottom: 6px;
+      }
+      .card p,
+      .card li {
+        font-size: 12.5px;
+        color: var(--muted);
+        line-height: 1.75;
+      }
+      .card .num {
+        font-size: 22px;
+        font-weight: 800;
+        color: var(--gold);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        border-radius: 10px;
+        overflow: hidden;
+        font-size: 12.5px;
+      }
+      th {
+        background: var(--navy);
+        color: #fff;
+        padding: 8px 10px;
+        text-align: left;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td {
+        padding: 7px 10px;
+        border-bottom: 1px solid var(--line);
+        color: var(--ink);
+        line-height: 1.6;
+        vertical-align: top;
+      }
+      tr:nth-child(even) td {
+        background: #fafbfe;
+      }
+      .flow {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        flex-wrap: nowrap;
+      }
+      .fbox {
+        background: var(--card);
+        border: 1.5px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.6;
+        text-align: center;
+        flex: 1;
+        min-width: 0;
+      }
+      .fbox b {
+        display: block;
+        color: var(--navy);
+        font-size: 13px;
+        margin-bottom: 3px;
+      }
+      .fbox.hl {
+        border-color: var(--gold);
+        background: #fffaf0;
+      }
+      .fbox.blue {
+        border-color: var(--blue);
+        background: #f0f6ff;
+      }
+      .fbox.green {
+        border-color: var(--green);
+        background: #f0faf4;
+      }
+      .fbox.red {
+        border-color: var(--red);
+        background: #fdf3f3;
+      }
+      .arrow {
+        align-self: center;
+        color: var(--gold);
+        font-weight: 800;
+        font-size: 20px;
+        padding: 0 6px;
+        flex: none;
+      }
+      .down {
+        text-align: center;
+        color: var(--gold);
+        font-weight: 800;
+        font-size: 18px;
+        margin: 6px 0;
+      }
+      .pill {
+        display: inline-block;
+        background: var(--chip);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 11.5px;
+        margin: 2px 3px 2px 0;
+        color: var(--navy);
+      }
+      .code {
+        font-family: Consolas, "Courier New", monospace;
+        background: #0f2038;
+        color: #d7e3f4;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 12px;
+        line-height: 1.8;
+        white-space: pre-wrap;
+      }
+      .code .g {
+        color: #7ee2a8;
+      }
+      .code .y {
+        color: #f0c96e;
+      }
+      .code .c {
+        color: #7d93ad;
+      }
+      .foot {
+        position: absolute;
+        left: 60px;
+        right: 60px;
+        bottom: 18px;
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #9aa8ba;
+      }
+      .badge-v {
+        position: absolute;
+        top: 44px;
+        right: 60px;
+      }
+      /* ---------- 封面 ---------- */
+      .cover {
+        background: radial-gradient(
+          1200px 700px at 78% 18%,
+          #1d3a6d 0%,
+          var(--navy) 45%,
+          #081226 100%
+        );
+        color: #fff;
+      }
+      .slide.active.cover {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .cover .logo {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 26px;
+      }
+      .cover .mark {
+        width: 54px;
+        height: 54px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, var(--gold), #8a6420);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        font-weight: 900;
+        color: #fff;
+        box-shadow: 0 6px 18px rgba(201, 155, 74, 0.35);
+      }
+      .cover h1 {
+        font-size: 52px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        line-height: 1.25;
+      }
+      .cover h1 span {
+        color: var(--gold-l);
+      }
+      .cover .sub {
+        font-size: 19px;
+        color: #b9c8de;
+        margin-top: 14px;
+        letter-spacing: 1px;
+      }
+      .cover .loop {
+        margin-top: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .cover .loop .step {
+        border: 1px solid rgba(232, 201, 138, 0.5);
+        color: var(--gold-l);
+        border-radius: 24px;
+        padding: 7px 18px;
+        font-size: 14px;
+        background: rgba(20, 41, 79, 0.55);
+      }
+      .cover .loop .a {
+        color: var(--gold-l);
+        font-size: 16px;
+      }
+      .cover .meta {
+        margin-top: 44px;
+        font-size: 13px;
+        color: #8fa2bd;
+        line-height: 2;
+      }
+      /* ---------- 导航 ---------- */
+      #nav {
+        position: fixed;
+        right: 18px;
+        bottom: 14px;
+        display: flex;
+        gap: 8px;
+        z-index: 50;
+      }
+      #nav button {
+        width: 38px;
+        height: 38px;
+        border-radius: 8px;
+        border: none;
+        background: rgba(13, 31, 60, 0.85);
+        color: #fff;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      #counter {
+        position: fixed;
+        left: 18px;
+        bottom: 18px;
+        color: #8fa2bd;
+        font-size: 12px;
+        z-index: 50;
+        background: rgba(13, 31, 60, 0.6);
+        padding: 4px 10px;
+        border-radius: 6px;
+      }
+      #bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--gold), var(--blue));
+        z-index: 60;
+        transition: width 0.25s;
+      }
+      @media print {
+        html,
+        body {
+          background: #fff;
+          overflow: visible;
+        }
+        #stage {
+          position: static;
+          transform: none !important;
+          width: auto;
+          height: auto;
+        }
+        .slide {
+          display: block !important;
+          page-break-after: always;
+          position: relative;
+          margin: 0 auto;
+        }
+        #nav,
+        #counter,
+        #bar {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <div id="stage">
+      <!-- ============ 1 封面 ============ -->
+      <section class="slide cover active">
+        <div class="logo">
+          <div class="mark">TG</div>
+          <div style="font-size: 15px; letter-spacing: 3px; color: #8fa2bd">
+            TRADEGUARD · 交易风控解决方案
+          </div>
+        </div>
+        <h1>TradeGuard <span>· 交易风控中枢</span></h1>
+        <div class="sub">
+          面向发卡与支付机构的 AI 多 Agent 交易反欺诈与自动化处置系统
+        </div>
+        <div class="loop">
+          <span class="step">① 信号聚合</span><span class="a">→</span>
+          <span class="step">② 根因定位</span><span class="a">→</span>
+          <span class="step">③ 处置执行</span><span class="a">→</span>
+          <span class="step">④ 核验审计</span><span class="a">→</span>
+          <span class="step">⑤ 知识沉淀</span>
+        </div>
+        <div class="meta">
+          覆盖风控决策完整闭环 ｜ 5 Agent 协同（AgentTeams）｜ 文档体系
+          v1.4.19（docs/00~09）<br />
+          自动化测试 184 例 ｜ 三个典型业务场景演示 ｜ 一键启动自证 ｜ 展示日期
+          2026-08-16<br />
+          <b style="color: #e8c98a"
+            >本材料所有结论均来自真实运行，而非仅停留在方案推演。</b
+          >
+        </div>
+      </section>
 
-<!-- ============ 1 封面 ============ -->
-<section class="slide cover active">
-  <div class="logo"><div class="mark">TG</div><div style="font-size:15px;letter-spacing:3px;color:#8fa2bd">TRADEGUARD · 金融风控与理赔自动化</div></div>
-  <h1>TradeGuard <span>· 交易风控中枢</span></h1>
-  <div class="sub">AI 多 Agent 信用卡/支付交易反欺诈与自动化处置系统</div>
-  <div class="loop">
-    <span class="step">① 信号聚合</span><span class="a">→</span>
-    <span class="step">② 根因定位</span><span class="a">→</span>
-    <span class="step">③ 处置执行</span><span class="a">→</span>
-    <span class="step">④ 核验审计</span><span class="a">→</span>
-    <span class="step">⑤ 知识沉淀</span>
-  </div>
-  <div class="meta">
-    五阶段闭环全命中 ｜ 5 Agent 协同（AgentTeams）｜ 文档体系 v1.4.19（docs/00~09）｜ Sprint 1-14 全量落地<br>
-    测试 184/184 全绿 ｜ 演示剧本 3/3（24 步断言）｜ 一键启动自证核心 19 项全绿 ｜ 展示日期 2026-08-16<br>
-    <b style="color:#e8c98a">本材料每一条演示陈述均经实际运行验证（验证证据见末章），非文档宣称。</b>
-  </div>
-</section>
+      <!-- ============ 2 目录 ============ -->
+      <section class="slide">
+        <div class="kicker">AGENDA</div>
+        <h2 class="title">目录</h2>
+        <div class="subtitle">
+          从「为什么需要」到「如何落地」的完整解决方案陈述
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 16px">
+          <div class="card">
+            <h4>一、为什么需要</h4>
+            <p>① 行业背景与核心痛点　② 行业现状与局限　③ 方案定位与突破方向</p>
+          </div>
+          <div class="card">
+            <h4>二、业务设计</h4>
+            <p>
+              ④ 业务能力　⑤ 核心业务对象　⑥ 端到端流程　⑦ 业务规则　⑧ 角色与操作
+            </p>
+          </div>
+          <div class="card">
+            <h4>三、架构与落地</h4>
+            <p>
+              ⑨ 多 Agent 协同　⑩ 能力层　⑪ 技术栈　⑫ 部署拓扑　⑬ 数据流　⑭
+              状态机
+            </p>
+          </div>
+          <div class="card">
+            <h4>四、演示与效果</h4>
+            <p>⑮ 启动与体验　⑯~⑱ 三个典型场景　⑲ 效果与验证</p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>TradeGuard · 方案展示</span><span>02</span>
+        </div>
+      </section>
 
-<!-- ============ 2 目录 ============ -->
-<section class="slide">
-  <div class="kicker">AGENDA</div>
-  <h2 class="title">目录</h2>
-  <div class="subtitle">从行业定位到端到端演示的完整陈述链（每条路径均已实测）</div>
-  <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px">
-    <div class="card"><h4>一、定位与场景</h4><p>① 行业定位与价值主张　② 五大业务场景映射</p></div>
-    <div class="card"><h4>二、业务体系</h4><p>③ 业务能力模型　④ 核心业务对象　⑤ 端到端业务流程　⑥ 业务规则护栏　⑦ 业务角色与全部操作</p></div>
-    <div class="card"><h4>三、Agent 与技术体系</h4><p>⑧ 五 Agent 协同架构　⑨ Skill 与 MCP 能力层　⑩ 技术栈组成　⑪ 子系统部署拓扑　⑫ 数据流交互全景　⑬ 事件驱动闭环与状态机</p></div>
-    <div class="card"><h4>四、端到端演示</h4><p>⑭ 启动与演示入口（数据输入面）　⑮ D1 全自动放行　⑯ D2 人机协同审批　⑰ D3 误报申诉回滚　⑱ 验证证据墙　⑲ 总结</p></div>
-  </div>
-  <div class="foot"><span>TradeGuard · 方案展示</span><span>02</span></div>
-</section>
+      <!-- ============ 3 背景与痛点 ============ -->
+      <section class="slide">
+        <div class="kicker">01 · WHY</div>
+        <h2 class="title">交易欺诈已从「单笔攻击」演变为「团伙化、工业化」</h2>
+        <div class="subtitle">
+          单交易视角的决策引擎，越来越难以应对组织化欺诈的关联性
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr 1fr">
+          <div class="card">
+            <h4>痛点一：团伙化、工业化欺诈</h4>
+            <p>
+              测卡攻击（Card
+              Testing）、账户盗用（ATO）、跑分洗钱，往往由同一团伙、同一设备、同一收款方在多个账户间协同完成——孤立地看每一笔交易，难以识别跨账户的关联。
+            </p>
+          </div>
+          <div class="card">
+            <h4>痛点二：多源信号分散</h4>
+            <p>
+              交易流水、征信、舆情、投诉分布在各自独立的系统里，风控人员需要手工汇总，既慢又容易遗漏，错过处置的黄金窗口。
+            </p>
+          </div>
+          <div class="card">
+            <h4>痛点三：告警疲劳与处置断链</h4>
+            <p>
+              低风险告警数量庞大导致疲劳；高风险处置又缺乏统一的审批与审计闭环，处置动作是否合规、能否追溯，缺少体系化保障。
+            </p>
+          </div>
+        </div>
+        <div class="card" style="margin-top: 14px">
+          <h4>价值主张</h4>
+          <p>
+            以
+            <b>多 Agent 协同</b
+            >替代「人工告警流水线」：低风险事件自动处置、高风险事件证据化调查、全部处置动作合规可追溯——把风控人员从重复劳动中解放出来，聚焦真正需要判断的高风险案件。
+          </p>
+        </div>
+        <div class="foot">
+          <span
+            >监管背景：《银行卡业务管理办法》、反电信网络诈骗法规、金融监管总局欺诈风险治理要求</span
+          ><span>03</span>
+        </div>
+      </section>
 
-<!-- ============ 3 行业定位 ============ -->
-<section class="slide">
-  <div class="kicker">01 · POSITIONING</div>
-  <h2 class="title">行业定位：发卡/支付机构的交易反欺诈风控</h2>
-  <div class="subtitle">金融风控「交易欺诈风险」子类 ｜ 监管依据：《银行卡业务管理办法》、反电信网络诈骗法规、金融监管总局欺诈风险治理要求</div>
-  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="card"><h4>痛点一：团伙化、工业化欺诈</h4><p>测卡攻击（Card Testing）、账户盗用（ATO）、跑分洗钱——单交易视角的决策引擎无法发现<b>跨账户关联</b>。</p></div>
-    <div class="card"><h4>痛点二：多源信号分散</h4><p>交易流水、征信、舆情、投诉分散在不同系统，风控值班员人工归集耗时，错过<b>黄金处置窗口</b>。</p></div>
-    <div class="card"><h4>痛点三：告警疲劳 + 留痕缺失</h4><p>低风险告警量大导致疲劳；高风险处置缺乏统一<b>审批与合规留痕</b>。</p></div>
-  </div>
-  <div class="down">▼</div>
-  <div class="card" style="border-left:4px solid var(--gold)">
-    <h4>价值主张：以多 Agent 协同替代「人工告警流水线」</h4>
-    <p>低风险事件<b>自动处置</b>、高风险事件<b>证据化调查</b>、全部处置动作<b>合规留痕</b>——告警响应时效从小时级压缩到分钟级（演示口径实测 KPI-01：低风险案件立案→处置完成 0.0 分钟，达标）。</p>
-  </div>
-  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §1 · 04 TA §10.1 ｜ KPI 实测：<a href="kpi-report.md">docs/reports/kpi-report.md</a></span><span>03</span></div>
-</section>
-
-<!-- ============ 4 项目场景 ============ -->
-<section class="slide">
-  <div class="kicker">02 · SCENARIOS</div>
-  <h2 class="title">项目场景：五个参考业务场景逐条命中</h2>
-  <div class="subtitle">每个场景均有对应的业务能力编号、流程编号与可回放验收场景（SC-x），非概念映射</div>
-  <table>
-    <tr><th style="width:34%">参考业务场景（需求原文语义）</th><th style="width:26%">承接能力</th><th>落地与验证</th></tr>
-    <tr><td>多源风险信号聚合与降噪（交易流水 / 征信 / 舆情 / 投诉）</td><td>BA-CAP-03 · BA-BP-02</td><td>四源经 AA-MCP-02 接入，velocity 特征参与评分；SC-11 实测 ✓</td></tr>
-    <tr><td>自动风险/欺诈根因定位与影响面分析</td><td>BA-CAP-04 · BA-BP-03</td><td>假设匹配 + 2 跳关联网络 + 证据固化；剧本 D2 实测 hypothesis=跑分 ✓</td></tr>
-    <tr><td>处置建议生成与自动执行（本方案取「授信处置」语义）</td><td>BA-CAP-05 · BA-BP-01 阶段 D/H</td><td>拦截 / 冻结 / 降额 / 放行，经 mcp-core 门控执行；D1/D2 实测 ✓</td></tr>
-    <tr><td>处置结果核验与合规审计确认</td><td>BA-CAP-06 · BA-BP-01 阶段 K</td><td>AA-SK-04 一致性核验 + 审计链回放；SC-08 全链审计实测 ✓</td></tr>
-    <tr><td>风险事件复盘与风控知识库沉淀</td><td>BA-CAP-07 · BA-BP-04</td><td>结案复盘→入库申请→人工发布（向量化检索）；SC-05 实测 ✓</td></tr>
-  </table>
-  <div style="margin-top:14px"><span class="pill">处置动作四元：交易拦截</span><span class="pill">账户冻结</span><span class="pill">额度调整</span><span class="pill">放行</span><span class="pill">高风险动作一律人工审批</span><span class="pill">全部执行留痕可回溯</span></div>
-  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §2.2 ｜ 验收场景：<a href="../06-BDD-TDD工程验证体系.md">docs/06</a> SC-01~SC-11</span><span>04</span></div>
-</section>
-
-<!-- ============ 5 业务能力模型 ============ -->
-<section class="slide">
-  <div class="kicker">03 · BUSINESS MODEL</div>
-  <h2 class="title">业务能力地图（BA-CAP-01~07）</h2>
-  <div class="subtitle">七项业务能力构成「交易风控中枢」能力底座，与五阶段闭环一一对应</div>
-  <div class="card" style="text-align:center;background:var(--navy);color:#fff;border:none">
-    <b style="font-size:16px;color:var(--gold-l)">TradeGuard 交易风控中枢</b>
-  </div>
-  <div class="grid" style="grid-template-columns:repeat(7,1fr);margin-top:12px">
-    <div class="card"><h4 style="font-size:13px">CAP-01</h4><p style="font-size:12px"><b>告警接入</b><br>交易事件/告警/工单受理立案</p></div>
-    <div class="card"><h4 style="font-size:13px">CAP-02</h4><p style="font-size:12px"><b>风险事件管理</b><br>状态流转/时效监控</p></div>
-    <div class="card" style="border-color:var(--gold)"><h4 style="font-size:13px">CAP-03</h4><p style="font-size:12px"><b>风险信号聚合</b><br>多源接入/降噪/打分</p></div>
-    <div class="card" style="border-color:var(--gold)"><h4 style="font-size:13px">CAP-04</h4><p style="font-size:12px"><b>欺诈调查</b><br>根因/关联网络/影响面</p></div>
-    <div class="card" style="border-color:var(--gold)"><h4 style="font-size:13px">CAP-05</h4><p style="font-size:12px"><b>风控处置</b><br>建议生成/自动执行/人工审批</p></div>
-    <div class="card" style="border-color:var(--gold)"><h4 style="font-size:13px">CAP-06</h4><p style="font-size:12px"><b>合规审计</b><br>结果核验/审计报告/留痕</p></div>
-    <div class="card" style="border-color:var(--gold)"><h4 style="font-size:13px">CAP-07</h4><p style="font-size:12px"><b>知识沉淀</b><br>复盘/案例入库/策略迭代</p></div>
-  </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:14px">
-    <div class="card"><h4>KPI 指标体系（BA-KPI-01~05）</h4><p>响应时效（低风险≤5 分钟）· 召回率≥85% · 误报率≤10% · 人工介入率≤30% · 留痕完整率 100%。<b>演示口径实测：01/02/03/05 达标，04 结构性偏高（D2/D3 本身即人机协同场景）；全量口径 01/03/04/05 未达标、仅 02 达标（pytest 残留 TEST 案件抬升）——报告如实分列，不以演示达标掩盖全量未达标。</b></p></div>
-    <div class="card"><h4>合规边界（01 §8）</h4><p>征信数据生产须经持牌机构授权通道（本方案以确定性子模拟替代并声明）；征信/舆情查询强制记录查询事由（BA-BR-10）；事件与交易数据保留 5 年超期脱敏归档（BA-BR-12）。</p></div>
-  </div>
-  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §3 / §7 / §8</span><span>05</span></div>
-</section>
-
-<!-- ============ 6 核心业务对象 ============ -->
-<section class="slide">
-  <div class="kicker">03 · BUSINESS MODEL</div>
-  <h2 class="title">核心业务对象（UnifiedModel 语义模型）</h2>
-  <div class="subtitle">12 张业务表（DA-T-01~12）+ 1 张治理辅助表 case_state_transition（DA-T-13，03 DA / 08 字典），案件（Case）是贯穿五阶段的核心业务对象</div>
-  <div class="flow" style="margin-bottom:14px">
-    <div class="fbox blue"><b>账户 / 交易</b>主体档案与流水<br>（合成数据 PaySim 式分布）</div><span class="arrow">→</span>
-    <div class="fbox hl"><b>风险案件 Case</b>12 态状态机载体<br>立案→归档全生命周期</div><span class="arrow">→</span>
-    <div class="fbox"><b>风险信号</b>四源标准化 + velocity<br>（降噪合并、加权评分）</div><span class="arrow">→</span>
-    <div class="fbox"><b>证据</b>调查结论固化<br>来源+置信度</div><span class="arrow">→</span>
-    <div class="fbox green"><b>处置记录</b>执行凭证<br>幂等键 + approval_ref</div><span class="arrow">→</span>
-    <div class="fbox green"><b>审计日志</b>append-only<br>操作者+依据+trace</div>
-  </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="card"><h4>审批单（approval_record）</h4><p>requested_action / requested_amount / escalated_at；人工批准/驳回经此回填并驱动状态机（DA-T-07）。</p></div>
-    <div class="card"><h4>知识条目（kb_document）</h4><p>复盘入库申请→人工发布→确定性向量化，供调查检索引用（DA-KB-01，DA-T-09）。</p></div>
-    <div class="card"><h4>关联网络</h4><p>同设备/同收款方/同 IP 段/同联系方式四类边，2 跳扩展（03 §3 语义模型，SQL 视图退化路径）。</p></div>
-  </div>
-  <div class="card" style="margin-top:12px"><h4>不变量双守护（DA-INV）</h4><p>幂等键强制（DA-INV-03）· 高风险 ≥70 禁入自动处置（DA-INV-02）· 逆动作对授权（DA-INV-03 延伸）· 冻结证据链强制（DA-INV-04）· 知识入库人工门控（DA-INV-06）· 审计 append-only 任何账号无 UPDATE/DELETE（DA-INV-05）——<b>双守护</b>：应用层纯函数状态机 + DB 触发器（case_transition_guard 迁移白名单 + case_actor_gate 按 tg.actor 前缀拦截，事务内同写）。</p></div>
-  <div class="foot"><span>来源：<a href="../03-数据架构DA.md">docs/03</a> DA §3-§4 / §9 · <a href="../08-数据模型与数据字典.md">docs/08</a> 数据字典（13 表字段级契约）</span><span>06</span></div>
-</section>
-
-<!-- ============ 7 主流程 ============ -->
-<section class="slide">
-  <div class="kicker">04 · BUSINESS PROCESS</div>
-  <h2 class="title">BA-BP-01 交易风控全流程（主流程）</h2>
-  <div class="subtitle">阶段 A→L 与五阶段闭环要素对应；中高风险必经调查，审批线以上必经人工</div>
-  <div class="flow">
-    <div class="fbox blue"><b>A 告警接入</b>立案生成案件<br><span class="tag info">任务输入</span></div><span class="arrow">→</span>
-    <div class="fbox"><b>B 信号聚合</b>四源聚合降噪<br><span class="tag info">工具调用</span></div><span class="arrow">→</span>
-    <div class="fbox hl"><b>C 风险分级</b>规则评分 0-100<br>低 / 中 / 高</div><span class="arrow">→</span>
-    <div class="fbox"><b>D 调查/处置</b>低→自动处置<br>中→人工复核<br>高→调查</div><span class="arrow">→</span>
-    <div class="fbox green"><b>H 处置执行</b>拦截/冻结/降额/放行<br><span class="tag info">工具调用</span></div><span class="arrow">→</span>
-    <div class="fbox green"><b>K 核验审计</b>一致性核验<br><span class="tag info">结果验证</span></div><span class="arrow">→</span>
-    <div class="fbox green"><b>L 归档沉淀</b>复盘入库<br><span class="tag info">经验沉淀</span></div>
-  </div>
-  <div class="down">▼ D 调查/处置分流与 G-I 审批回路（人机边界核心）</div>
-  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="card" style="border-left:3px solid var(--green)"><h4>低风险：自动通道（SC-01）</h4><p>风险分&lt;40 且涉案&lt;5,000 元（BA-BR-01）→ 免审批自动放行/拦截。<b>实测 D1：立案→DISPOSED 全程无人工。</b></p></div>
-    <div class="card" style="border-left:3px solid var(--gold)"><h4>中风险 40–69：人工复核</h4><p>一律不得自动处置，转人工复核队列（SC-10）；结论 release / block / escalate。</p></div>
-    <div class="card" style="border-left:3px solid var(--red)"><h4>高风险 ≥70：调查 + 审批（SC-02）</h4><p>调查取证→处置建议→人工审批：批准→执行；驳回→回滚人工复核且<b>禁止再入自动通道</b>（BA-BR-07）。<b>实测 D2 全链通过。</b></p></div>
-  </div>
-  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §4.1 ｜ 实测：<a href="../../scripts/demo_playbook.py">scripts/demo_playbook.py</a> D1/D2</span><span>07</span></div>
-</section>
-
-<!-- ============ 8 子流程 + 规则 ============ -->
-<section class="slide">
-  <div class="kicker">04 · BUSINESS PROCESS</div>
-  <h2 class="title">三条子流程与十四条业务规则护栏</h2>
-  <div class="subtitle">子流程：聚合 / 根因定位 / 复盘沉淀；规则护栏中 7 条经 Nacos 热更新（SC-06 实测接线）</div>
-  <div class="grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:12px">
-    <div class="card"><h4>BA-BP-02 信号聚合与降噪</h4><p>四源接入（流水/征信/舆情/投诉）→ 统一信号结构 → 24h 重复合并、置信&lt;0.3 仅存档 → 加权评分；velocity_1h/24h 强制携带（BA-BR-14）。</p></div>
-    <div class="card"><h4>BA-BP-03 根因定位与影响面</h4><p>假设匹配知识库手法（测卡/ATO/跑分）→ 四类边 2 跳扩展 → 关联账户/事件/涉案金额输出 → 证据链固化（每条附来源与置信度）。</p></div>
-    <div class="card"><h4>BA-BP-04 复盘与知识沉淀</h4><p>结案自动生成复盘摘要 → 新手法经<b>人工确认</b>入库 DA-KB-01 → 高误报规则自动标记提交策略迭代。</p></div>
-  </div>
-  <table>
-    <tr><th>关键规则</th><th>内容</th><th>配置</th><th>关键规则</th><th>内容</th><th>配置</th></tr>
-    <tr><td><b>BR-01</b></td><td>自动处置边界：&lt;5000 元且分&lt;40；40–69 转人工复核</td><td>Nacos</td><td><b>BR-08</b></td><td>处置后 10 分钟内必须核验，超时告警</td><td>Nacos</td></tr>
-    <tr><td><b>BR-02</b></td><td>风险分≥70 一律人工审批（无论金额）</td><td>Nacos</td><td><b>BR-09</b></td><td>所有处置动作落审计（操作者+依据）</td><td>硬编码</td></tr>
-    <tr><td><b>BR-03</b></td><td>冻结必须附书面理由与证据链，缺一不可</td><td>硬编码</td><td><b>BR-11</b></td><td>知识入库必须人工确认，Agent 不得直接发布</td><td>门控</td></tr>
-    <tr><td><b>BR-06</b></td><td>2 跳内存在已确认欺诈主体 → 风险分 +30</td><td>Nacos</td><td><b>BR-13</b></td><td>审批时效 30 分钟，超时升级值班员</td><td>Nacos</td></tr>
-    <tr><td><b>BR-07</b></td><td>审批驳回回滚人工复核，禁再入自动通道</td><td>硬编码</td><td><b>BR-14</b></td><td>信号强制携带 velocity 频次特征参与评分</td><td>Nacos</td></tr>
-  </table>
-  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §4.2-§5 ｜ 阈值热更新实测：SC-06（PUT /api/config/thresholds 即时生效不重启）</span><span>08</span></div>
-</section>
-
-<!-- ============ 9 业务角色与操作 ============ -->
-<section class="slide">
-  <div class="kicker">05 · ROLES &amp; OPERATIONS</div>
-  <h2 class="title">业务角色与全部操作（5 页面 × 4 角色）</h2>
-  <div class="subtitle">门户顶部一键切换角色（localStorage 承载，路由白名单守卫）；人类写操作经 X-Operator 头携带角色名落审计</div>
-  <table>
-    <tr><th>角色</th><th>主页面</th><th>可执行操作（均已实测在码）</th><th>对应 API</th></tr>
-    <tr><td><b>风控值班员</b></td><td>案件工作台<br>/cases</td><td>新建演示案件（选严重度）· 案件/信号/图谱/证据/审计查看 · 流水线手动推进（聚合/调查/核验兜底控制面）· <b>人工复核</b>（release/block/escalate + 意见）· 处置凭证查看</td><td>API-W-01~07/10/17~19/21/22</td></tr>
-    <tr><td><b>风控审批官</b></td><td>审批门户<br>/approvals</td><td>待决审批单列表（含 requested_action/金额/超时标红）· 证据链抽屉 · <b>批准/驳回</b>（意见≥5 字，驱动状态机）</td><td>API-W-06/08/09</td></tr>
-    <tr><td><b>合规审计员</b></td><td>审计查询<br>/audit</td><td>按案件回放全链审计（actor/basis/trace_id 逐条，最近案件快捷选择）· 可观测面板 Trace/事件流查看</td><td>API-W-02/10/14/20</td></tr>
-    <tr><td><b>风控策略管理员</b></td><td>知识库管理<br>/kb</td><td>入库申请审核 · <b>发布/驳回</b>知识条目（发布触发向量化）· 阈值配置查看</td><td>API-W-11~13/16</td></tr>
-  </table>
-  <div class="card" style="margin-top:12px;border-left:4px solid var(--red)">
-    <h4>人机边界原则（01 §6，硬性；02 §3.3/§4 同声明）</h4>
-    <p>Agent 可建议、可执行低风险动作；<b>账户冻结与高金额处置必须由人最终确认</b>；人类动作一律经真实 HTTP API（门户同路径），不存在绕过界面的后门写路径。全部 22 个 REST 接口编号 API-W-01~22，契约唯一事实来源 <a href="../openapi/tradeguard-openapi.yaml">docs/openapi/tradeguard-openapi.yaml</a>。</p>
-  </div>
-  <div class="foot"><span>来源：<a href="../01-业务架构BA.md">docs/01</a> BA §6 · 04 TA §10 ｜ 角色切换实测：<a href="../../web-portal/src/role.js">web-portal/src/role.js</a> + <a href="../../web-portal/src/router.js">router.js</a></span><span>09</span></div>
-</section>
-
-<!-- ============ 10 五 Agent 协同 ============ -->
-<section class="slide">
-  <div class="kicker">06 · MULTI-AGENT</div>
-  <h2 class="title">五 Agent 协同架构（AgentTeams，TA-C-01 核心基座）</h2>
-  <div class="subtitle">一职能一 Worker（02 §1），一节点一 Agent（01 §9 约束）；实测 Manager/4 Worker 全 Running（qwen3.8-max）</div>
-  <div class="flow" style="margin-bottom:12px">
-    <div class="fbox hl" style="flex:1.3"><b>AA-AG-01 风控主控</b>Manager：接收告警拆解为<br>聚合→调查→处置→审计子任务<br><span class="tag gold">任务拆解与调度</span></div><span class="arrow">⇉</span>
-    <div class="fbox blue"><b>AA-AG-02 信号聚合</b>Worker<br>AA-SK-01</div>
-    <div class="fbox blue"><b>AA-AG-03 调查取证</b>Worker<br>AA-SK-02</div>
-    <div class="fbox blue"><b>AA-AG-04 处置执行</b>Worker<br>AA-SK-03</div>
-    <div class="fbox blue"><b>AA-AG-05 合规审计</b>Worker<br>AA-SK-04/05</div>
-  </div>
-  <table>
-    <tr><th>五维协同要素</th><th>AgentTeams 框架能力映射</th><th>实测证据</th></tr>
-    <tr><td>角色编排</td><td>Manager CRD + Worker SOUL 身份文件</td><td>agt get managers/workers 全 Running，SOUL 按 02 §3 注入</td></tr>
-    <tr><td>任务拆解</td><td>Manager 分派 + 任务文件协议</td><td>Matrix 房间分派链路实测（Manager 经 qwen3.8-max 生成回复入房）</td></tr>
-    <tr><td>上下文传递</td><td>Matrix 房间消息 + 事件共享状态表 + 扁平事件信封</td><td>每案件一房间；事件 envelope 透传 trace_id</td></tr>
-    <tr><td>协同执行</td><td>Worker 经 mcporter 工具桥调 MCP</td><td>4 Worker 注入 tg-core(12)+tg-external(3)，实测调 query_transactions 返回真实库数据</td></tr>
-    <tr><td>状态追踪</td><td>状态机 + RocketMQ + 审计表 + Studio span</td><td>21 迁移全留痕；房间历史 + 审计双留痕</td></tr>
-  </table>
-  <div class="foot"><span>来源：<a href="../02-应用架构AA.md">docs/02</a> AA §1/§3 · 04 TA §4 ｜ 实测：<a href="../../scripts/agentteams_doctor.py">scripts/agentteams_doctor.py</a>（幂等体检恢复）</span><span>10</span></div>
-</section>
-
-<!-- ============ 11 Skill 与 MCP ============ -->
-<section class="slide">
-  <div class="kicker">06 · SKILLS &amp; MCP</div>
-  <h2 class="title">能力层：5 Skill + 2 MCP Server（15 工具）</h2>
-  <div class="subtitle">Skill=能力抽象（9 属性契约），MCP=工具连接层；均注册 Nacos Registry，经 Higress 治理</div>
-  <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
-    <div class="card"><h4 style="font-size:13px">AA-SK-01</h4><p style="font-size:12px">signal-aggregation<br>多源聚合降噪 + velocity + 四路由裁决</p></div>
-    <div class="card"><h4 style="font-size:13px">AA-SK-02</h4><p style="font-size:12px">fraud-investigation<br>根因假设 + 关联扩展 + 证据固化</p></div>
-    <div class="card"><h4 style="font-size:13px">AA-SK-03</h4><p style="font-size:12px">disposition-execution<br>建议生成 + 门控提交 + 幂等执行</p></div>
-    <div class="card"><h4 style="font-size:13px">AA-SK-04</h4><p style="font-size:12px">compliance-audit<br>一致性核验 + 反向回滚 + P0 升级</p></div>
-    <div class="card"><h4 style="font-size:13px">AA-SK-05</h4><p style="font-size:12px">knowledge-sedimentation<br>复盘摘要 + 入库申请（人工门控）</p></div>
-  </div>
-  <div class="grid" style="grid-template-columns:1.4fr 1fr">
-    <div class="card"><h4>AA-MCP-01 交易风控业务库 MCP（mcp-core :8101，12 工具）</h4>
-      <p>在码 12 工具全集：query_transactions · query_related_graph · query_case_signals · query_disposition_result · <b>execute_disposition（处置唯一通道，审批门控）</b> · create_approval_request · record_case_evidence · apply_risk_bonus · record_case_signals · submit_kb_application · record_agent_memory · query_audit_trail（零未编号工具）。<br>门控验真：approval_ref = case 匹配 + 动作匹配或<b>逆动作对</b>（freeze/block/reduce→release，release→block，双端同源）；70 分线经 sys_config 与 web-api 同源。</p></div>
-    <div class="card"><h4>AA-MCP-02 外部数据服务 MCP（mock :8102，3 工具）</h4>
-      <p>query_credit（征信评分/逾期）· query_sentiment（涉诈舆情）· query_complaint（客服投诉）。<b>确定性播种</b>（哈希种子可复现，演示=测试回放的前提）；等价集成契约固化（Schema/鉴权/重试/审计/降级），真实源仅协议适配即可替换。百炼 MCP 广场适配器按业务场景原则评估后<b>不做</b>（02 §5 留痕）。</p></div>
-  </div>
-  <div class="foot"><span>来源：<a href="../02-应用架构AA.md">docs/02</a> AA §4-§5 ｜ API-M-01~15 编号见 <a href="../07-敏捷拆分与API契约.md">docs/07</a> §5</span><span>11</span></div>
-</section>
-
-<!-- ============ 12 技术栈 ============ -->
-<section class="slide">
-  <div class="kicker">07 · TECH STACK</div>
-  <h2 class="title">技术栈组成（TA-C-01~10）</h2>
-  <div class="subtitle">版本不冒进（00 §4 纪律）；每个组件均有等价替代与迁移成本（可替换性设计要求）</div>
-  <table>
-    <tr><th>编号</th><th>组件</th><th>定位</th><th>在本系统中的实测角色</th></tr>
-    <tr><td>TA-C-01</td><td><b>AgentTeams（原 HiClaw）</b></td><td>多 Agent 协同底座（核心基座）</td><td>Manager+4 Worker 独立栈，经 mcporter 桥接业务 MCP</td></tr>
-    <tr><td>TA-C-02</td><td>Skill 体系 + 云 Skills 门户</td><td>能力抽象层（核心组件）</td><td>AA-SK-01~05 元数据注册 Nacos（与代码同源）</td></tr>
-    <tr><td>TA-C-03</td><td>PolarDB-PG（含 pgvector）</td><td>业务/向量/审计一体存储</td><td>本地以 PostgreSQL 等价承载 13 表 + 触发器双守护</td></tr>
-    <tr><td>TA-C-04</td><td><b>Higress AI 网关</b></td><td>统一入口/鉴权/限流/凭据透传</td><td>真实承载门户全部 /api 与 SSE 流量（envoy 计数取证）</td></tr>
-    <tr><td>TA-C-05</td><td>Nacos 3.2.x</td><td>AI Registry + 动态配置</td><td>MCP/Skill 注册 + 阈值 5s 快照热更新（SC-06 实测）</td></tr>
-    <tr><td>TA-C-06</td><td>RocketMQ 5.x</td><td>事件驱动总线</td><td>case-events 真实连通（轮询保底 + MQ 加速双通道）</td></tr>
-    <tr><td>TA-C-07</td><td>AgentScope Studio</td><td>Trace 可视化 + 评估</td><td>OTLP 直推实测落库，按案件分组回放技能 span</td></tr>
-    <tr><td>TA-C-08</td><td>UnifiedModel</td><td>实体-关系语义层</td><td>SQL 视图退化路径落地，正式运行时仅换查询后端</td></tr>
-    <tr><td>TA-C-09</td><td>LLM/Embedding（Qwen·DashScope）</td><td>推理与向量化</td><td>qwen3.8-max 经安全链路注入（Key 加密，不落仓库）</td></tr>
-    <tr><td>TA-C-10</td><td>Docker / Compose</td><td>编排</td><td>一键 start_all.py 全栈自证（21/21）</td></tr>
-  </table>
-  <div class="foot"><span>来源：<a href="../04-技术架构TA.md">docs/04</a> TA §2 ｜ 核心技术栈全部真实参与业务架构，零部署摆设</span><span>12</span></div>
-</section>
-
-<!-- ============ 13 部署拓扑 ============ -->
-<section class="slide">
-  <div class="kicker">08 · SUBSYSTEMS</div>
-  <h2 class="title">子系统组成与部署拓扑</h2>
-  <div class="subtitle">compose 栈（12 服务，data-generator 为 tools profile 按需）+ AgentTeams 独立栈（7 容器），同一 Docker 网络互通</div>
-  <div class="grid" style="grid-template-columns:1.15fr 1fr">
-    <div class="card">
-      <h4>Docker Compose 栈（name: tradeguard）</h4>
-      <p style="line-height:2.1">
-        <span class="pill">postgres :5433（宿主）/5432（容器间）</span>
-        <span class="pill">rocketmq namesrv :9876 + broker</span>
-        <span class="pill">rocketmq-init（case-events Topic 一次性预建）</span>
-        <span class="pill">nacos :8848</span>
-        <span class="pill">higress 控制台 :8001 / 网关 :8180→8080</span>
-        <span class="pill">as-studio :3000</span>
-        <span class="pill">mcp-core :8101</span>
-        <span class="pill">mcp-external-mock :8102</span>
-        <span class="pill">web-api :8200→8000（FastAPI，TG_EVENT_WORKER=on）</span>
-        <span class="pill">web-portal :8300→80（Vue3 + nginx）</span>
-        <span class="pill">data-generator（tools profile 按需）</span>
-      </p>
-      <p>healthcheck + depends_on 保依赖顺序；*.tg.local 网络别名供网关 dns 型服务源解析。</p>
-    </div>
-    <div class="card">
-      <h4>AgentTeams 独立栈（官方安装，非 compose）</h4>
-      <p style="line-height:2.1">
-        <span class="pill">controller :18001/18080/18088（回环）</span>
-        <span class="pill">manager :18888</span>
-        <span class="pill">dashboard :13000</span>
-        <span class="pill">worker aa-ag-02~05（随机宿主端口→8088）</span>
-      </p>
-      <p>经 docker network connect 接 tradeguard-net 解析 mcp-core；容器层 mcporter 桥注入 tg-core/tg-external。<b>已知脆弱点均已脚本化自愈</b>：controller Exited(127)、Worker Sleeping、丢组网——agentteams_doctor.py 幂等恢复。</p>
-    </div>
-  </div>
-  <div class="card" style="margin-top:12px">
-    <h4>一键启动入口（实测可重入，任意初始状态）</h4>
-    <div class="code"><span class="c"># 引擎不可达自动拉起 Docker Desktop → 清端口（外部进程才杀，Docker 引擎进程绝不杀）→ up → 真实探活 → 数据就位 → 路由重建 → 协同体检 → 端到端取证</span>
-<span class="g">.venv/Scripts/python <a href="../../scripts/start_all.py">scripts/start_all.py</a></span>        <span class="y"># 21/21 全绿 exit 0（--build 重建镜像 / --no-agentteams 跳过协同栈）</span></div>
-  </div>
-  <div class="foot"><span>来源：<a href="../04-技术架构TA.md">docs/04</a> TA §3 ｜ CLAUDE.md 已知环境实况</span><span>13</span></div>
-</section>
-
-<!-- ============ 14 数据流全景 ============ -->
-<section class="slide">
-  <div class="kicker">09 · DATA FLOW</div>
-  <h2 class="title">子系统数据流交互全景</h2>
-  <div class="subtitle">四条主干链路：业务闭环 / 门户流量 / Agent 协同 / 观测上报——全部实测连通</div>
-  <div class="card" style="margin-bottom:10px;border-left:4px solid var(--gold)">
-    <h4>① 业务闭环主干（事件驱动）</h4>
-    <div class="flow" style="margin-top:6px">
-      <div class="fbox blue"><b>告警输入</b>门户演示触发 /<br>POST /api/alerts</div><span class="arrow">→</span>
-      <div class="fbox"><b>web-api 立案</b>写案件+审计<br>发 CaseRegistered</div><span class="arrow">→</span>
-      <div class="fbox hl"><b>EventWorker</b>DB 轮询 2s 主力<br>+RocketMQ 尽力而为</div><span class="arrow">→</span>
-      <div class="fbox"><b>聚合内核</b>经 mock MCP 取四源信号<br>经 mcp-core 落信号</div><span class="arrow">→</span>
-      <div class="fbox"><b>裁决分流</b>noise/auto_release/<br>investigate/all_fail</div><span class="arrow">→</span>
-      <div class="fbox green"><b>处置/核验</b>mcp-core 门控执行<br>→ 审计+凭证+span</div>
-    </div>
-  </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="card"><h4>② 门户流量链路（Higress 承载）</h4><p>浏览器 → web-portal nginx → <b>higress:8080</b> → web-api.dns:8000 → PolarDB 真实读写；SSE（/api/events/stream）经网关透传不缓冲；写操作落库后发事件（进程内总线必达，慢消费者 64 槽上限降级丢弃不阻塞主链路→SSE 实时刷新）。</p></div>
-    <div class="card"><h4>③ Agent 协同链路</h4><p>AgentTeams Worker → mcporter 工具桥 → mcp-core/mcp-external（容器名解析）→ PolarDB；Manager↔人类经 Matrix 房间；LLM 经 DashScope 网关路由（qwen3.8-max）。</p></div>
-    <div class="card"><h4>④ 观测与治理旁路</h4><p>web-api 技能 span → OTLP/HTTP → Studio（按案件分组）；Nacos ← MCP/Skill 注册 + 阈值快照 5s；Higress ← 文件仓路由下发；RocketMQ case-events 4 读写队列实测有消息。</p></div>
-  </div>
-  <div class="card" style="margin-top:10px"><h4>刻意取舍（不为用而用）</h4><p>web-api→MCP 内核通道保持直连：处置是状态机关键路径，不耦合网关单点；三 MCP 已全量注册为网关服务源，生产形态按需加路由即开（04 §5 如实声明）。</p></div>
-  <div class="foot"><span>来源：<a href="../04-技术架构TA.md">docs/04</a> TA §3/§5/§10.1 ｜ envoy upstream_rq_200 计数与经网关读真实数据取证</span><span>14</span></div>
-</section>
-
-<!-- ============ 15 状态机与闭环 ============ -->
-<section class="slide">
-  <div class="kicker">09 · STATE MACHINE</div>
-  <h2 class="title">事件驱动闭环与 12 态状态机（双守护）</h2>
-  <div class="subtitle">闭环第一跳零人工：CaseRegistered 由 EventWorker 自动承接（Sprint 8 实测接通）</div>
-  <div class="flow" style="margin-bottom:10px">
-    <div class="fbox blue"><b>REGISTERED</b>立案</div><span class="arrow">→</span>
-    <div class="fbox"><b>AGGREGATING</b>聚合中</div><span class="arrow">→</span>
-    <div class="fbox hl"><b>分流</b>INVESTIGATING /<br>DISPOSING / ARCHIVED（降噪）</div><span class="arrow">→</span>
-    <div class="fbox"><b>PENDING_APPROVAL</b>→ APPROVED / REJECTED（单向）</div><span class="arrow">→</span>
-    <div class="fbox green"><b>DISPOSED</b>→ VERIFIED → ARCHIVED</div><span class="arrow">↺</span>
-    <div class="fbox red"><b>异常回路</b>ROLLBACK → MANUAL_REVIEW<br>（事件 RollbackExecuted/Escalated）</div>
-  </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="card"><h4>规模</h4><p><span class="num">12</span> 态 · <span class="num">18</span> 事件 · <span class="num">21</span> 迁移，纯函数状态机（<a href="../../services/web-api/app/core/state_machine.py">app/core/state_machine.py</a>）。扁平信封 {case_id, trace_id, occurred_at, event, actor, payload}。</p></div>
-    <div class="card"><h4>双守护</h4><p>应用层状态机 + DB 白名单表触发器（case_state_transition）；写路径事务内 set tg.actor，trg_case_actor_gate 按 actor 前缀拦截——五对人类迁移仅 human:* 可执行。</p></div>
-    <div class="card"><h4>事件投递语义</h4><p>进程内总线必达（SSE 实时推送；慢消费者 64 槽上限降级丢弃，不阻塞主链路）+ RocketMQ 尽力而为（case-events 实测连通）+ EventWorker DB 轮询保底（单飞锁防重、失败不重试）——不依赖单一中间件可用性。</p></div>
-  </div>
-  <div class="card" style="margin-top:10px;border-left:4px solid var(--green)">
-    <h4>核验三分支（AA-SK-04，诚实语义）</h4>
-    <p>执行一致→归档（trace 残缺仅告警<b>绝不回滚</b>）；不一致→反向处置回滚（逆动作对授权）；无凭证/拒回滚→RollbackEscalated 升级人工（不发 RollbackExecuted，语义不撒谎）。实测 D3 全分支通过。</p>
-  </div>
-  <div class="foot"><span>来源：<a href="../../services/web-api/app/core/state_machine.py">app/core/state_machine.py</a> · <a href="../03-数据架构DA.md">docs/03</a> §9.2 · <a href="../02-应用架构AA.md">docs/02</a> §7</span><span>15</span></div>
-</section>
-
-<!-- ============ 16 演示入口 ============ -->
-<section class="slide">
-  <div class="kicker">10 · DEMO GUIDE</div>
-  <h2 class="title">端到端演示：启动、数据输入面与角色切换</h2>
-  <div class="subtitle">系统启动后，经以下任一数据输入面注入业务数据，配合角色切换即可完成端到端演示（全部实测）</div>
-  <div class="grid" style="grid-template-columns:1fr 1fr">
-    <div>
-      <div class="card" style="margin-bottom:10px"><h4>Step 0 · 下载后配置（可选，仅 AgentTeams 协同需要）</h4><p>核心链路（web-api/门户/MCP/中间件）确定性运行、<b>不依赖 LLM</b>，克隆后可直接 Step 1。如需 AgentTeams 5 Agent 协同：复制 <b>secrets/dashscope.env.example</b> → <b>secrets/dashscope.env</b>，填入 <b>DASHSCOPE_API_KEY</b>（LLM Key 位置与步骤详见 <a href="../../README.md">README.md · 快速开始</a>）。</p></div><div class="card" style="margin-bottom:10px"><h4>Step 1 · 一键启动（任意初始状态可重入）</h4>
-        <div class="code"><span class="g">.venv/Scripts/python <a href="../../scripts/start_all.py">scripts/start_all.py</a></span>
-<span class="c"># 21 项检查全绿 exit 0：探活→数据→网关→协同→C1~C9 取证</span></div></div>
-      <div class="card" style="margin-bottom:10px"><h4>Step 2 · 打开门户并切换角色</h4>
-        <p>http://localhost:8300 → 顶栏角色下拉切换：<b>风控值班员 / 风控审批官 / 合规审计员 / 风控策略管理员</b>（路由白名单自动导向各自主页面；可观测面板全角色可见）。</p></div>
-      <div class="card"><h4>Step 3 · 观察实时流转</h4>
-        <p>全页面 SSE 实时事件流（21 事件名）；可观测面板查 Trace/span、Nacos 阈值、网关入口、Studio。</p></div>
-    </div>
-    <div>
-      <div class="card"><h4>六个业务数据输入面（均可实际操作）</h4>
+      <!-- ============ 4 行业现状与局限 ============ -->
+      <section class="slide">
+        <div class="kicker">02 · BENCHMARK</div>
+        <h2 class="title">行业现状：三类主流方案的边界</h2>
+        <div class="subtitle">
+          理解现有方案「能做什么、不能做什么」，才能明确本方案补的是什么
+        </div>
         <table>
-          <tr><th>#</th><th>输入面</th><th>用途</th></tr>
-          <tr><td>①</td><td>门户「新建演示案件」（严重度 low/medium/high）</td><td>API-W-21 取真实无未结案件主体 → 立案</td></tr>
-          <tr><td>②</td><td>POST /api/alerts 手工立案</td><td>severity 枚举映射种子分 25/55/85；source_type 四值枚举守门</td></tr>
-          <tr><td>③</td><td>data-generator 合成数据</td><td>10 万行交易 + 5000 账户（PaySim 式分布，爆发簇近 1h 可触发 velocity）</td></tr>
-          <tr><td>④</td><td>tg_app 直连播种（剧本用）</td><td>演示主体定向交易/名单标记（D2 velocity 簇、D3 固定哈希）</td></tr>
-          <tr><td>⑤</td><td>PUT /api/config/thresholds</td><td>阈值热更新输入（SC-06：写 Nacos→DB→reload，5s 生效不重启）</td></tr>
-          <tr><td>⑥</td><td>tg_app 故障注入（D3 专用）</td><td>篡改 disposition_record.status='failed' 模拟下游回报异常</td></tr>
-        </table></div>
+          <tr>
+            <th>方案类型</th>
+            <th>擅长</th>
+            <th>局限</th>
+          </tr>
+          <tr>
+            <td><b>规则引擎 / 决策引擎</b>（Drools、Falcon 等）</td>
+            <td>毫秒级实时决策，确定性好，可解释、可审计</td>
+            <td>
+              以单交易/单账户为视角，缺乏跨账户关联；规则维护成本随欺诈手法演化持续攀升
+            </td>
+          </tr>
+          <tr>
+            <td><b>图风控</b>（Neo4j、TigerGraph、GNN）</td>
+            <td>发现团伙关联、识别资金网络，弥补跨账户盲区</td>
+            <td>
+              强在「发现」，弱在「处置」——识别之后如何自动处置、如何审批、如何核验，仍要另起炉灶
+            </td>
+          </tr>
+          <tr>
+            <td><b>通用 LLM / Agent 方案</b>（LangGraph 等）</td>
+            <td>自然语言推理、证据链生成，理解力强</td>
+            <td>
+              输出不确定、幻觉风险；缺乏风控必需的确定性、人机审批边界与审计追溯
+            </td>
+          </tr>
+        </table>
+        <div class="card" style="margin-top: 14px">
+          <h4>结论</h4>
+          <p>
+            三类方案各有所长，但都缺一条：<b>把「发现」到「处置」再到「核验」串成可审计的闭环</b>，并在其中守住「高风险必由人确认」的边界。这正是本方案要补的位置。
+          </p>
+        </div>
+        <div class="foot">
+          <span
+            >对标参考：Stripe Radar / FIS Falcon / 图风控实践 / LangGraph 多
+            Agent 风控</span
+          ><span>04</span>
+        </div>
+      </section>
+
+      <!-- ============ 5 突破方向 ============ -->
+      <section class="slide">
+        <div class="kicker">03 · APPROACH</div>
+        <h2 class="title">突破方向：确定性打底，LLM 增强，人守住边界</h2>
+        <div class="subtitle">三条设计主线，回应前面每一类方案的短板</div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr 1fr">
+          <div class="card">
+            <h4>五阶段闭环</h4>
+            <p>
+              不是孤立的「检测」，而是
+              <b>信号聚合 → 根因定位 → 处置执行 → 核验审计 → 知识沉淀</b>
+              的完整链路。每一次处置都有核验，每一次误判都回流为知识，系统越用越准。
+            </p>
+          </div>
+          <div class="card">
+            <h4>人机边界清晰</h4>
+            <p>
+              低风险可自动处置，<b>高风险一律由人最终确认</b>。Agent
+              负责建议与执行低风险动作，账户冻结、大额处置必须经过人工审批——让自动化「敢用、可控」。
+            </p>
+          </div>
+          <div class="card">
+            <h4>确定性优先，LLM 增强</h4>
+            <p>
+              核心评分、状态迁移、处置门禁全部由<b>可复现的规则内核</b>执行；LLM
+              只做语义检索与根因推理增强。即使没有 LLM
+              Key，系统照常闭环运行，LLM 是「加分项」而非「前提」。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>设计主线贯穿后续所有架构与业务设计</span><span>05</span>
+        </div>
+      </section>
+      <!-- ============ 6 业务能力 ============ -->
+      <section class="slide">
+        <div class="kicker">04 · BUSINESS</div>
+        <h2 class="title">业务能力地图：七项能力构成风控中枢</h2>
+        <div class="subtitle">
+          从告警接入到知识沉淀，每项能力对应一个清晰的业务职能
+        </div>
+        <table>
+          <tr>
+            <th>能力</th>
+            <th>职能</th>
+            <th>说明</th>
+          </tr>
+          <tr>
+            <td><b>告警接入</b></td>
+            <td>交易事件 / 告警 / 工单受理立案</td>
+            <td>
+              统一入口，把来自引擎、人工、外部系统的风险线索收敛为「案件」
+            </td>
+          </tr>
+          <tr>
+            <td><b>风险事件管理</b></td>
+            <td>状态流转 / 时效监控</td>
+            <td>每个案件有清晰的生命周期与时效约束</td>
+          </tr>
+          <tr>
+            <td><b>风险信号聚合</b></td>
+            <td>多源接入 / 降噪 / 打分</td>
+            <td>把交易、征信、舆情、投诉四类信号标准化、去重、加权评分</td>
+          </tr>
+          <tr>
+            <td><b>欺诈调查</b></td>
+            <td>根因 / 关联网络 / 影响面</td>
+            <td>定位欺诈手法，还原团伙关系，量化影响范围</td>
+          </tr>
+          <tr>
+            <td><b>风控处置</b></td>
+            <td>建议生成 / 自动执行 / 人工审批</td>
+            <td>拦截、冻结、降额、放行四类动作，按风险分级决定自动还是人工</td>
+          </tr>
+          <tr>
+            <td><b>合规审计</b></td>
+            <td>结果核验 / 审计报告</td>
+            <td>核验处置结果的一致性，全程可追溯</td>
+          </tr>
+          <tr>
+            <td><b>知识沉淀</b></td>
+            <td>复盘 / 案例入库 / 策略迭代</td>
+            <td>把误判与确认的欺诈手法沉淀为知识，反哺调查</td>
+          </tr>
+        </table>
+        <div class="foot">
+          <span>七项能力与五阶段闭环一一对应，形成「越用越准」的正向循环</span
+          ><span>06</span>
+        </div>
+      </section>
+
+      <!-- ============ 7 核心业务对象 ============ -->
+      <section class="slide">
+        <div class="kicker">04 · BUSINESS</div>
+        <h2 class="title">核心业务对象：案件贯穿始终</h2>
+        <div class="subtitle">
+          12 张业务表支撑统一的数据模型，案件（Case）是贯穿五阶段的主线
+        </div>
+        <div class="flow">
+          <div class="fbox">
+            <b>账户 / 交易</b>主体档案与流水<br />（合成数据 PaySim 式分布）
+          </div>
+          <span class="arrow">→</span>
+          <div class="fbox hl">
+            <b>风险案件 Case</b>12 态生命周期<br />立案 → 归档全流程
+          </div>
+          <span class="arrow">→</span>
+          <div class="fbox">
+            <b>风险信号</b>四源标准化 + 频次特征<br />（降噪合并、加权评分）
+          </div>
+          <span class="arrow">→</span>
+          <div class="fbox"><b>证据</b>调查结论固化<br />来源 + 置信度</div>
+          <span class="arrow">→</span>
+          <div class="fbox green">
+            <b>处置记录</b>执行凭证<br />幂等键 + 审批关联
+          </div>
+        </div>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr; margin-top: 14px"
+        >
+          <div class="card">
+            <h4>审批单</h4>
+            <p>
+              记录处置动作、金额与升级时间；人工批准或驳回经此回填，驱动状态机前进。
+            </p>
+          </div>
+          <div class="card">
+            <h4>知识条目</h4>
+            <p>复盘入库申请 → 人工发布 → 向量化，供后续调查检索引用。</p>
+          </div>
+          <div class="card">
+            <h4>关联网络</h4>
+            <p>
+              同设备 / 同收款方 / 同 IP 段 / 同联系方式四类关系，做 2
+              跳扩展与团伙发现。
+            </p>
+          </div>
+          <div class="card">
+            <h4>审计日志</h4>
+            <p>只增不改，记录每一次操作的操作者、依据与追踪号。</p>
+          </div>
+        </div>
+        <div class="foot">
+          <span
+            >数据模型见 docs/03；字段级契约见 docs/08 数据字典（13 张表）</span
+          ><span>07</span>
+        </div>
+      </section>
+
+      <!-- ============ 8 端到端流程 ============ -->
+      <section class="slide">
+        <div class="kicker">04 · BUSINESS</div>
+        <h2 class="title">端到端流程：按风险分级自动分流</h2>
+        <div class="subtitle">同一个案件，根据风险分数走向不同的处理路径</div>
+        <div class="flow">
+          <div class="fbox">告警接入<br />立案</div>
+          <span class="arrow">→</span>
+          <div class="fbox">信号聚合<br />四源标准化</div>
+          <span class="arrow">→</span>
+          <div class="fbox hl">风险分级<br />0-100 评分</div>
+          <span class="arrow">→</span>
+          <div class="fbox">调查 / 处置<br />按分级分流</div>
+          <span class="arrow">→</span>
+          <div class="fbox">处置执行<br />拦截 / 冻结 / 降额 / 放行</div>
+          <span class="arrow">→</span>
+          <div class="fbox green">核验审计<br />一致性核验</div>
+          <span class="arrow">→</span>
+          <div class="fbox">归档沉淀<br />复盘入库</div>
+        </div>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr 1fr; margin-top: 14px"
+        >
+          <div class="card">
+            <h4>低风险（分 &lt; 40，小额）</h4>
+            <p>
+              直接进入自动处置通道，无需人工审批。系统自动完成放行或拦截，并把决策依据写进审计。
+            </p>
+          </div>
+          <div class="card">
+            <h4>中风险（40–69）</h4>
+            <p>
+              一律转人工复核，由风控值班员判断「放行 / 拦截 /
+              升级」。系统不做自动处置。
+            </p>
+          </div>
+          <div class="card">
+            <h4>高风险（≥ 70）</h4>
+            <p>
+              先深度调查取证，生成处置建议后必须经人工审批。批准才执行；驳回则回退人工复核，且禁止再进入自动通道。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>风险阈值可通过配置中心动态调整，无需重启</span><span>08</span>
+        </div>
+      </section>
+
+      <!-- ============ 9 业务规则 ============ -->
+      <section class="slide">
+        <div class="kicker">04 · BUSINESS</div>
+        <h2 class="title">业务规则：十四条规则定义人机边界</h2>
+        <div class="subtitle">
+          其中 7 条经配置中心动态可调，规则变化无需改代码
+        </div>
+        <table>
+          <tr>
+            <th>规则</th>
+            <th>内容</th>
+            <th>生效方式</th>
+          </tr>
+          <tr>
+            <td><b>自动处置边界</b></td>
+            <td>金额 &lt; 5000 且分数 &lt; 40 才可自动；40–69 转人工复核</td>
+            <td>可动态配置</td>
+          </tr>
+          <tr>
+            <td><b>高风险强制人工</b></td>
+            <td>风险分 ≥ 70 一律人工审批，无论金额大小</td>
+            <td>可动态配置</td>
+          </tr>
+          <tr>
+            <td><b>冻结证据前置</b></td>
+            <td>冻结动作必须附书面理由与证据链，缺一不可</td>
+            <td>固定规则</td>
+          </tr>
+          <tr>
+            <td><b>关联加分</b></td>
+            <td>2 跳内存在已确认欺诈主体，风险分 +30</td>
+            <td>可动态配置</td>
+          </tr>
+          <tr>
+            <td><b>驳回回退</b></td>
+            <td>审批驳回后回退人工复核，禁止再入自动通道</td>
+            <td>固定规则</td>
+          </tr>
+          <tr>
+            <td><b>处置后核验</b></td>
+            <td>处置后 10 分钟内必须核验，超时告警</td>
+            <td>可动态配置</td>
+          </tr>
+          <tr>
+            <td><b>处置留痕</b></td>
+            <td>所有处置动作记录操作者与依据</td>
+            <td>固定规则</td>
+          </tr>
+          <tr>
+            <td><b>知识人工把关</b></td>
+            <td>知识入库必须人工确认，Agent 不得直接发布</td>
+            <td>固定规则</td>
+          </tr>
+          <tr>
+            <td><b>审批时效</b></td>
+            <td>审批 30 分钟超时自动升级值班员</td>
+            <td>可动态配置</td>
+          </tr>
+          <tr>
+            <td><b>频次特征强制</b></td>
+            <td>信号必须携带 1h/24h 频次特征参与评分</td>
+            <td>可动态配置</td>
+          </tr>
+        </table>
+        <div class="foot">
+          <span>完整 14 条规则与配置位置见 docs/01 §5</span><span>09</span>
+        </div>
+      </section>
+
+      <!-- ============ 10 角色与操作 ============ -->
+      <section class="slide">
+        <div class="kicker">05 · ROLES</div>
+        <h2 class="title">角色与操作：人机边界清晰</h2>
+        <div class="subtitle">四个角色各司其职，高风险动作永远由人确认</div>
+        <table>
+          <tr>
+            <th>角色</th>
+            <th>主页面</th>
+            <th>可执行操作</th>
+          </tr>
+          <tr>
+            <td><b>风控值班员</b></td>
+            <td>案件工作台</td>
+            <td>
+              新建演示案件、查看案件/信号/图谱/证据/审计、手动推进流程、人工复核
+            </td>
+          </tr>
+          <tr>
+            <td><b>风控审批官</b></td>
+            <td>审批门户</td>
+            <td>
+              查看待审批清单（含动作/金额/超时标记）、查看证据链、批准或驳回
+            </td>
+          </tr>
+          <tr>
+            <td><b>合规审计员</b></td>
+            <td>审计查询</td>
+            <td>按案件查看全链审计、查看可观测面板与事件流</td>
+          </tr>
+          <tr>
+            <td><b>风控策略管理员</b></td>
+            <td>知识库管理</td>
+            <td>审核入库申请、发布/驳回知识条目、查看阈值配置</td>
+          </tr>
+        </table>
+        <div class="card" style="margin-top: 14px">
+          <h4>人机边界原则</h4>
+          <p>
+            Agent
+            可以<b>建议</b>、可以<b>执行低风险动作</b>；<b>账户冻结与高金额处置必须由人最终确认</b>。人的每一次操作都走真实的
+            HTTP 接口，不存在绕过界面的后门写路径。
+          </p>
+        </div>
+        <div class="foot">
+          <span>22 个 REST 接口统一由 OpenAPI 契约定义</span><span>10</span>
+        </div>
+      </section>
+      <!-- ============ 11 多 Agent 协同 ============ -->
+      <section class="slide">
+        <div class="kicker">06 · ARCHITECTURE</div>
+        <h2 class="title">多 Agent 协同：一职能一 Worker</h2>
+        <div class="subtitle">
+          基于 AgentTeams 框架，Manager 拆解任务，四个 Worker 各司其职
+        </div>
+        <div class="flow">
+          <div class="fbox hl">
+            <b>AA-AG-01 风控主控</b>Manager<br />接收告警、拆解为子任务、调度
+          </div>
+          <span class="arrow">⇉</span>
+          <div class="fbox"><b>AA-AG-02</b>信号聚合<br />AA-SK-01</div>
+          <span class="arrow">→</span>
+          <div class="fbox"><b>AA-AG-03</b>调查取证<br />AA-SK-02</div>
+          <span class="arrow">→</span>
+          <div class="fbox"><b>AA-AG-04</b>处置执行<br />AA-SK-03</div>
+          <span class="arrow">→</span>
+          <div class="fbox green"><b>AA-AG-05</b>合规审计<br />AA-SK-04/05</div>
+        </div>
+        <table style="margin-top: 14px">
+          <tr>
+            <th>协同维度</th>
+            <th>如何实现</th>
+          </tr>
+          <tr>
+            <td><b>角色编排</b></td>
+            <td>
+              Manager 通过 Worker 身份文件注入职责边界与可用技能；每个 Worker
+              对应一个明确的业务职能
+            </td>
+          </tr>
+          <tr>
+            <td><b>任务拆解</b></td>
+            <td>
+              Manager 把告警拆解为「聚合 → 调查 → 处置 →
+              审计」子任务，经协作房间分派
+            </td>
+          </tr>
+          <tr>
+            <td><b>上下文传递</b></td>
+            <td>
+              每个案件一个协作房间，事件信封透传追踪号，跨 Agent 共享案件状态
+            </td>
+          </tr>
+          <tr>
+            <td><b>协同执行</b></td>
+            <td>Worker 经 MCP 工具桥调用业务库，实际读取和写入真实数据</td>
+          </tr>
+          <tr>
+            <td><b>状态追踪</b></td>
+            <td>状态机 + 事件总线 + 审计表 + 可观测 Trace，全程可回看</td>
+          </tr>
+        </table>
+        <div class="foot">
+          <span>协同设计见 docs/02 §3；框架能力映射见 docs/04 §4</span
+          ><span>11</span>
+        </div>
+      </section>
+
+      <!-- ============ 12 能力层 ============ -->
+      <section class="slide">
+        <div class="kicker">06 · ARCHITECTURE</div>
+        <h2 class="title">能力层：5 个 Skill + 2 个 MCP（15 工具）</h2>
+        <div class="subtitle">
+          Skill 是能力的抽象定义，MCP 是 Agent 读写数据的通道
+        </div>
+        <table>
+          <tr>
+            <th>Skill</th>
+            <th>职责</th>
+            <th>确定性内核</th>
+          </tr>
+          <tr>
+            <td><b>AA-SK-01</b> 信号聚合</td>
+            <td>多源聚合降噪 + 频次特征 + 分级裁决</td>
+            <td>aggregation.py</td>
+          </tr>
+          <tr>
+            <td><b>AA-SK-02</b> 欺诈调查</td>
+            <td>根因假设 + 关联扩展 + 证据固化</td>
+            <td>investigation.py</td>
+          </tr>
+          <tr>
+            <td><b>AA-SK-03</b> 处置执行</td>
+            <td>建议生成 + 审批把关 + 幂等执行</td>
+            <td>mcp-core execute_disposition</td>
+          </tr>
+          <tr>
+            <td><b>AA-SK-04</b> 合规审计</td>
+            <td>一致性核验 + 反向处置 + 升级</td>
+            <td>verification.py</td>
+          </tr>
+          <tr>
+            <td><b>AA-SK-05</b> 知识沉淀</td>
+            <td>复盘摘要 + 入库申请（人工把关）</td>
+            <td>knowledge.py</td>
+          </tr>
+        </table>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr; margin-top: 12px"
+        >
+          <div class="card">
+            <h4>业务库 MCP（12 工具）</h4>
+            <p>
+              查询流水 / 图谱 / 信号 /
+              处置结果，执行处置、建审批单、固化证据、知识入库。处置执行是唯一的处置通道，带审批与幂等保障。
+            </p>
+          </div>
+          <div class="card">
+            <h4>外部数据 MCP（3 工具）</h4>
+            <p>
+              征信 / 舆情 /
+              投诉三类外部源，采用确定性模拟（同一主体结果一致），生产替换真实源只改这一层。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>15 个工具均有契约编号，与 OpenAPI 同源</span><span>12</span>
+        </div>
+      </section>
+
+      <!-- ============ 13 技术栈 ============ -->
+      <section class="slide">
+        <div class="kicker">06 · ARCHITECTURE</div>
+        <h2 class="title">技术栈：每项都有明确的职责与替换路径</h2>
+        <div class="subtitle">
+          版本策略保守，每个组件都可替换且有迁移成本评估
+        </div>
+        <table>
+          <tr>
+            <th>组件</th>
+            <th>定位</th>
+            <th>在本系统中的实际角色</th>
+          </tr>
+          <tr>
+            <td><b>AgentTeams</b></td>
+            <td>多 Agent 协同底座</td>
+            <td>Manager + 4 Worker，经 MCP 桥接业务库</td>
+          </tr>
+          <tr>
+            <td><b>FastAPI</b></td>
+            <td>后端框架</td>
+            <td>状态机 + 5 Skill 内核 + 22 REST 路径</td>
+          </tr>
+          <tr>
+            <td><b>PostgreSQL（pgvector）</b></td>
+            <td>业务 / 向量 / 审计一体存储</td>
+            <td>13 表 + 向量索引 + 触发器双守护</td>
+          </tr>
+          <tr>
+            <td><b>Higress</b></td>
+            <td>AI 网关</td>
+            <td>统一入口 / 鉴权 / 限流 / 凭据透传</td>
+          </tr>
+          <tr>
+            <td><b>Nacos</b></td>
+            <td>配置与注册中心</td>
+            <td>阈值动态配置 + Skill/MCP 注册</td>
+          </tr>
+          <tr>
+            <td><b>RocketMQ</b></td>
+            <td>事件总线</td>
+            <td>案件事件流转（与 DB 轮询双通道）</td>
+          </tr>
+          <tr>
+            <td><b>AgentScope Studio</b></td>
+            <td>可观测</td>
+            <td>OTLP 追踪可视化，按案件分组查看</td>
+          </tr>
+          <tr>
+            <td><b>DashScope（Qwen）</b></td>
+            <td>LLM 与向量</td>
+            <td>语义检索 + 根因推理增强（可选，无 Key 降级）</td>
+          </tr>
+        </table>
+        <div class="foot">
+          <span>完整选型与替换成本见 docs/04 §2</span><span>13</span>
+        </div>
+      </section>
+
+      <!-- ============ 14 部署拓扑 ============ -->
+      <section class="slide">
+        <div class="kicker">06 · ARCHITECTURE</div>
+        <h2 class="title">部署拓扑：一套 Compose 栈 + AgentTeams 独立栈</h2>
+        <div class="subtitle">
+          中间件与自研服务编排为一套，多 Agent 协同按官方方式独立部署
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr">
+          <div class="card">
+            <h4>Compose 栈（12 服务）</h4>
+            <p>
+              postgres :5433 · rocketmq（namesrv + broker）· nacos :8848 ·
+              higress（控制台 :8001 / 网关 :8180）· as-studio :3000 · mcp-core
+              :8101 · mcp-external-mock :8102 · web-api :8200 · web-portal :8300
+              · data-generator（按需）。全部宿主端口仅本机可见。
+            </p>
+          </div>
+          <div class="card">
+            <h4>AgentTeams 独立栈（7 容器）</h4>
+            <p>
+              controller :18001/18080/18088 · manager :18888 · dashboard :13000
+              · 4 个 Worker。经 Docker 网络接入业务
+              MCP；常见故障（控制器退出、Worker
+              休眠、丢组网）均有自动体检恢复脚本。
+            </p>
+          </div>
+        </div>
+        <div class="card" style="margin-top: 12px">
+          <h4>一键启动</h4>
+          <p>
+            一条命令完成：引擎自检 → 清理端口 → 起栈 → 逐服务探活 →
+            数据就位（空库自动恢复导出数据）→ 网关路由重建 → 协同体检 →
+            端到端自证。可重复执行，任意初始状态都能收敛到可用。
+          </p>
+        </div>
+        <div class="foot">
+          <span>部署细节见 docs/04 §3；一键启动脚本 scripts/start_all.py</span
+          ><span>14</span>
+        </div>
+      </section>
+
+      <!-- ============ 15 数据流 ============ -->
+      <section class="slide">
+        <div class="kicker">06 · ARCHITECTURE</div>
+        <h2 class="title">数据流：四条链路各司其职</h2>
+        <div class="subtitle">
+          业务闭环、门户流量、Agent 协同、观测上报，全部真实连通
+        </div>
+        <table>
+          <tr>
+            <th>链路</th>
+            <th>路径</th>
+          </tr>
+          <tr>
+            <td><b>业务闭环</b></td>
+            <td>
+              告警立案 → 事件工作器自动承接 → 聚合内核取四源信号 → 分级裁决 →
+              处置执行 → 审计与凭证
+            </td>
+          </tr>
+          <tr>
+            <td><b>门户流量</b></td>
+            <td>
+              浏览器 → 门户 nginx → 网关 → web-api → 数据库；SSE
+              事件流经网关实时推送
+            </td>
+          </tr>
+          <tr>
+            <td><b>Agent 协同</b></td>
+            <td>Worker → MCP 工具桥 → 业务库；Manager 与人类经协作房间沟通</td>
+          </tr>
+          <tr>
+            <td><b>观测上报</b></td>
+            <td>
+              技能调用 → OTLP → Studio；Nacos 承载注册与阈值；网关承载路由
+            </td>
+          </tr>
+        </table>
+        <div class="card" style="margin-top: 12px">
+          <h4>一个刻意取舍</h4>
+          <p>
+            web-api 到 MCP
+            内核保持直连——处置是状态机的关键路径，不额外耦合网关这一单点。三个
+            MCP 已注册为网关服务源，生产形态按需加路由即可。
+          </p>
+        </div>
+        <div class="foot">
+          <span>数据流细节见 docs/04 §3/§5/§10.1</span><span>15</span>
+        </div>
+      </section>
+
+      <!-- ============ 16 状态机 ============ -->
+      <section class="slide">
+        <div class="kicker">06 · ARCHITECTURE</div>
+        <h2 class="title">事件驱动闭环与 12 态状态机</h2>
+        <div class="subtitle">
+          案件生命周期被精确建模，每一步迁移都有约束与审计
+        </div>
+        <div class="flow">
+          <div class="fbox">立案<br />REGISTERED</div>
+          <span class="arrow">→</span>
+          <div class="fbox">聚合中<br />AGGREGATING</div>
+          <span class="arrow">→</span>
+          <div class="fbox hl">调查中<br />INVESTIGATING</div>
+          <span class="arrow">→</span>
+          <div class="fbox">待审批<br />PENDING_APPROVAL</div>
+          <span class="arrow">→</span>
+          <div class="fbox">处置中<br />DISPOSING</div>
+          <span class="arrow">→</span>
+          <div class="fbox green">已处置<br />DISPOSED</div>
+          <span class="arrow">→</span>
+          <div class="fbox">已核验<br />VERIFIED</div>
+          <span class="arrow">→</span>
+          <div class="fbox">归档<br />ARCHIVED</div>
+        </div>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr; margin-top: 12px"
+        >
+          <div class="card">
+            <h4>规模</h4>
+            <p>12 个状态、18 个迁移事件、21 条迁移路径，纯函数状态机实现。</p>
+          </div>
+          <div class="card">
+            <h4>双守护</h4>
+            <p>
+              应用层状态机 +
+              数据库触发器白名单两道防线，绕过应用的直连写入同样被拒绝。
+            </p>
+          </div>
+          <div class="card">
+            <h4>事件语义</h4>
+            <p>
+              进程内总线保证实时可见，消息队列尽力而为，DB
+              轮询兜底——不依赖单一中间件可用性。
+            </p>
+          </div>
+          <div class="card">
+            <h4>核验三态</h4>
+            <p>
+              执行一致 → 归档；不一致 → 反向处置；无凭证 / 拒绝回滚 →
+              升级人工。语义诚实，不掩盖异常。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>状态机见 app/core/state_machine.py · docs/03 §9.2</span
+          ><span>16</span>
+        </div>
+      </section>
+      <!-- ============ 17 启动与体验 ============ -->
+      <section class="slide">
+        <div class="kicker">07 · ONBOARD</div>
+        <h2 class="title">启动与体验：一条命令，四个角色</h2>
+        <div class="subtitle">
+          系统启动后，通过任一数据输入面注入业务数据，即可配合角色切换完成端到端演示
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr">
+          <div>
+            <div class="card" style="margin-bottom: 10px">
+              <h4>Step 0 · 下载后配置（可选）</h4>
+              <p>
+                核心链路不依赖 LLM，克隆后可直接启动。如需 AgentTeams
+                协同，先复制 <b>secrets/dashscope.env.example</b> →
+                <b>secrets/dashscope.env</b> 并填入
+                <b>DASHSCOPE_API_KEY</b>（详见
+                <a href="../../README.md">README.md</a>）。
+              </p>
+            </div>
+            <div class="card" style="margin-bottom: 10px">
+              <h4>Step 1 · 一键启动</h4>
+              <div class="code">
+                <span class="g">.venv/Scripts/python scripts/start_all.py</span>
+                <span class="c"
+                  ># 全绿 exit 0：探活→数据→网关→协同→端到端自证</span
+                >
+              </div>
+            </div>
+            <div class="card" style="margin-bottom: 10px">
+              <h4>Step 2 · 打开门户并切换角色</h4>
+              <p>
+                http://localhost:8300 → 顶栏切换：风控值班员 / 风控审批官 /
+                合规审计员 / 风控策略管理员（路由自动导向各自主页面）。
+              </p>
+            </div>
+            <div class="card">
+              <h4>Step 3 · 观察实时流转</h4>
+              <p>
+                全页面 SSE
+                实时事件流；可观测面板查看调用链、阈值配置、网关入口与 Studio。
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <h4>六个业务数据输入面</h4>
+            <p>
+              ① 门户「新建演示案件」（低/中/高严重度）②
+              手工立案接口（告警受理）③ 数据发生器（10 万交易 + 5000
+              账户合成数据）④ 直连播种（演示定向数据）⑤
+              阈值配置写入（即时生效不重启）⑥ 故障注入（模拟下游异常）。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>完整操作序列见 README 操作指引与 demo_playbook.py</span
+          ><span>17</span>
+        </div>
+      </section>
+
+      <!-- ============ 18 场景一 ============ -->
+      <section class="slide">
+        <div class="kicker">08 · SCENARIO 1</div>
+        <h2 class="title">场景一 · 低风险自动处置（全自动，零人工）</h2>
+        <div class="subtitle">
+          立案之后无人推动，事件工作器自动把案件推进到「已处置」
+        </div>
+        <table>
+          <tr>
+            <th>步骤</th>
+            <th>说明</th>
+          </tr>
+          <tr>
+            <td><b>数据准备</b></td>
+            <td>
+              探针预选一个「恰好一条弱信号」的干净主体，播种账户 + 一笔 800
+              元无卡交易（10 分钟前），以低风险告警立案
+            </td>
+          </tr>
+          <tr>
+            <td><b>角色操作</b></td>
+            <td>
+              无任何人工操作——值班员仅在案件工作台观察：SSE
+              实时推送聚合与处置事件，状态自动流转至「已处置」
+            </td>
+          </tr>
+          <tr>
+            <td><b>触发路径</b></td>
+            <td>门户「新建演示案件」选低风险，或脚本直调同一契约</td>
+          </tr>
+        </table>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr; margin-top: 12px"
+        >
+          <div class="card">
+            <h4>验证点</h4>
+            <p>
+              立案返回
+              202；事件工作器在数秒内自动推进至已处置；审计记录自动通道准入依据；处置凭证为放行；技能调用链可回看。
+            </p>
+          </div>
+          <div class="card">
+            <h4>意义</h4>
+            <p>
+              低风险案件从立案到处置全自动，把风控人员从海量低风险告警中解放出来，只保留完整审计可追溯。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>验证命令 scripts/demo_playbook.py · 低风险响应时效接近实时</span
+          ><span>18</span>
+        </div>
+      </section>
+
+      <!-- ============ 19 场景二 ============ -->
+      <section class="slide">
+        <div class="kicker">08 · SCENARIO 2</div>
+        <h2 class="title">场景二 · 高风险调查 + 人工审批（人机协同）</h2>
+        <div class="subtitle">
+          高风险必经深度调查与人工审批，冻结动作必须由人批准
+        </div>
+        <div class="flow">
+          <div class="fbox">立案<br />高风险</div>
+          <span class="arrow">→</span>
+          <div class="fbox">自动转调查<br />评分≥70</div>
+          <span class="arrow">→</span>
+          <div class="fbox hl">深度调查<br />定性=跑分</div>
+          <span class="arrow">→</span>
+          <div class="fbox">移交审批<br />Agent 冻结被拦</div>
+          <span class="arrow">→</span>
+          <div class="fbox green">人工批准<br />执行→核验→归档</div>
+        </div>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr; margin-top: 12px"
+        >
+          <div class="card">
+            <h4>角色操作序列</h4>
+            <p>
+              ① 值班员触发高风险演示案件 → ②
+              切换审批官，审批门户见待决单（展示冻结动作）→ 批准（意见不少于 5
+              字）→ ③ 切回值班员/审计员观察已处置→已核验→已归档与全链审计 → ④
+              切换策略管理员，知识库见复盘入库申请 → 发布。
+            </p>
+          </div>
+          <div class="card">
+            <h4>验证点</h4>
+            <p>
+              立案 202 → 自动转调查（评分≥70）→
+              调查定性「跑分」、证据固化、移交审批 → Agent
+              直调冻结被拦（未批准不可执行）→ 人工批准 → 自动执行至已处置 →
+              核验一致归档 + 复盘入库 → 全链审计可回看。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>人机边界实证：没有批准，冻结不可执行</span><span>19</span>
+        </div>
+      </section>
+
+      <!-- ============ 20 场景三 ============ -->
+      <section class="slide">
+        <div class="kicker">08 · SCENARIO 3</div>
+        <h2 class="title">场景三 · 误报申诉回滚（闭环纠错）</h2>
+        <div class="subtitle">
+          执行后下游异常 → 核验不一致 → 反向处置 → 升级人工 → 申诉成立
+        </div>
+        <div class="flow">
+          <div class="fbox">误判冻结<br />已处置</div>
+          <span class="arrow">→</span>
+          <div class="fbox">故障注入<br />凭证异常</div>
+          <span class="arrow">→</span>
+          <div class="fbox hl">核验不一致<br />执行态矛盾</div>
+          <span class="arrow">→</span>
+          <div class="fbox">反向处置<br />解冻回滚</div>
+          <span class="arrow">→</span>
+          <div class="fbox green">人工复核<br />申诉成立→归档</div>
+        </div>
+        <div
+          class="grid"
+          style="grid-template-columns: 1fr 1fr; margin-top: 12px"
+        >
+          <div class="card">
+            <h4>验证点</h4>
+            <p>
+              正常主体被误判冻结并执行 → 注入故障模拟下游异常 →
+              核验发现执行态矛盾 → 反向解冻（凭证带回滚标记，逆动作授权）→
+              升级人工复核 → 值班员复核申诉成立 →
+              归档。全链审计含升级记录与两条处置凭证。
+            </p>
+          </div>
+          <div class="card">
+            <h4>意义</h4>
+            <p>
+              系统能发现并纠正自己的误判，且「纠错权不超出原授权范围」——批准冻结即含解冻纠错授权。语义诚实：反向未执行时如实上报，不伪装成已回滚。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>纠错能力见 AA-SK-04 核验三分支</span><span>20</span>
+        </div>
+      </section>
+
+      <!-- ============ 21 效果与总结 ============ -->
+      <section class="slide">
+        <div class="kicker">09 · RESULT</div>
+        <h2 class="title">效果与总结</h2>
+        <div class="subtitle">所有结论来自真实运行，而非纸面推演</div>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 14px">
+          <div class="card" style="text-align: center">
+            <div class="num">184</div>
+            <p>自动化测试全绿</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="num">3/3</div>
+            <p>三个典型场景演示</p>
+          </div>
+        </div>
+        <table style="margin-top: 12px">
+          <tr>
+            <th>验证维度</th>
+            <th>结果</th>
+          </tr>
+          <tr>
+            <td><b>一键启动</b></td>
+            <td>
+              真实启动 + 端到端自证，含「Docker
+              引擎进程不可强杀」等坑位已固化进脚本
+            </td>
+          </tr>
+          <tr>
+            <td><b>业务闭环</b></td>
+            <td>真实立案 → 自动闭环 → 审计 / 凭证 / 调用链全绿</td>
+          </tr>
+          <tr>
+            <td><b>网关承载</b></td>
+            <td>门户流量真实经网关转发（计数随请求递增），非旁路演示</td>
+          </tr>
+          <tr>
+            <td><b>协同执行</b></td>
+            <td>4 个 Worker 运行中，真实调用业务库返回数据</td>
+          </tr>
+          <tr>
+            <td><b>语义检索</b></td>
+            <td>DashScope 向量检索准确找到对应知识（对照字符哈希检索不到）</td>
+          </tr>
+          <tr>
+            <td><b>团伙发现</b></td>
+            <td>弱连通分量算法发现团伙，物化边表后毫秒级返回</td>
+          </tr>
+          <tr>
+            <td><b>评估诚实</b></td>
+            <td>
+              指标按「整体 / 演示」两个统计范围分别判定，不掩盖整体未达标项
+            </td>
+          </tr>
+        </table>
+        <div class="foot">
+          <span>证据文件：docs/reports/kpi-report.md · 评审记录 docs/05</span
+          ><span>21</span>
+        </div>
+      </section>
     </div>
-  </div>
-  <div class="foot"><span>实测：start_all.py 21/21（两轮，含全绿态重入）· 门户角色切换 role.js/router.js 在码验证</span><span>16</span></div>
-</section>
+    <!-- /stage -->
 
-<!-- ============ 17 D1 ============ -->
-<section class="slide">
-  <span class="badge-v"><span class="tag ok">✓ 实测通过 5/5 断言</span></span>
-  <div class="kicker">11 · DEMO D1</div>
-  <h2 class="title">剧本 D1 · 低风险自动放行（全自动，零人工）</h2>
-  <div class="subtitle">SC-01 + AA-CL-01/02 闭环回放：立案后无人推动，EventWorker 自动承接至 DISPOSED</div>
-  <div class="grid" style="grid-template-columns:1fr 1.35fr">
-    <div>
-      <div class="card" style="margin-bottom:10px"><h4>数据输入</h4><p>探针预选「恰好一条弱信号」干净主体（credit-mid 9 分或舆情 ≤13 分）→ tg_app 播种账户 + 一笔 800 元 CNP 交易（10 分钟前）→ POST /api/alerts severity=<b>low</b>（种子分 25）。</p></div>
-      <div class="card" style="margin-bottom:10px"><h4>角色操作</h4><p><b>无任何人类操作</b>——值班员仅需在案件工作台观察：SSE 实时推送聚合/处置事件，状态自动流转至 DISPOSED。</p></div>
-      <div class="card"><h4>触发路径</h4><p>门户「新建演示案件」选 low，或脚本直调（二者同契约）。</p></div>
+    <div id="counter">1 / 21</div>
+    <div id="nav">
+      <button onclick="go(-1)" title="上一页">‹</button>
+      <button onclick="go(1)" title="下一页">›</button>
+      <button onclick="toggleFs()" title="全屏">⛶</button>
     </div>
-    <div class="card"><h4>实测断言（2026-08-15 本次运行）</h4>
-      <table>
-        <tr><th>#</th><th>断言</th><th>证据</th></tr>
-        <tr><td>1</td><td>立案契约 202</td><td>status=202</td></tr>
-        <tr><td>2</td><td>EventWorker 自动推进至 DISPOSED</td><td>status=DISPOSED（≤30s）</td></tr>
-        <tr><td>3</td><td>审计含自动通道准入依据（BA-BR-01）</td><td>audit=6 条</td></tr>
-        <tr><td>4</td><td>处置凭证 action=release/executed</td><td>records=1（API-W-22）</td></tr>
-        <tr><td>5</td><td>AA-SK-01 技能 span 可回放</td><td>spans=1（Studio 同数据）</td></tr>
-      </table>
-      <p style="margin-top:8px"><b>门户回放案件号：CASE-20260815-f31387</b></p></div>
-  </div>
-  <div class="foot"><span>验证命令：<a href="../../scripts/demo_playbook.py">scripts/demo_playbook.py</a> ｜ KPI-01 演示口径实测 0.0 分钟（低风险自动通道）</span><span>17</span></div>
-</section>
 
-<!-- ============ 18 D2 ============ -->
-<section class="slide">
-  <span class="badge-v"><span class="tag ok">✓ 实测通过 10/10 断言</span></span>
-  <div class="kicker">12 · DEMO D2</div>
-  <h2 class="title">剧本 D2 · 调查后冻结 + 人工审批（人机协同全链）</h2>
-  <div class="subtitle">SC-02/SC-08 回放：高风险必经调查与审批门控，冻结必经人批准（BA-BR-02/03）</div>
-  <div class="flow" style="margin-bottom:10px">
-    <div class="fbox blue"><b>立案</b>severity=high<br>credit-high + 12 笔 velocity 簇</div><span class="arrow">→</span>
-    <div class="fbox"><b>自动转调查</b>评分≥70 线<br>INVESTIGATING</div><span class="arrow">→</span>
-    <div class="fbox"><b>AA-SK-02 调查</b>假设定性=跑分<br>证据固化→移交审批</div><span class="arrow">→</span>
-    <div class="fbox red"><b>门控拦截</b>Agent 冻结被拒<br>E-DISP-AUTH 建单</div><span class="arrow">→</span>
-    <div class="fbox hl"><b>人工批准</b>审批门户 decide<br>{approve, 意见}</div><span class="arrow">→</span>
-    <div class="fbox green"><b>执行→核验→归档</b>冻结 executed<br>复盘入库申请生成</div>
-  </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr">
-    <div class="card"><h4>角色切换操作序列（门户实操）</h4><p>① <b>风控值班员</b>：触发 high 演示案件 → 工作台观察自动转调查（或点「调查」兜底推进）<br>② 切换 <b>风控审批官</b>：审批门户见待决单（展示 requested_action=freeze）→ 查看证据 → <b>批准</b>（意见≥5 字）<br>③ 切回值班员/审计员：观察 DISPOSED→VERIFIED→ARCHIVED 与全链审计<br>④ 切换 <b>风控策略管理员</b>：知识库页见复盘入库申请 → <b>发布</b>（触发向量化，供后续检索）</p></div>
-    <div class="card"><h4>实测断言要点（10 步）</h4><p>· 立案 202 → worker 自动 INVESTIGATING（评分≥70）<br>· 调查 hypothesis=<b>跑分</b>、证据固化、移交审批<br>· Agent 直调冻结被门控：E-DISP-AUTH 建单（approval_id 落库）<br>· 审批门户可见 requested_action=freeze<br>· 人工批准 → 自动执行至 DISPOSED（route=executed，exec_id 落库）<br>· AA-SK-04 核验一致归档 + 复盘入库申请生成<br>· 全链审计 <b>17 条</b>可回放（SC-08）· 四技能 span 全留痕 AA-SK-01~04<br><b>门户回放案件号：CASE-20260815-33dd68</b></p></div>
-  </div>
-  <div class="foot"><span>人机边界实证：无批准则冻结不可执行（DA-INV-02 门控先于执行）</span><span>18</span></div>
-</section>
-
-<!-- ============ 19 D3 ============ -->
-<section class="slide">
-  <span class="badge-v"><span class="tag ok">✓ 实测通过 8/8 断言</span></span>
-  <div class="kicker">13 · DEMO D3</div>
-  <h2 class="title">剧本 D3 · 误报申诉回滚（闭环纠错能力）</h2>
-  <div class="subtitle">SC-03/07 变体回放：执行后下游异常 → 核验不一致 → 反向回滚 → P0 升级 → 人工复核申诉成立</div>
-  <div class="flow" style="margin-bottom:10px">
-    <div class="fbox blue"><b>误判冻结</b>正常主体被冻结<br>并执行 DISPOSED</div><span class="arrow">→</span>
-    <div class="fbox red"><b>故障注入</b>tg_app 篡改凭证<br>status='failed'</div><span class="arrow">→</span>
-    <div class="fbox hl"><b>核验不一致</b>AA-SK-04 发现<br>执行态矛盾</div><span class="arrow">→</span>
-    <div class="fbox"><b>反向处置</b>解冻回滚<br>逆动作对授权</div><span class="arrow">→</span>
-    <div class="fbox red"><b>P0 升级</b>ROLLBACK→<br>MANUAL_REVIEW</div><span class="arrow">→</span>
-    <div class="fbox green"><b>申诉成立</b>值班员复核 release<br>事件 ReviewDismissed→ARCHIVED</div>
-  </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr">
-    <div class="card"><h4>角色切换操作序列（门户实操）</h4><p>① 脚本侧完成：立案→冻结执行→故障注入→核验回滚（Agent 自动）<br>② 切换 <b>风控值班员</b>：工作台「人工复核队列」见该案件（P0 升级入队）→ 复核结论 <b>release</b>（申诉成立，意见≥5 字）→ 案件归档<br>③ 切换 <b>合规审计员</b>：审计查询回放 19 条留痕，含 verification.p0 升级记录与两条处置凭证（原冻结 + :rollback 解冻）</p></div>
-    <div class="card"><h4>实测断言要点（8 步）</h4><p>· 前置：正常主体误判冻结执行（DISPOSED）<br>· 故障注入生效（下游回报 failed）<br>· 核验不一致 → 反向处置回滚 → 升级 P0 转人工（rollback_exec_id 落库）<br>· 反向凭证落库：<b>records=2</b>（幂等键 :rollback 后缀，逆对授权 DA-INV-03）<br>· 人工复核申诉成立 → ARCHIVED（SC-03 变体闭环）<br>· 审计含 verification.p0 升级留痕（BA-BR-09），共 19 条<br><b>门户回放案件号：CASE-20260815-2d3aa0</b><br>语义诚实性：反向未执行时发 RollbackEscalated 而非 RollbackExecuted。</p></div>
-  </div>
-  <div class="foot"><span>纠错权不超出原授权范围：批准冻结即含解冻纠错授权（02 §7，mcp-core/verification 双端同源）</span><span>19</span></div>
-</section>
-
-<!-- ============ 20 证据墙 ============ -->
-<section class="slide">
-  <div class="kicker">14 · EVIDENCE</div>
-  <h2 class="title">验证证据墙（本材料全部陈述的实测依据）</h2>
-  <div class="subtitle">2026-08-15 当日运行取证 —— 可用性由真实启动与真实数据证明，拒绝幻觉</div>
-  <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
-    <div class="card" style="text-align:center"><div class="num">184/184</div><p>pytest 全量回归<br>（约 6 分钟，全绿）</p></div>
-    <div class="card" style="text-align:center"><div class="num">3/3</div><p>演示剧本 D1~D3<br>24 步断言全绿</p></div>
-    <div class="card" style="text-align:center"><div class="num">21/21</div><p>start_all.py 一键自证<br>（两轮：脏态 + 全绿态重入）</p></div>
-    <div class="card" style="text-align:center"><div class="num">12+3</div><p>Worker mcporter 工具桥<br>健康（4 Worker 全注入）</p></div>
-  </div>
-  <table>
-    <tr><th>验证维度</th><th>手段</th><th>结果</th></tr>
-    <tr><td>一键启动与端口治理</td><td>start_all.py（引擎自拉起/清障/探活/取证）</td><td>21/21 exit 0；首跑实证并修复「Docker 引擎进程不可 taskkill」与 source_type 契约外 422 共 2 处真问题</td></tr>
-    <tr><td>数据通路 C1~C9</td><td>真实立案→自动闭环→审计/凭证/span</td><td>全绿（含经网关读真实案件 total、门户经网关 /api）</td></tr>
-    <tr><td>演示路径有效性</td><td>demo_playbook.py（演示=测试回放）</td><td>3/3 剧本、24 步断言，回放案件号见 D1/D2/D3 页</td></tr>
-    <tr><td>网关真实承载</td><td>envoy upstream_rq_200 计数 + 经网关读库</td><td>Sprint 10 取证（R-32），非旁路宣称</td></tr>
-    <tr><td>协同执行</td><td>agt get workers + mcporter list + 真实工具调用</td><td>4 Worker Running，调 query_transactions 返回真实库内交易行</td></tr>
-    <tr><td>KPI（诚实分列）</td><td>kpi_report.py 全量/演示双口径</td><td>演示口径 01/02/03/05 达标、04 结构性偏高如实标注；全量口径 01/03/04/05 未达标（仅 02 达标，TEST 残留影响）不掩饰</td></tr>
-    <tr><td>工程务实化（R-39~R-45）</td><td>端口契约 + 语义 RAG + 团伙发现 + 离线评估 + CI</td><td>语义 RAG text-embedding-v3 检索命中 0.844（哈希对照空）；fn_fraud_ring 物化表 60s→0.4s；offline_eval 混淆矩阵 recall=1.0 / precision=0.451；CI+gitleaks 门禁；测试 184/184</td></tr>
-  </table>
-  <div class="foot"><span>证据文件：<a href="kpi-report.md">docs/reports/kpi-report.md</a> ｜ 评审留痕：<a href="../05-追溯矩阵与整体评审报告.md">docs/05</a>（累计 45 处问题修复，R-01~R-45）</span><span>20</span></div>
-</section>
-
-<!-- ============ 21 总结 ============ -->
-<section class="slide cover" style="background:radial-gradient(1100px 650px at 25% 20%,#1d3a6d 0%,var(--navy) 50%,#081226 100%)">
-  <div class="kicker" style="color:var(--gold-l)">15 · SUMMARY</div>
-  <h2 class="title" style="color:#fff;font-size:34px">总结：五阶段闭环全命中的多 Agent 风控中枢</h2>
-  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:22px">
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">业务完整性</h4><p style="color:#c6d3e6">7 业务能力 / 4 端到端流程 / 14 业务规则 / 4 人类角色全操作面，五大业务场景逐条命中；人机边界硬约束：高风险处置必经人批，全链留痕可回溯。</p></div>
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">技术真实性</h4><p style="color:#c6d3e6">核心技术栈（AgentTeams/Nacos/RocketMQ/Higress/Studio/OTLP）全部真实参与业务流量并逐一取证；12 态状态机双守护；事件闭环第一跳零人工。</p></div>
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">演示确定性</h4><p style="color:#c6d3e6">演示=测试回放：确定性数据播种 + 三剧本 24 步断言 + 门户同契约回放；一键 start_all.py 任意状态可重入，21 项自证全绿才宣称可用。</p></div>
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">工程诚实性</h4><p style="color:#c6d3e6">累计 45 处评审问题修复留痕（R-01~R-45）；KPI 双口径分列判定不以演示达标掩盖全量未达标；网关控制台未初始化等保留项如实声明，不伪造。</p></div>
-  </div>
-  <div style="margin-top:30px;font-size:15px;color:#e8c98a;letter-spacing:1px">TradeGuard · 交易风控中枢 —— 让每一次处置都有据可查，让每一条路径都经得起实测。</div>
-  <div class="foot" style="color:#6d81a0"><span>docs/00~09 v1.4.19 ｜ 2026-08-16</span><span>21</span></div>
-</section>
-
-</div><!-- /stage -->
-
-<div id="counter">1 / 21</div>
-<div id="nav">
-  <button onclick="go(-1)" title="上一页">‹</button>
-  <button onclick="go(1)" title="下一页">›</button>
-  <button onclick="toggleFs()" title="全屏">⛶</button>
-</div>
-
-<script>
-const slides=[...document.querySelectorAll('.slide')];
-let cur=0;
-function show(i){
-  cur=(i+slides.length)%slides.length;
-  slides.forEach((s,j)=>s.classList.toggle('active',j===cur));
-  document.getElementById('counter').textContent=(cur+1)+' / '+slides.length;
-  document.getElementById('bar').style.width=((cur+1)/slides.length*100)+'%';
-}
-function go(d){show(cur+d)}
-document.addEventListener('keydown',e=>{
-  if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)){e.preventDefault();go(1)}
-  else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();go(-1)}
-  else if(e.key==='Home')show(0);
-  else if(e.key==='End')show(slides.length-1);
-  else if(e.key==='f'||e.key==='F')toggleFs();
-});
-document.addEventListener('click',e=>{
-  if(e.target.closest('#nav')||e.target.closest('button'))return;
-  go(e.clientX>window.innerWidth*0.5?1:-1);
-});
-function toggleFs(){
-  if(!document.fullscreenElement)document.documentElement.requestFullscreen();
-  else document.exitFullscreen();
-}
-function fit(){
-  const s=Math.min(innerWidth/1280,innerHeight/720);
-  const st=document.getElementById('stage');
-  st.style.transform='translate(-50%,-50%) scale('+s+')';
-}
-addEventListener('resize',fit);fit();show(0);
-</script>
-</body>
+    <script>
+      const slides = [...document.querySelectorAll(".slide")];
+      let cur = 0;
+      function show(i) {
+        cur = (i + slides.length) % slides.length;
+        slides.forEach((s, j) => s.classList.toggle("active", j === cur));
+        document.getElementById("counter").textContent =
+          cur + 1 + " / " + slides.length;
+        document.getElementById("bar").style.width =
+          ((cur + 1) / slides.length) * 100 + "%";
+      }
+      function go(d) {
+        show(cur + d);
+      }
+      document.addEventListener("keydown", (e) => {
+        if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) {
+          e.preventDefault();
+          go(1);
+        } else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) {
+          e.preventDefault();
+          go(-1);
+        } else if (e.key === "Home") show(0);
+        else if (e.key === "End") show(slides.length - 1);
+        else if (e.key === "f" || e.key === "F") toggleFs();
+      });
+      document.addEventListener("click", (e) => {
+        if (e.target.closest("#nav") || e.target.closest("button")) return;
+        go(e.clientX > window.innerWidth * 0.5 ? 1 : -1);
+      });
+      function toggleFs() {
+        if (!document.fullscreenElement)
+          document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+      }
+      function fit() {
+        const s = Math.min(innerWidth / 1280, innerHeight / 720);
+        const st = document.getElementById("stage");
+        st.style.transform = "translate(-50%,-50%) scale(" + s + ")";
+      }
+      addEventListener("resize", fit);
+      fit();
+      show(0);
+    </script>
+  </body>
 </html>
