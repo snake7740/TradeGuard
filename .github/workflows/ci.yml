@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  secret-scan:
+    name: 密钥扫描（gitleaks，防明文凭据回归，R-37/R-44）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  unit-test:
+    name: 契约测试 + 纯单元（R-44）
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: tradeguard
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tradeguard_dev
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tradeguard"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装依赖
+        run: pip install -r services/web-api/requirements.txt
+      - name: 初始化 schema（db/init 幂等迁移）
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          for f in db/init/0*.sql; do
+            echo "== $f =="
+            psql "postgresql://postgres:tradeguard_dev@localhost:5433/tradeguard" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+      - name: 契约测试 + 纯单元
+        run: |
+          cd services/web-api
+          python -m pytest tests/test_ports.py tests/test_state_machine.py tests/test_aggregation.py -q
+      - name: import 完整性（collect-only）
+        run: |
+          cd services/web-api
+          python -m pytest tests --collect-only -q
+
+  build-portal:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: cd web-portal && npm ci && npm run build

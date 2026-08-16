@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LLM / Embedding 端口适配器（阶段 1，R-40）
 
 baseline（无外部依赖，可单测）：
@@ -10,6 +9,7 @@ LLM 实现（可选，需 DashScope Key，经 Higress 凭据透传，04 §4.1/§
 - DashScopeEmbeddingProvider / LlmHypothesisRanker：无 Key 或调用失败时降级 baseline，
   人机边界不变（LLM 只建议、不做决策，02 §3.3）。
 """
+
 from __future__ import annotations
 
 import json
@@ -19,9 +19,12 @@ import re
 
 logger = logging.getLogger("tradeguard.llm")
 
+
 def _project_root() -> str:
     """app/core/llm_adapters.py → 项目根（向上 4 层）"""
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+    )
 
 
 def _load_dashscope_creds() -> tuple[str | None, str | None]:
@@ -32,7 +35,9 @@ def _load_dashscope_creds() -> tuple[str | None, str | None]:
     实测 HTTP 200）；DASHSCOPE_BASE_URL（/api/v1 百炼原生）不兼容 /chat/completions。
     """
     api_key = os.getenv("DASHSCOPE_API_KEY")
-    base_url = os.getenv("AGENTTEAMS_OPENAI_BASE_URL") or os.getenv("DASHSCOPE_BASE_URL")
+    base_url = os.getenv("AGENTTEAMS_OPENAI_BASE_URL") or os.getenv(
+        "DASHSCOPE_BASE_URL"
+    )
     secrets_file = os.path.join(_project_root(), "secrets", "dashscope.env")
     if os.path.exists(secrets_file):
         try:
@@ -44,8 +49,11 @@ def _load_dashscope_creds() -> tuple[str | None, str | None]:
                         k, v = line.split("=", 1)
                         vals[k.strip()] = v.strip()
             api_key = api_key or vals.get("DASHSCOPE_API_KEY")
-            base_url = (base_url or vals.get("AGENTTEAMS_OPENAI_BASE_URL")
-                        or vals.get("DASHSCOPE_BASE_URL"))
+            base_url = (
+                base_url
+                or vals.get("AGENTTEAMS_OPENAI_BASE_URL")
+                or vals.get("DASHSCOPE_BASE_URL")
+            )
         except OSError:  # 无 secrets 文件/不可读 → 回落 None 降级 baseline
             pass
     return api_key, base_url
@@ -61,15 +69,21 @@ class HashEmbeddingProvider:
 
     async def embed(self, text: str) -> list[float]:
         from app.skills.knowledge import hash_embedding
+
         return hash_embedding(text)
 
 
 class RuleHypothesisRanker:
     """规则版假设排序（baseline）：HypothesisRanker 端口实例"""
 
-    async def rank(self, signals: list[dict], graph_edge_types: set[str],
-                   kb_hints: list[str] | None = None) -> dict:
+    async def rank(
+        self,
+        signals: list[dict],
+        graph_edge_types: set[str],
+        kb_hints: list[str] | None = None,
+    ) -> dict:
         from app.skills.investigation import match_hypothesis
+
         pattern, basis = match_hypothesis(signals, graph_edge_types)
         return {
             "pattern": pattern,
@@ -82,10 +96,19 @@ class RuleHypothesisRanker:
 class LlmClient:
     """DashScope OpenAI 兼容接口最小客户端（httpx，无新增重依赖）"""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None,
-                 chat_model: str = "qwen3.8-max"):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        chat_model: str = "qwen3.8-max",
+    ):
         self.api_key = api_key if api_key is not None else DASHSCOPE_API_KEY
-        self.base_url = (base_url or DASHSCOPE_BASE_URL).rstrip("/")
+        # 安全默认值：无凭据时 base_url 不落空（避免 None.rstrip 崩溃），available=False 降级 baseline
+        self.base_url = (
+            base_url
+            or DASHSCOPE_BASE_URL
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ).rstrip("/")
         self.chat_model = chat_model
 
     @property
@@ -94,18 +117,23 @@ class LlmClient:
 
     async def chat(self, messages: list[dict], temperature: float = 0.2) -> str:
         import httpx
+
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"model": self.chat_model, "messages": messages,
-                      "temperature": temperature},
+                json={
+                    "model": self.chat_model,
+                    "messages": messages,
+                    "temperature": temperature,
+                },
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
 
     async def embed(self, text: str) -> list[float]:
         import httpx
+
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{self.base_url}/embeddings",
@@ -119,8 +147,11 @@ class LlmClient:
 class DashScopeEmbeddingProvider:
     """语义向量化（LLM 版）：DashScope text-embedding-v3；无 Key/失败降级哈希"""
 
-    def __init__(self, client: LlmClient | None = None,
-                 fallback: HashEmbeddingProvider | None = None):
+    def __init__(
+        self,
+        client: LlmClient | None = None,
+        fallback: HashEmbeddingProvider | None = None,
+    ):
         self.client = client or LlmClient()
         self.fallback = fallback or HashEmbeddingProvider()
 
@@ -137,13 +168,20 @@ class DashScopeEmbeddingProvider:
 class LlmHypothesisRanker:
     """LLM 版假设排序：生成假设 + 可审计推理链；无 Key/失败降级规则"""
 
-    def __init__(self, client: LlmClient | None = None,
-                 fallback: RuleHypothesisRanker | None = None):
+    def __init__(
+        self,
+        client: LlmClient | None = None,
+        fallback: RuleHypothesisRanker | None = None,
+    ):
         self.client = client or LlmClient()
         self.fallback = fallback or RuleHypothesisRanker()
 
-    async def rank(self, signals: list[dict], graph_edge_types: set[str],
-                   kb_hints: list[str] | None = None) -> dict:
+    async def rank(
+        self,
+        signals: list[dict],
+        graph_edge_types: set[str],
+        kb_hints: list[str] | None = None,
+    ) -> dict:
         if not self.client.available:
             return await self.fallback.rank(signals, graph_edge_types, kb_hints)
         try:
@@ -161,10 +199,13 @@ class LlmHypothesisRanker:
             "知识库提示：" + (kb_hints or "无") + "\n"
             '返回格式：{"pattern":"手法","basis":"依据","confidence":0.0~1.0}'
         )
-        raw = await self.client.chat([
-            {"role": "system", "content": "你是严谨的风控调查员，只输出 JSON。"},
-            {"role": "user", "content": prompt},
-        ], temperature=0.1)
+        raw = await self.client.chat(
+            [
+                {"role": "system", "content": "你是严谨的风控调查员，只输出 JSON。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+        )
         # 容忍 markdown 代码块包裹：用正则提取首个 JSON 对象
         m = re.search(r"\{.*\}", raw, re.S)
         if m:
@@ -179,5 +220,10 @@ class LlmHypothesisRanker:
         }
 
 
-__all__ = ["HashEmbeddingProvider", "RuleHypothesisRanker",
-           "LlmClient", "DashScopeEmbeddingProvider", "LlmHypothesisRanker"]
+__all__ = [
+    "HashEmbeddingProvider",
+    "RuleHypothesisRanker",
+    "LlmClient",
+    "DashScopeEmbeddingProvider",
+    "LlmHypothesisRanker",
+]

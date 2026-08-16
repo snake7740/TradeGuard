@@ -35,7 +35,7 @@ cd TradeGuard
 copy secrets\dashscope.env.example secrets\dashscope.env
 ```
 
-2. 编辑 `secrets\dashscope.env`（位置：**仓库根目录 `secrets/dashscope.env`**），填入真实值（端点取自**租户 MaaS 控制台**，勿用公共 DashScope 端点）：
+1. 编辑 `secrets\dashscope.env`（位置：**仓库根目录 `secrets/dashscope.env`**），填入真实值（端点取自**租户 MaaS 控制台**，勿用公共 DashScope 端点）：
 
 ```bash
 DASHSCOPE_API_KEY=sk-你的真实Key              # 必填：DashScope/通义 API Key
@@ -46,6 +46,10 @@ AGENTTEAMS_DEFAULT_MODEL=qwen3.8-max
 ```
 
 > `secrets/dashscope.env` 已被 `.gitignore` 排除（仅 `*.example` 模板入库），真实 Key 绝不提交、不泄露。
+>
+> **安全提示（运行时暴露面）**：本地以 compose `env_file` 将 Key 注入 web-api 容器，Key 会出现在
+> 容器环境变量（`docker inspect` / `docker-compose config` 可见）——这是本地开发折中；
+> **生产形态应走 Higress 凭据透传（docs/04 §5），Agent 侧零密钥**。切勿在日志/终端回显这些配置。
 
 ### 3. 一键启动（可重入，任意初始状态）
 
@@ -60,9 +64,9 @@ Higress 路由重建 → AgentTeams 体检 → C1~C9 端到端取证，**全绿 
 ### 4. 访问
 
 | 入口 | 地址 | 说明 |
-|---|---|---|
-| 风控门户 | http://localhost:8300 | 顶栏切换 4 角色，完整演示五阶段闭环 |
-| OpenAPI 文档 | http://localhost:8200/docs | 22 个 REST 路径契约 |
+| --- | --- | --- |
+| 风控门户 | <http://localhost:8300> | 顶栏切换 4 角色，完整演示五阶段闭环 |
+| OpenAPI 文档 | <http://localhost:8200/docs> | 22 个 REST 路径契约 |
 | 方案总览 | `docs/reports/tradeguard-overview.html` | 浏览器打开，含业务逻辑 + 操作流程 + 演示剧本 |
 
 ---
@@ -92,16 +96,16 @@ python scripts\nacos_register.py    # 阈值/元数据播种（凭据从 .env �
 > `curl -H "Authorization: Bearer $TG_API_TOKEN" http://localhost:8200/api/cases`
 
 | 入口 | 地址 |
-|---|---|
-| 风控门户（web-portal） | http://localhost:8300 |
-| web-api（OpenAPI 文档） | http://localhost:8200/docs |
-| mcp-core（AA-MCP-01） | http://localhost:8101/mcp |
-| mcp-external-mock（AA-MCP-02） | http://localhost:8102/mcp |
-| Nacos 控制台 | http://localhost:8848/nacos |
-| Higress 控制台 | http://localhost:8001 |
-| AgentScope Studio | http://localhost:3000 |
+| --- | --- |
+| 风控门户（web-portal） | <http://localhost:8300> |
+| web-api（OpenAPI 文档） | <http://localhost:8200/docs> |
+| mcp-core（AA-MCP-01） | <http://localhost:8101/mcp> |
+| mcp-external-mock（AA-MCP-02） | <http://localhost:8102/mcp> |
+| Nacos 控制台 | <http://localhost:8848/nacos> |
+| Higress 控制台 | <http://localhost:8001> |
+| AgentScope Studio | <http://localhost:3000> |
 
-AgentTeams（多 Agent 协同基点）按官方脚本独立部署，见 [`scripts/install-agentteams.md`](./scripts/install-agentteams.md)；安装后控制台 http://localhost:18088（已接入 tradeguard-net）。
+AgentTeams（多 Agent 协同基点）按官方脚本独立部署，见 [`scripts/install-agentteams.md`](./scripts/install-agentteams.md)；安装后控制台 <http://localhost:18088（已接入> tradeguard-net）。
 
 ## 目录结构（对应 docs/04 §3 部署拓扑）
 
