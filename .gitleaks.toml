@@ -1,0 +1,19 @@
+# gitleaks 配置（R-37/R-44 密钥扫描 CI 门禁）
+# 排除仓库内的 CHANGE_ME 模板假值与测试假 Key（真实凭据绝不允许出现）
+title = "TradeGuard gitleaks 配置"
+
+[allowlist]
+description = "模板假值 + 测试假 Key（非真实凭据）"
+regexes = [
+  "sk-test",
+  "sk-your-api-key-here",
+  "CHANGE_ME",
+  "tradeguard_dev",
+  "tg_web_dev",
+  "tg_app_dev",
+]
+paths = [
+  "secrets/dashscope.env.example",
+  ".env.example",
+  "services/web-api/tests/",
+]

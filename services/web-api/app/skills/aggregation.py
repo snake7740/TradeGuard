@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import uuid
@@ -84,7 +85,11 @@ def velocity_bonus(velocity: dict, *, t1h: int = VELOCITY_1H_THRESHOLD,
 
 def _signal(source: str, type_: str, confidence: float, query_reason: str,
             now: datetime, raw_ref: str | None = None, velocity_json: dict | None = None) -> dict:
-    return {"signal_id": uuid.uuid4().hex, "source": source, "type": type_,
+    # 确定性 signal_id（阶段2，R-41）：同 source+type+raw_ref+query_reason → 同 id，
+    # 使信号落库幂等（EventWorker 重试不重复落），对齐 DA-T-04 signal_id varchar(40)
+    seed = f"{source}|{type_}|{raw_ref or ''}|{query_reason}"
+    signal_id = hashlib.md5(seed.encode("utf-8")).hexdigest()
+    return {"signal_id": signal_id, "source": source, "type": type_,
             "confidence": round(float(confidence), 2), "raw_ref": raw_ref,
             "query_reason": query_reason, "degraded": False,
             "velocity_json": velocity_json, "ts": now}
@@ -195,7 +200,7 @@ class AggregationService:
     ACTOR_DISP = "AA-AG-04"        # 处置执行 Agent（SC-01 审计操作者）
 
     def __init__(self, pool, cases, external, core, retry: int = 2, timeout: float = 5.0,
-                 config=None):
+                 config=None, scorer=None):
         self.pool = pool
         self.cases = cases
         self.external = external
@@ -203,6 +208,10 @@ class AggregationService:
         self.retry = retry          # AA-SK-01 失败处理：单源超时重试 2 次→降级
         self.timeout = timeout
         self.config = config        # ConfigService（BA-BR-05 阈值热加载，可缺省用常量）
+        if scorer is None:          # 阶段3 接线（R-42）：规则 baseline，可注入模型版
+            from app.core.scoring import RuleRiskScorer
+            scorer = RuleRiskScorer()
+        self.scorer = scorer
 
     def _cfg_int(self, key: str, default: int) -> int:
         """从 ConfigService 读整型阈值，未配置/非法值回退代码常量"""
@@ -307,8 +316,9 @@ class AggregationService:
                 now, raw_ref=f"risk_case:{case['subject_ref'][:16]}:recent={hist}"))
 
         # 5-6. 评分 + 落库（经 AA-MCP-01，tg_app 写角色 DA-INV-05）
-        score = score_signals(signals, velocity,
-                              t1h=th["t1h"], t24h=th["t24h"], bonus=th["bonus"])
+        _scored = self.scorer.score(signals, velocity,
+                                     t1h=th["t1h"], t24h=th["t24h"], bonus=th["bonus"])
+        score = _scored["score"]
         # BA-BR-04（SC-04）：黑名单主体立案即高风险，处置建议拦截，
         # 无论金额均经 BA-BR-02 审批门控入人工通道（评分垫高至 ≥审批线）
         black = await self.pool.fetchval(

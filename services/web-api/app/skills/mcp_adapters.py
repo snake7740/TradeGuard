@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -18,7 +19,13 @@ logger = logging.getLogger("tradeguard.mcp")
 
 
 class McpToolClient:
-    """最小 MCP streamable-http 调用器：一次调用一会话（无状态，稳定优先）"""
+    """最小 MCP streamable-http 调用器：一次调用一会话（无状态，稳定优先）
+
+    阶段2 R-41 曾尝试连接复用（单 ClientSession + 锁），但 streamable-http 的
+    read_stream 需后台任务持续消费，否则响应堆积导致 call_tool 全部超时（实测
+    连续 3 次均 TimeoutError）；故回滚为每次建连，保证正确性优先于连接开销。
+    生产形态若需连接复用，须引入 read_stream 后台消费循环（另列 R 后续项）。
+    """
 
     def __init__(self, url: str):
         self.url = url

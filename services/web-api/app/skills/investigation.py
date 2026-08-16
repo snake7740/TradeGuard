@@ -54,12 +54,16 @@ class InvestigationService:
     """调查编排服务：依赖注入 pool（tg_web 读+状态机）、cases（CaseRepository）、
     core（AA-MCP-01 CoreClient）、pub（事件发布端口）、config（SC-06 热值，可选）。"""
 
-    def __init__(self, pool, cases, core, pub, config=None):
+    def __init__(self, pool, cases, core, pub, config=None, ranker=None):
         self.pool = pool
         self.cases = cases
         self.core = core
         self.pub = pub
         self.config = config
+        if ranker is None:  # 阶段1 接线（R-40）：规则 baseline，可注入 LLM 版
+            from app.core.llm_adapters import RuleHypothesisRanker
+            ranker = RuleHypothesisRanker()
+        self.ranker = ranker
 
     def _cfg_int(self, key: str, default: int) -> int:
         """SC-06 热值读取（与 aggregation/disposition 同构）：缺键/无 config 回落缺省常量"""
@@ -98,8 +102,17 @@ class InvestigationService:
             edge_types.add(e["edge_type"])
         nodes.discard("")
 
+        # 1b. 团伙发现（阶段3 R-43）：WCC 弱连通分量，ring_size = 团伙规模（补充信息，
+        #     不替代 2 跳邻域，只作影响面团伙边界）
+        ring_rows = await self.pool.fetch(
+            "SELECT * FROM fn_fraud_ring($1)", case["subject_ref"])
+        ring_nodes = {r["node"].strip() for r in ring_rows}
+        ring_nodes.discard("")
+        ring_size = len(ring_nodes) if ring_nodes else 1
+
         # 2. 假设匹配（规则兜底）+ DA-KB-01 检索引用（SC-05 联动，doc_id 引用对齐）
-        pattern, rule_basis = match_hypothesis(sigs, edge_types)
+        _hyp = await self.ranker.rank(sigs, edge_types)
+        pattern, rule_basis = _hyp["pattern"], _hyp["basis"]
         citations, kb_note = [], ""
         if pattern != "待定":
             hits = await search_kb(self.pool, f"{pattern} {rule_basis} 手法特征")
@@ -133,7 +146,8 @@ class InvestigationService:
 
         # 5. 证据固化（DA-T-05 只增，BA-BR-03，经 API-M-12 tg_app 写角色）
         await self.core.record_case_evidence(case_id, [{
-            "claim": (f"调查结论：假设[{pattern}]；影响面 {len(nodes)} 账户，"
+            "claim": (f"调查结论：假设[{pattern}]；影响面 {len(nodes)} 账户"
+                      f"（团伙连通分量 {ring_size} 账户），"
                       f"近24h涉险 {float(amount):.2f} 元；黑名单命中 {len(black_hit)} 主体"),
             "source_ref": "AA-AG-03:investigation", "confidence": 0.85}])
         await self.pool.execute(
@@ -151,7 +165,8 @@ class InvestigationService:
         return {"case_id": case_id, "case_status": out["status"],
                 "hypothesis": {"pattern": pattern, "rule_basis": rule_basis,
                                "citations": citations, "kb_note": kb_note},
-                "graph": {"nodes": len(nodes), "edges": len(edges),
+                "graph": {"nodes": len(nodes), "ring_size": ring_size,
+                          "edges": len(edges),
                           "edge_types": sorted(edge_types), "black_hits": black_hit},
                 "impact": {"accounts": len(nodes), "amount_24h": float(amount)},
                 "evidence_fixed": True}

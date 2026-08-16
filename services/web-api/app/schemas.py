@@ -1,6 +1,8 @@
 """API 请求/响应模型（与 docs/openapi/tradeguard-openapi.yaml 逐条对齐）
 契约纪律（07 §5）：Schema 变更必须先改 openapi.yaml 再改本文件。
 """
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -40,3 +42,22 @@ class KbPublishIn(BaseModel):
     # 均 varchar(40)，此前正则无长度上限可致截断 500）；comment 对齐 basis varchar(300)
     operator: str = Field("human:kb_admin", pattern=r"^human:[a-z_]{1,34}$")
     comment: str = Field("", max_length=300)
+
+
+class TransactionEvent(BaseModel):
+    """上游交易系统 → 风控 的标准交易事件契约（阶段 0，R-39，行业 L1 实时决策输入）
+
+    与 API-W-01 AlertIn（告警受理简化入口）互补：AlertIn 面向演示的「告警」，
+    本契约面向真实交易流的字段完整性（最小充分集，可随真实源扩展）。
+    device/ip/merchant/contact 四字段即 UnifiedModel 四类边（03 §3）的实体来源。
+    """
+    transaction_id: str = Field(..., max_length=64, description="交易唯一标识（幂等键）")
+    account_hash: str = Field(..., max_length=64, description="主体账户哈希（去标识）")
+    amount: float = Field(..., ge=0, le=1e7, description="交易金额（与处置金额 [0,1e7] 同域）")
+    currency: str = Field("CNY", max_length=8, description="币种")
+    occurred_at: datetime = Field(..., description="交易发生时间（velocity 窗口计算基准）")
+    channel: str = Field(..., pattern="^(CNP|CP|P2P)$", description="渠道：CNP 无卡 / CP 有卡 / P2P 转账")
+    device_fingerprint: str | None = Field(None, max_length=128, description="设备指纹（SAME_DEVICE 边）")
+    ip_address: str | None = Field(None, max_length=64, description="IP（SAME_IP 边）")
+    merchant_id: str | None = Field(None, max_length=64, description="收款方（SAME_PAYEE 边）")
+    contact_hash: str | None = Field(None, max_length=128, description="联系方式（SAME_CONTACT 边）")

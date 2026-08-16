@@ -2,14 +2,14 @@
 """EventWorker 单元测试（工作流 A1：CaseRegistered 消费者，AA-CL-01/02 闭环修复）
 
 不依赖 DB：FakePool/FakeAggregation 替身验证轮询编排语义——
-只捞 REGISTERED、单次处理、失败不重试、异常吞咽清单、单飞锁跳过、开关缺省 OFF。
+只捞 REGISTERED、异常吞咽清单单次跳过、未知错误有限重试、单飞锁跳过、开关缺省 OFF。
 """
 import asyncio
 import uuid
 
 import pytest
 
-from app.core.event_worker import EventWorker, SingleFlight, worker_enabled
+from app.core.event_worker import MAX_RETRIES, EventWorker, SingleFlight, worker_enabled
 from app.repositories import OptimisticLockError
 from app.skills.aggregation import AggregationStateError
 
@@ -54,11 +54,13 @@ async def test_swallowed_errors_are_single_shot_no_retry():
         assert agg.calls == ["CASE-X"], f"{type(exc).__name__} 应只处理一次"
 
 
-async def test_unknown_error_logged_but_not_retried():
+async def test_unknown_error_retried_then_gives_up(monkeypatch):
+    """未知错误有限重试 MAX_RETRIES 次后放弃（阶段2 R-41：at-least-once，耗尽转人工）"""
+    monkeypatch.setattr("app.core.event_worker.RETRY_BASE_DELAY", 0)  # 免线性退避等待
     agg = FakeAggregation(exc=RuntimeError("mcp 不可达"))
     w = EventWorker(FakePool(["CASE-Y"]), agg, SingleFlight())
     await w._sweep(window_minutes=None)   # 不得抛出
-    assert agg.calls == ["CASE-Y"]        # 同样单次处理，留待人工 /aggregate 重推
+    assert agg.calls == ["CASE-Y"] * MAX_RETRIES  # 重试 MAX_RETRIES 次
 
 
 async def test_single_flight_skips_busy_case():

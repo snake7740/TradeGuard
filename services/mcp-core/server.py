@@ -397,7 +397,8 @@ async def record_case_signals(case_id: str, risk_score: int, signals: list[dict]
                 await conn.execute(
                     """INSERT INTO risk_signal (signal_id, case_id, source, type, confidence,
                                                 raw_ref, query_reason, degraded, velocity_json)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)""",
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                       ON CONFLICT (signal_id) DO NOTHING""",  # 阶段2 R-41：幂等防重
                     s.get("signal_id") or uuid.uuid4().hex, case_id, s["source"], s["type"],
                     s["confidence"], s.get("raw_ref"), s["query_reason"],
                     s.get("degraded", False),

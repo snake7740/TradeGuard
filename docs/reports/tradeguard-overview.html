@@ -90,8 +90,8 @@
     <span class="step">⑤ 知识沉淀</span>
   </div>
   <div class="meta">
-    五阶段闭环全命中 ｜ 5 Agent 协同（AgentTeams）｜ 文档体系 v1.4.11（docs/00~09）｜ Sprint 1-13 全量落地<br>
-    测试 169/169 全绿 ｜ 演示剧本 3/3（24 步断言）｜ 一键启动自证核心 19 项全绿 ｜ 展示日期 2026-08-16<br>
+    五阶段闭环全命中 ｜ 5 Agent 协同（AgentTeams）｜ 文档体系 v1.4.19（docs/00~09）｜ Sprint 1-14 全量落地<br>
+    测试 184/184 全绿 ｜ 演示剧本 3/3（24 步断言）｜ 一键启动自证核心 19 项全绿 ｜ 展示日期 2026-08-16<br>
     <b style="color:#e8c98a">本材料每一条演示陈述均经实际运行验证（验证证据见末章），非文档宣称。</b>
   </div>
 </section>
@@ -516,7 +516,7 @@
   <h2 class="title">验证证据墙（本材料全部陈述的实测依据）</h2>
   <div class="subtitle">2026-08-15 当日运行取证 —— 可用性由真实启动与真实数据证明，拒绝幻觉</div>
   <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
-    <div class="card" style="text-align:center"><div class="num">169/169</div><p>pytest 全量回归<br>（约 6 分钟，全绿）</p></div>
+    <div class="card" style="text-align:center"><div class="num">184/184</div><p>pytest 全量回归<br>（约 6 分钟，全绿）</p></div>
     <div class="card" style="text-align:center"><div class="num">3/3</div><p>演示剧本 D1~D3<br>24 步断言全绿</p></div>
     <div class="card" style="text-align:center"><div class="num">21/21</div><p>start_all.py 一键自证<br>（两轮：脏态 + 全绿态重入）</p></div>
     <div class="card" style="text-align:center"><div class="num">12+3</div><p>Worker mcporter 工具桥<br>健康（4 Worker 全注入）</p></div>
@@ -529,8 +529,9 @@
     <tr><td>网关真实承载</td><td>envoy upstream_rq_200 计数 + 经网关读库</td><td>Sprint 10 取证（R-32），非旁路宣称</td></tr>
     <tr><td>协同执行</td><td>agt get workers + mcporter list + 真实工具调用</td><td>4 Worker Running，调 query_transactions 返回真实库内交易行</td></tr>
     <tr><td>KPI（诚实分列）</td><td>kpi_report.py 全量/演示双口径</td><td>演示口径 01/02/03/05 达标、04 结构性偏高如实标注；全量口径 01/03/04/05 未达标（仅 02 达标，TEST 残留影响）不掩饰</td></tr>
+    <tr><td>工程务实化（R-39~R-45）</td><td>端口契约 + 语义 RAG + 团伙发现 + 离线评估 + CI</td><td>语义 RAG text-embedding-v3 检索命中 0.844（哈希对照空）；fn_fraud_ring 物化表 60s→0.4s；offline_eval 混淆矩阵 recall=1.0 / precision=0.451；CI+gitleaks 门禁；测试 184/184</td></tr>
   </table>
-  <div class="foot"><span>证据文件：<a href="kpi-report.md">docs/reports/kpi-report.md</a> ｜ 评审留痕：<a href="../05-追溯矩阵与整体评审报告.md">docs/05</a>（累计 37 处问题修复，R-01~R-37）</span><span>20</span></div>
+  <div class="foot"><span>证据文件：<a href="kpi-report.md">docs/reports/kpi-report.md</a> ｜ 评审留痕：<a href="../05-追溯矩阵与整体评审报告.md">docs/05</a>（累计 45 处问题修复，R-01~R-45）</span><span>20</span></div>
 </section>
 
 <!-- ============ 21 总结 ============ -->
@@ -541,10 +542,10 @@
     <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">业务完整性</h4><p style="color:#c6d3e6">7 业务能力 / 4 端到端流程 / 14 业务规则 / 4 人类角色全操作面，五大业务场景逐条命中；人机边界硬约束：高风险处置必经人批，全链留痕可回溯。</p></div>
     <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">技术真实性</h4><p style="color:#c6d3e6">核心技术栈（AgentTeams/Nacos/RocketMQ/Higress/Studio/OTLP）全部真实参与业务流量并逐一取证；12 态状态机双守护；事件闭环第一跳零人工。</p></div>
     <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">演示确定性</h4><p style="color:#c6d3e6">演示=测试回放：确定性数据播种 + 三剧本 24 步断言 + 门户同契约回放；一键 start_all.py 任意状态可重入，21 项自证全绿才宣称可用。</p></div>
-    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">工程诚实性</h4><p style="color:#c6d3e6">累计 37 处评审问题修复留痕（R-01~R-37）；KPI 双口径分列判定不以演示达标掩盖全量未达标；网关控制台未初始化等保留项如实声明，不伪造。</p></div>
+    <div class="card" style="background:rgba(19,41,79,.75);border-color:rgba(232,201,138,.35)"><h4 style="color:#e8c98a">工程诚实性</h4><p style="color:#c6d3e6">累计 45 处评审问题修复留痕（R-01~R-45）；KPI 双口径分列判定不以演示达标掩盖全量未达标；网关控制台未初始化等保留项如实声明，不伪造。</p></div>
   </div>
   <div style="margin-top:30px;font-size:15px;color:#e8c98a;letter-spacing:1px">TradeGuard · 交易风控中枢 —— 让每一次处置都有据可查，让每一条路径都经得起实测。</div>
-  <div class="foot" style="color:#6d81a0"><span>docs/00~09 v1.4.11 ｜ 2026-08-16</span><span>21</span></div>
+  <div class="foot" style="color:#6d81a0"><span>docs/00~09 v1.4.19 ｜ 2026-08-16</span><span>21</span></div>
 </section>
 
 </div><!-- /stage -->

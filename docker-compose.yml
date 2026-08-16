@@ -168,6 +168,9 @@ services:
       rocketmq-broker: { condition: service_healthy }
       nacos: { condition: service_healthy }          # 阈值热加载依赖（US-E1-03）
       mcp-core: { condition: service_healthy }       # AA-SK 工具链依赖（US-E3-03/04）
+    env_file:
+      - path: secrets/dashscope.env      # LLM 凭据（DASHSCOPE_API_KEY / AGENTTEAMS_OPENAI_BASE_URL）
+        required: false                 # clone 后无此文件即降级 baseline（R-40 语义 RAG）
     environment:
       PG_DSN: ${PG_DSN_WEB:?请在 .env 配置 PG_DSN_WEB（格式见 .env.example）}
       ROCKETMQ_NAMESRV: rocketmq-namesrv:9876

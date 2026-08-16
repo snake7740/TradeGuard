@@ -399,6 +399,14 @@ def ensure_data():
     if r.returncode != 0:
         raise RuntimeError("nacos_register 播种失败：\n"
                            + ((r.stdout or "") + (r.stderr or ""))[-800:])
+    # 阶段3 R-43：刷新物化边表 mv_graph_edge（数据就位后，团伙发现 fn_fraud_ring 依赖）
+    try:
+        sh(["docker", "exec", "tradeguard-postgres-1", "psql", "-U", "postgres",
+            "-d", "tradeguard", "-c", "REFRESH MATERIALIZED VIEW mv_graph_edge"],
+           check=False, timeout=300)
+        note("数据", "物化边表 mv_graph_edge 已刷新（团伙发现就绪）")
+    except Exception:  # noqa: BLE001 —— 刷新失败不阻断主链路
+        note("数据", "物化边表刷新失败（不影响主链路，团伙发现走 2 跳降级）")
 
 
 # ---------------------------------------------------------------- 数据通路验证

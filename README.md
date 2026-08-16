@@ -23,11 +23,11 @@ git clone <仓库地址> TradeGuard
 cd TradeGuard
 ```
 
-### 2.（可选）配置 LLM Key —— 仅在需要 AgentTeams 多 Agent 协同时
+### 2.（可选但推荐）配置 LLM Key —— 语义 RAG / LLM 调查 / AgentTeams 协同需要
 
-> 核心链路（web-api + web-portal + mcp-core + mcp-external-mock + postgres/rocketmq/nacos/higress/studio）
-> 全部确定性运行，**不依赖 LLM**；跳过本步即可完成一键起栈。
-> 只有需要 **AgentTeams 5 Agent 协同**（AA-AG-01~05，qwen3.8-max）时才需配置。
+> 核心链路（立案 → 聚合 → 自动处置）确定性运行，**不依赖 LLM**；跳过本步仍可一键起栈。
+> 需要 **语义 RAG（知识库语义检索）、LLM 根因假设排序、AgentTeams 5 Agent 协同** 时才需配置。
+> 无 Key 时自动降级：语义 RAG 回落字符哈希、LLM 调查回落规则假设（功能可用，检索/推理质量降级）。
 
 1. 复制模板：
 
@@ -35,12 +35,13 @@ cd TradeGuard
 copy secrets\dashscope.env.example secrets\dashscope.env
 ```
 
-2. 编辑 `secrets\dashscope.env`（位置：**仓库根目录 `secrets/dashscope.env`**），填入真实值：
+2. 编辑 `secrets\dashscope.env`（位置：**仓库根目录 `secrets/dashscope.env`**），填入真实值（端点取自**租户 MaaS 控制台**，勿用公共 DashScope 端点）：
 
 ```bash
 DASHSCOPE_API_KEY=sk-你的真实Key              # 必填：DashScope/通义 API Key
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1   # 租户 MaaS 端点
-AGENTTEAMS_OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# 两个端点语义不同，勿混用（详见 secrets/dashscope.env.example 注释）：
+DASHSCOPE_BASE_URL=https://<租户id>.cn-beijing.maas.aliyuncs.com/api/v1             # 百炼原生（AgentTeams 原生调用）
+AGENTTEAMS_OPENAI_BASE_URL=https://<租户id>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1  # OpenAI 兼容（web-api 语义 RAG / LLM 调查用）
 AGENTTEAMS_DEFAULT_MODEL=qwen3.8-max
 ```
 

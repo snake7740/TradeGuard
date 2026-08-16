@@ -24,6 +24,8 @@ logger = logging.getLogger("tradeguard.event_worker")
 
 POLL_INTERVAL = float(os.getenv("TG_EVENT_WORKER_INTERVAL", "2"))   # 轮询周期（秒）
 POLL_WINDOW_MIN = int(os.getenv("TG_EVENT_WORKER_WINDOW", "10"))   # 增量窗口（分钟）
+MAX_RETRIES = int(os.getenv("TG_EVENT_WORKER_RETRIES", "3"))       # 阶段2 R-41：有限重试
+RETRY_BASE_DELAY = float(os.getenv("TG_EVENT_WORKER_RETRY_DELAY", "5"))  # 线性退避基数（秒）
 
 
 class SingleFlight:
@@ -99,14 +101,23 @@ class EventWorker:
         if lk.locked():
             return  # 手动端点或上一轮正在处理该案件，跳过
         async with lk:
-            try:
-                await self._agg.run(case_id)
-            except (AggregationStateError, LookupError, OptimisticLockError):
-                # 状态已被他人推进/案件消失/version 冲突（他人已接管）：静默跳过，
-                # 单次处理不重试——重试会重复落信号
-                logger.info("EventWorker 跳过 %s（状态已被接管或不可聚合）", case_id)
-            except Exception:  # noqa: BLE001 —— 未知失败不重试，留待人工 /aggregate 重推
-                logger.exception("EventWorker 处理 %s 失败（不重试，转人工通道）", case_id)
+            for attempt in range(MAX_RETRIES):
+                try:
+                    await self._agg.run(case_id)
+                    return
+                except (AggregationStateError, LookupError, OptimisticLockError):
+                    # 状态已被他人推进/案件消失/version 冲突（他人已接管）：静默跳过
+                    logger.info("EventWorker 跳过 %s（状态已被接管或不可聚合）", case_id)
+                    return
+                except Exception as e:  # noqa: BLE001 —— 有限重试（幂等落库）+ 退避
+                    if attempt < MAX_RETRIES - 1:
+                        delay = RETRY_BASE_DELAY * (attempt + 1)
+                        logger.warning("EventWorker %s 失败（第 %s/%s 次），%ss 后重试：%s",
+                                       case_id, attempt + 1, MAX_RETRIES, delay, type(e).__name__)
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.exception("EventWorker %s 重试耗尽（%s 次），转人工通道",
+                                         case_id, MAX_RETRIES)
 
 
 def worker_enabled() -> bool:

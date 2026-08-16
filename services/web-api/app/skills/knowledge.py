@@ -47,9 +47,13 @@ def _vec_literal(vec: list[float]) -> str:
     return "[" + ",".join(repr(x) for x in vec) + "]"
 
 
-async def _vectorize(pool, doc_id: str, content: str) -> int:
+async def _vectorize(pool, doc_id: str, content: str, embedder=None) -> int:
     """切块写入 kb_embedding（ON CONFLICT DO NOTHING：tg_web 仅 INSERT 权限，
-    02-roles.sql；发布仅发生一次由 pending 守卫保证，无需清旧块）"""
+    02-roles.sql；发布仅发生一次由 pending 守卫保证，无需清旧块）。
+    embedder：EmbeddingProvider 端口（阶段1 接线，R-40；缺省哈希 baseline）"""
+    if embedder is None:
+        from app.core.llm_adapters import HashEmbeddingProvider
+        embedder = HashEmbeddingProvider()
     chunks = chunk_text(content)
     async with pool.acquire() as conn, conn.transaction():
         for i, chunk in enumerate(chunks):
@@ -57,11 +61,11 @@ async def _vectorize(pool, doc_id: str, content: str) -> int:
                 """INSERT INTO kb_embedding (doc_id, chunk_id, embedding, text)
                    VALUES ($1, $2, $3::vector, $4)
                    ON CONFLICT (doc_id, chunk_id) DO NOTHING""",
-                doc_id, i, _vec_literal(hash_embedding(chunk)), chunk)
+                doc_id, i, _vec_literal(await embedder.embed(chunk)), chunk)
     return len(chunks)
 
 
-async def publish_and_index(pool, doc_id: str, operator: str, comment: str = "") -> dict:
+async def publish_and_index(pool, doc_id: str, operator: str, comment: str = "", embedder=None) -> dict:
     """人工发布 + 向量化入库（API-W-12 编排，DA-INV-06 + US-E6-04）
 
     operator 必须 human:* （Schema 与 DB 触发器双层校验）；发布与审计同事务，
@@ -86,18 +90,21 @@ async def publish_and_index(pool, doc_id: str, operator: str, comment: str = "")
             # R-37 复审收口：comment 截断对齐 audit_log.basis varchar(300)
             uuid.uuid4().hex, operator, doc_id,
             (comment or "->published（人工门控，BA-BR-11）")[:300])
-    chunks = await _vectorize(pool, doc_id, doc["content"])
+    chunks = await _vectorize(pool, doc_id, doc["content"], embedder)
     return {"doc_id": doc_id, "status": "published", "reviewer": operator, "chunks": chunks}
 
 
-async def index_document(pool, doc_id: str, operator: str, comment: str = "") -> dict:
+async def index_document(pool, doc_id: str, operator: str, comment: str = "", embedder=None) -> dict:
     """publish_and_index 的别名入口（技能层语义：发布即向量化）"""
-    return await publish_and_index(pool, doc_id, operator, comment)
+    return await publish_and_index(pool, doc_id, operator, comment, embedder)
 
 
-async def search_kb(pool, query: str, top_k: int = 5) -> list[dict]:
+async def search_kb(pool, query: str, top_k: int = 5, embedder=None) -> list[dict]:
     """DA-KB-01 检索：仅 published 可见（DA-INV-06），余弦相似度降序，
     低于 SIMILARITY_MIN 视为未命中（AA-SK-02 未命中须显式声明，不得虚构引用）"""
+    if embedder is None:
+        from app.core.llm_adapters import HashEmbeddingProvider
+        embedder = HashEmbeddingProvider()
     rows = await pool.fetch(
         """SELECT e.doc_id, d.title,
                   MAX(1 - (e.embedding <=> $1::vector)) AS similarity
@@ -106,6 +113,6 @@ async def search_kb(pool, query: str, top_k: int = 5) -> list[dict]:
            WHERE d.status = 'published'
            GROUP BY e.doc_id, d.title
            ORDER BY similarity DESC LIMIT $2""",
-        _vec_literal(hash_embedding(query)), top_k)
+        _vec_literal(await embedder.embed(query)), top_k)
     return [{"doc_id": r["doc_id"], "title": r["title"], "similarity": float(r["similarity"])}
             for r in rows if r["similarity"] >= SIMILARITY_MIN]
