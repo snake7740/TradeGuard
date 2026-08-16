@@ -31,7 +31,7 @@ class McpToolClient:
         self.url = url
 
     async def call_tool(self, name: str, **arguments) -> dict:
-        async with streamablehttp_client(self.url) as (read, write, _):
+        async with streamablehttp_client(self.url) as (read, write, _):  # noqa: SIM117 —— ClientSession 依赖 read/write，依赖嵌套不能合并
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(name, arguments)
