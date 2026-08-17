@@ -1,7 +1,7 @@
 """TradeGuard web-api 应用工厂（web-portal 后端进程，04 §10.1 三端真实调用链）
 
 分层与依赖装配（Sprint 0 架构模板）：
-  api/*（路由层，API-W-01~15 全量声明）
+  api/*（路由层，API-W-01~22 全量声明）
     └─ repositories.py（仓储层，聚合边界 03 §9.1）
          ├─ core/state_machine.py（状态机，DA-INV-01，02 §7）
          └─ core/events.py（事件发布端口/适配器，03 §9.2）
@@ -16,8 +16,10 @@ import os
 from contextlib import asynccontextmanager
 
 import asyncpg  # pyright: ignore[reportMissingImports] —— 已装 .venv，静态分析器未解析 venv 站点包
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import JSONResponse
 
 from .api import (
     alerts,
@@ -51,6 +53,14 @@ from .skills.verification import (
 )
 
 logger = logging.getLogger("tradeguard.web")
+# BUG-06/R-46：uvicorn 默认 log config 只配 uvicorn.* 自家 logger，root 无 handler，
+# tradeguard.* 的 INFO 全部丢失（lastResort 仅输出 WARNING+）——EventWorker 启动/
+# 委托/重试在容器 stdout 无痕，排障只能靠 DB 取证。basicConfig 补 root handler，
+# 级别经 TG_LOG_LEVEL 覆盖（缺省 INFO）。
+logging.basicConfig(
+    level=os.getenv("TG_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 ESCALATION_SCAN_INTERVAL = float(
     os.getenv("ESCALATION_SCAN_INTERVAL", "30")
 )  # BA-BR-13 轮询周期（秒）
@@ -90,13 +100,6 @@ async def lifespan(app: FastAPI):
     # compose 显式置 on（core/event_worker.py 模块注释）
     app.state.flight = SingleFlight()
     app.state.event_worker = None
-    if worker_enabled():
-        app.state.event_worker = EventWorker(
-            pool=app.state.pool,
-            aggregation=app.state.aggregation,
-            flight=app.state.flight,
-        )
-        await app.state.event_worker.start()
     # AA-SK-03 处置执行确定性内核（US-E5-01~04）：建单经 AA-MCP-01（tg_app），决策回填走 tg_web
     core = CoreClient(MCP_CORE_URL)
     app.state.disposition = DispositionService(
@@ -114,6 +117,17 @@ async def lifespan(app: FastAPI):
         pub=app.state.publisher,
         config=app.state.config,
     )  # SC-06 阈值热加载（BR-06 加分值）
+    # R-46 方案甲：worker 注入双内核，滞留 INVESTIGATING 案件超时自动委托
+    # （TG_DELEGATE_INVESTIGATING_SECONDS，代码缺省 0=OFF，compose 置 900）
+    if worker_enabled():
+        app.state.event_worker = EventWorker(
+            pool=app.state.pool,
+            aggregation=app.state.aggregation,
+            flight=app.state.flight,
+            investigation=app.state.investigation,
+            disposition=app.state.disposition,
+        )
+        await app.state.event_worker.start()
     # AA-SK-04 核验审计确定性内核（US-E6-01/02）：一致归档/不一致反向处置
     app.state.verification = VerificationService(
         pool=app.state.pool, cases=app.state.cases, core=core, pub=app.state.publisher
@@ -173,8 +187,25 @@ def create_app() -> FastAPI:
         title="TradeGuard web-api",
         version="0.4.0",
         lifespan=lifespan,
-        description="API-W-01~20 契约实现（docs/openapi/tradeguard-openapi.yaml）",
+        description="API-W-01~22 契约实现（docs/openapi/tradeguard-openapi.yaml）",
     )
+
+    # BUG-05/R-46：契约外路径默认 404（{"detail":"Not Found"}）统一改写为契约
+    # 错误信封——与 R-20 错误语义一致。仅命中 Starlette 路由层抛的默认 404；
+    # 路由内 raise HTTPException(detail={"code":...}) 走 FastAPI 自身 handler
+    # 原样透传，互不干扰（异常类型 MRO 决定分发）。
+    @app.exception_handler(StarletteHTTPException)
+    async def _contract_404_envelope(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 404 and exc.detail == "Not Found":
+            path = request.scope["path"]  # scope 同源，防 Host 头污染（R-37 同型）
+            return JSONResponse(status_code=404, content={
+                "code": "E-NOT-FOUND",
+                "message": f"接口路径不存在：{path}（请核对 OpenAPI 契约；"
+                           f"事件流为 /api/events/stream，案件事件回放为 /api/audit/{{case_id}}）",
+            })
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail},
+                            headers=getattr(exc, "headers", None))
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=CORS_ORIGINS,

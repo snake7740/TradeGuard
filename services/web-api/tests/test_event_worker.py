@@ -96,3 +96,93 @@ def test_worker_enabled_default_off(monkeypatch):
                           ("off", False), ("0", False), ("", False)):
         monkeypatch.setenv("TG_EVENT_WORKER", val)
         assert worker_enabled() is expected, val
+
+
+# ---------- R-46 方案甲：INVESTIGATING 超时自动委托 ----------
+
+class FakeDelegatePool:
+    """委托替身池：fetch 返回预设 INVESTIGATING 行，fetchrow 复核可配状态"""
+
+    def __init__(self, case_ids, status="INVESTIGATING"):
+        self.case_ids = list(case_ids)
+        self.status = status
+
+    async def fetch(self, query, *args):
+        return [{"case_id": c} for c in self.case_ids]
+
+    async def fetchrow(self, query, *args):
+        return {"status": self.status} if self.case_ids else None
+
+
+class FakeInv:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def run(self, case_id):
+        self.calls.append(case_id)
+
+
+class FakeDisp:
+    def __init__(self, exc=None):
+        self.calls: list[tuple] = []
+        self.exc = exc
+
+    async def submit(self, case_id, action, amount, idempotency_key,
+                     approval_ref=None):
+        self.calls.append((case_id, action, idempotency_key))
+        if self.exc is not None:
+            raise self.exc
+        return {"route": "approval_required", "approval_id": "AP-1"}
+
+
+async def test_delegate_sweep_runs_investigation_then_disposition():
+    """滞留案件先 AA-SK-02 调查、后 AA-SK-03 提交 freeze（幂等键 <case>:delegate）"""
+    inv, disp = FakeInv(), FakeDisp()
+    w = EventWorker(FakeDelegatePool(["CASE-D1"]), FakeAggregation(), SingleFlight(),
+                    investigation=inv, disposition=disp)
+    await w._delegate_sweep()
+    assert inv.calls == ["CASE-D1"]
+    assert disp.calls == [("CASE-D1", "freeze", "CASE-D1:delegate")]
+
+
+async def test_delegate_skips_when_case_already_advanced():
+    """锁内复核：扫描到加锁之间案件被人工/审批推进（非 INVESTIGATING）则跳过"""
+    inv, disp = FakeInv(), FakeDisp()
+    w = EventWorker(FakeDelegatePool(["CASE-D2"], status="PENDING_APPROVAL"),
+                    FakeAggregation(), SingleFlight(), investigation=inv, disposition=disp)
+    await w._delegate_sweep()
+    assert inv.calls == [] and disp.calls == []
+
+
+async def test_delegate_state_error_swallowed():
+    """状态类异常（已被接管/不可提交）单次跳过不抛出"""
+    from app.skills.disposition import DispositionStateError
+    inv, disp = FakeInv(), FakeDisp(exc=DispositionStateError("案件已决策"))
+    w = EventWorker(FakeDelegatePool(["CASE-D3"]), FakeAggregation(), SingleFlight(),
+                    investigation=inv, disposition=disp)
+    await w._delegate_sweep()              # 不得抛出
+    assert inv.calls == ["CASE-D3"]        # 调查已执行，提交被状态类异常吞咽跳过
+    assert disp.calls == [("CASE-D3", "freeze", "CASE-D3:delegate")]
+
+
+async def test_delegate_unknown_error_swallowed_for_next_scan():
+    """未知错误不抛出：案件仍滞留 INVESTIGATING，留待下轮扫描重试（幂等安全）"""
+    inv, disp = FakeInv(), FakeDisp(exc=RuntimeError("mcp 不可达"))
+    w = EventWorker(FakeDelegatePool(["CASE-D4"]), FakeAggregation(), SingleFlight(),
+                    investigation=inv, disposition=disp)
+    await w._delegate_sweep()              # 不得抛出
+    assert inv.calls == ["CASE-D4"]
+
+
+async def test_delegate_disabled_without_kernels_or_switch(monkeypatch):
+    """代码缺省关闭：未注入双内核或 DELEGATE_AFTER=0 时不启用委托"""
+    from app.core import event_worker as ew
+    w1 = EventWorker(FakePool([]), FakeAggregation(), SingleFlight(),
+                     investigation=FakeInv(), disposition=FakeDisp())
+    assert w1._delegate_enabled() is False          # DELEGATE_AFTER 缺省 0
+    monkeypatch.setattr(ew, "DELEGATE_AFTER", 900)
+    w2 = EventWorker(FakePool([]), FakeAggregation(), SingleFlight())
+    assert w2._delegate_enabled() is False          # 缺内核
+    w3 = EventWorker(FakePool([]), FakeAggregation(), SingleFlight(),
+                     investigation=FakeInv(), disposition=FakeDisp())
+    assert w3._delegate_enabled() is True           # 双件齐 + 开关 on

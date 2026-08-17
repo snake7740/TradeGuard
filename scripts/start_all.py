@@ -54,6 +54,7 @@ DOCKER_DESKTOP_EXE = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
 # 宿主侧必用端口 → 用途（CLAUDE.md compose 端口 + AgentTeams 独立栈）
 COMPOSE_PORTS = {
     5433: "postgres", 9876: "rocketmq-namesrv", 8848: "nacos", 9848: "nacos-grpc",
+    8850: "nacos-console",   # BUG-07：Nacos v3 控制台（容器 8080，宿主 8080 被占换 8850）
     8001: "higress-console", 8180: "higress-gateway", 3000: "as-studio",
     8101: "mcp-core", 8102: "mcp-external-mock", 8200: "web-api", 8300: "web-portal",
 }

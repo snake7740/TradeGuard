@@ -39,7 +39,7 @@ export const aggregateCase = (caseId) => http.post(`/cases/${caseId}/aggregate`)
 export const investigateCase = (caseId) => http.post(`/cases/${caseId}/investigate`)    // API-W-18
 export const verifyCase = (caseId, execId) => http.post(`/cases/${caseId}/verify`, { exec_id: execId }) // API-W-19
 export const getDispositions = (caseId) => http.get(`/cases/${caseId}/dispositions`)    // API-W-22（核验取 exec_id）
-export const getDemoSubjects = (limit = 10) => http.get('/demo/subjects', { params: { limit } }) // API-W-21
+export const getDemoSubjects = (limit = 10, severity) => http.get('/demo/subjects', { params: { limit, severity } }) // API-W-21（severity 软过滤，BUG-01/R-46）
 
 // ---- config / observability ----
 export const getThresholds = () => http.get('/config/thresholds')

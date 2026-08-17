@@ -93,7 +93,7 @@ services:
       NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:?请在 .env 配置 NACOS_AUTH_IDENTITY_VALUE（格式见 .env.example）}
       JVM_XMS: 256m
       JVM_XMX: 512m
-    ports: ["127.0.0.1:8848:8848", "127.0.0.1:9848:9848"]   # 仅回环（R-37）
+    ports: ["127.0.0.1:8848:8848", "127.0.0.1:9848:9848", "127.0.0.1:8850:8080"]   # 仅回环（R-37）；8850→容器 8080 = v3 控制台（BUG-07：v3 控制台独立于 8848 主端口，/nacos 为 v2 路径已移除；宿主 8080 被本机服务占用故换 8850）
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8848/nacos/ || exit 1"]   # v3 已移除 v1/v2 readiness 端点，用控制台根路径探活
       interval: 10s
@@ -184,6 +184,9 @@ services:
       TG_OTLP_ENDPOINT: http://as-studio:3000                 # TA-C-07：技能 span 经 OTLP 直推 AgentScope Studio（best-effort，断链仅降级 JSONL）
       TG_EVENT_WORKER: "on"      # AA-CL-01/02 闭环：CaseRegistered 消费者（代码缺省 OFF，
                                  # 测试进程不开；仅容器化部署显式启用，core/event_worker.py）
+      TG_DELEGATE_INVESTIGATING_SECONDS: "900"   # R-46 方案甲：INVESTIGATING 滞留 15 分钟
+                                 # 自动委托 AA-SK-02/03（代码缺省 0=OFF；900s > 全量 pytest
+                                 # 8 分钟，同库测试零竞态）
     ports: ["127.0.0.1:8200:8000"]   # 仅回环（R-37）：对外入口收敛到 Higress/门户 nginx
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)\" || exit 1"]

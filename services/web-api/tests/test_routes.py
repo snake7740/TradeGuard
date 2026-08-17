@@ -402,3 +402,32 @@ async def test_sse_first_frame_and_event():
         task.cancel()                                # 生成器 finally 触发 unsubscribe
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+
+# ---------- R-46 浏览器多角色协同实测回归（BUG 台账 docs/reports/bug-ledger-20260817.md） ----------
+
+def test_demo_subjects_severity_filter(client):
+    """BUG-01：severity=high 只返回 black/block 名单主体（BA-BR-04 黑名单垫分
+    75，必入"调查→审批"人机链）；low 只返回干净主体；非法枚举 422。"""
+    r = client.get("/api/demo/subjects", params={"severity": "high", "limit": 20})
+    assert r.status_code == 200, r.text
+    for it in r.json()["items"]:
+        assert it["list_flag"] in ("black", "block")
+    r = client.get("/api/demo/subjects", params={"severity": "low", "limit": 20})
+    assert r.status_code == 200, r.text
+    for it in r.json()["items"]:
+        assert it["list_flag"] == "none" and it["risk_level"] == 0
+    r = client.get("/api/demo/subjects", params={"severity": "critical"})
+    assert r.status_code == 422                      # Query pattern 枚举外拒收
+
+
+def test_contract_404_envelope(client):
+    """BUG-05：契约外路径 404 返回统一错误信封（E-NOT-FOUND + 正确路径提示），
+    而非 FastAPI 默认 {"detail":"Not Found"}——与 R-20 错误语义对齐。"""
+    r = client.get("/api/cases/CASE-20260816-75435a/events")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["code"] == "E-NOT-FOUND"
+    assert "/api/cases/CASE-20260816-75435a/events" in body["message"]
+    assert "/api/audit/{case_id}" in body["message"]  # 指引正确契约路径
+    assert "detail" not in body

@@ -95,7 +95,7 @@ const extLinks = reactive([
   { name: 'AgentScope Studio', desc: '技能 span 经 OTLP 直推上报，按案件分组可视化回放调用链（已打通）', href: 'http://localhost:3000', state: 'pending' },
   { name: 'Higress 网关入口', desc: '门户 /api 业务流量经此入口真实转发至 web-api（已承载，04 §5）', href: 'http://localhost:8180/api/health', state: 'pending' },
   { name: 'Higress 网关控制台', desc: '控制台 UI（已部署；首次初始化未完成，路由经文件仓下发，见 04 §5）', href: 'http://localhost:8001', state: 'pending' },
-  { name: 'Nacos 控制台', desc: '服务注册 + 动态阈值配置，web-api 5s 快照热加载（已打通）', href: 'http://localhost:8848/nacos', state: 'pending' },
+  { name: 'Nacos 控制台', desc: '服务注册 + 动态阈值配置，web-api 5s 快照热加载（已打通）', href: 'http://localhost:8850/', state: 'pending' },
 ])
 async function probe(l) {
   const ctrl = new AbortController()
@@ -143,6 +143,11 @@ const spans = ref([])
 async function loadTraces() {
   const id = traceCaseId.value.trim()
   if (!id) { ElMessage.warning('请输入案件编号'); return }
+  // BUG-04/R-46：精确匹配查询，短号/错格式提前拦截（否则只显示"暂无数据"，易误判为 span 丢失）
+  if (!/^CASE-\d{8}-[0-9a-f]{6}$/.test(id)) {
+    ElMessage.warning('案件编号格式应为 CASE-YYYYMMDD-6位十六进制（可在案件工作台/审计查询复制完整编号）')
+    return
+  }
   traceLoading.value = true
   try {
     const d = (await getTraces(id, traceLimit.value)).data

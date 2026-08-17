@@ -296,10 +296,12 @@ function onTab() { reload() }
 
 // ---- 新建演示案件（API-W-01，severity 三档三类路径） ----
 async function triggerDemo(severity = 'high') {
-  // API-W-21：取无未结案件的真实主体（随机字符串不在三源底表内，聚合走降级路径失真）
+  // API-W-21：取无未结案件的真实主体（随机字符串不在三源底表内，聚合走降级路径失真）。
+  // severity 软过滤（BUG-01/R-46）：high→black/block 名单主体（必走调查→审批链），
+  // low→none 干净主体（低分自动放行），否则"高风险"按钮与实际路径语义脱钩
   let subject
   try {
-    const { data } = await getDemoSubjects(10)
+    const { data } = await getDemoSubjects(10, severity)
     subject = data.items?.[0]?.subject_ref
   } catch { subject = null }
   if (!subject) { ElMessage.warning('暂无可用演示主体：账户表为空或全部账户均有未结案件'); return }
@@ -406,7 +408,11 @@ async function submitReview() {
 let es, debounce
 function onEvent() {
   clearTimeout(debounce)
-  debounce = setTimeout(() => { if (!detailVisible.value) load() }, 1200)
+  debounce = setTimeout(() => {
+    // BUG-03/R-46：详情抽屉打开时刷案件基本信息（状态/评分实时可见），关闭时刷列表
+    if (detailVisible.value) refreshDetail()
+    else load()
+  }, 1200)
 }
 
 onMounted(() => {

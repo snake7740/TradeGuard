@@ -98,7 +98,7 @@ docker compose exec postgres psql -U postgres -d tradeguard
 - **KPI 全量范围未达标是诚实结果**：pytest 残留 source=TEST 案件抬升 KPI-03/04；
   验收以演示范围为准，报告按范围分列判定，不得以演示达标掩盖全量未达标。
 - asyncpg 单次 executemany 10 万行会在客户端挂死（pg_stat_activity 呈 ClientRead）——大批量插入必须分批。
-- compose 端口：pg 5433、nacos 8848、higress 控制台 8001/网关 HTTP 8180、studio 3000、mcp 8101/8102、web-api 8200(:8000)、portal 8300。**宿主侧全部仅绑定 127.0.0.1**（R-37），容器间互访不受影响。
+- compose 端口：pg 5433、nacos 8848 + **控制台 8850（BUG-07：v3 控制台在容器 8080，/nacos 是 v2 已移除路径；宿主 8080 被占故映射 8850，302→/next/）**、higress 控制台 8001/网关 HTTP 8180、studio 3000、mcp 8101/8102、web-api 8200(:8000)、portal 8300。**宿主侧全部仅绑定 127.0.0.1**（R-37），容器间互访不受影响。
 - **db/export 卷导出件**：pg-data→tradeguard-data.sql.gz（data-only，schema 由 db/init 幂等迁移建立）、
   higress-data→higress-data.tar.gz（离线快照，路由实际由 higress_routes.py 重建；打包剔除
   data/secrets/ 与 *.key/*.pem 私钥素材）。数据演进后用 `scripts/volume_export.py` 再生成

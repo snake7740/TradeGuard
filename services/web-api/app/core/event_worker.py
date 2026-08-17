@@ -13,6 +13,18 @@
 - **all_fail 案件停在 AGGREGATING 属"转人工"语义，非 bug**（E-AGG-ALL-FAIL）。
 - 开关 `TG_EVENT_WORKER` 代码缺省 **OFF**（pytest TestClient 走真实 lifespan，
   缺省开启会抢跑测试用例造成 flake）；docker-compose.yml 显式置 on。
+
+INVESTIGATING 超时自动委托（BUG-02/R-46 方案甲）：
+- 纯浏览器/人工流下，EventWorker 只承接到 INVESTIGATING，处置提交属 Agent 职责
+  （02 §3.3），无事件驱动调度承接——审批队列永远空转。本模块补第二跳：滞留
+  INVESTIGATING 超过 `TG_DELEGATE_INVESTIGATING_SECONDS` 的案件，由 worker 代
+  Agent 依次调 AA-SK-02（investigation.run）与 AA-SK-03（disposition.submit，
+  action=freeze），内核内部以 agent:AA-AG-03/04 推进状态（actor 门合规）。
+- 滞留信号 = `updated_at`（repositories.transition 每次迁移刷新）。submit 幂等键
+  `<case_id>:delegate`，扫描级重试安全（idempotent_hit / 证据 claim 去重）。
+- 开关 `TG_DELEGATE_INVESTIGATING_SECONDS` 代码缺省 **0=OFF**（测试直插
+  INVESTIGATING 案件不受影响）；compose 显式置 900（15 分钟 > 全量 pytest 8 分钟，
+  杜绝同库测试竞态）。
 """
 from __future__ import annotations
 
@@ -26,6 +38,9 @@ POLL_INTERVAL = float(os.getenv("TG_EVENT_WORKER_INTERVAL", "2"))   # 轮询周�
 POLL_WINDOW_MIN = int(os.getenv("TG_EVENT_WORKER_WINDOW", "10"))   # 增量窗口（分钟）
 MAX_RETRIES = int(os.getenv("TG_EVENT_WORKER_RETRIES", "3"))       # 阶段2 R-41：有限重试
 RETRY_BASE_DELAY = float(os.getenv("TG_EVENT_WORKER_RETRY_DELAY", "5"))  # 线性退避基数（秒）
+DELEGATE_AFTER = int(os.getenv("TG_DELEGATE_INVESTIGATING_SECONDS", "0"))  # R-46：0=OFF
+DELEGATE_SCAN_INTERVAL = float(os.getenv("TG_DELEGATE_SCAN_INTERVAL", "30"))  # 委托扫描周期（秒）
+DELEGATE_BATCH = int(os.getenv("TG_DELEGATE_BATCH", "10"))         # 单轮委托上限
 
 
 class SingleFlight:
@@ -46,19 +61,28 @@ class EventWorker:
 
     启动时先**无窗口全扫一次**（补捞停机期积压的 REGISTERED 案件），
     之后每 POLL_INTERVAL 秒轮询近 POLL_WINDOW_MIN 分钟内新立案者。
+
+    R-46 方案甲：investigation/disposition 内核注入时，另以
+    DELEGATE_SCAN_INTERVAL 周期扫描滞留 INVESTIGATING 超 DELEGATE_AFTER 秒的
+    案件，代 Agent 完成调查与处置提交（详见模块 docstring）。
     """
 
-    def __init__(self, pool, aggregation, flight: SingleFlight) -> None:
+    def __init__(self, pool, aggregation, flight: SingleFlight,
+                 investigation=None, disposition=None) -> None:
         self._pool = pool
         self._agg = aggregation
         self._flight = flight
+        self._inv = investigation
+        self._disp = disposition
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._loop())
-            logger.info("EventWorker 已启动（轮询 %ss，窗口 %s 分钟）",
-                        POLL_INTERVAL, POLL_WINDOW_MIN)
+            logger.info("EventWorker 已启动（轮询 %ss，窗口 %s 分钟%s）",
+                        POLL_INTERVAL, POLL_WINDOW_MIN,
+                        f"，INVESTIGATING 委托 {DELEGATE_AFTER}s/{DELEGATE_SCAN_INTERVAL}s"
+                        if self._delegate_enabled() else "")
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -70,11 +94,55 @@ class EventWorker:
             self._task = None
             logger.info("EventWorker 已停止")
 
+    def _delegate_enabled(self) -> bool:
+        return (DELEGATE_AFTER > 0 and self._inv is not None and self._disp is not None)
+
     async def _loop(self) -> None:
         await self._sweep(window_minutes=None)          # 启动全扫：补停机期积压
+        last_delegate = 0.0
         while True:
             await asyncio.sleep(POLL_INTERVAL)
             await self._sweep(window_minutes=POLL_WINDOW_MIN)
+            now = asyncio.get_running_loop().time()
+            if self._delegate_enabled() and now - last_delegate >= DELEGATE_SCAN_INTERVAL:
+                last_delegate = now
+                await self._delegate_sweep()
+
+    async def _delegate_sweep(self) -> None:
+        try:
+            rows = await self._pool.fetch(
+                "SELECT case_id FROM risk_case "
+                "WHERE status='INVESTIGATING' "
+                "AND updated_at < now() - make_interval(secs=>$1) "
+                "ORDER BY updated_at LIMIT $2", DELEGATE_AFTER, DELEGATE_BATCH)
+        except Exception:  # noqa: BLE001 —— DB 抖动不断 worker 循环
+            logger.exception("EventWorker 委托扫描查询失败，等待下轮")
+            return
+        for r in rows:
+            await self._delegate_one(r["case_id"])
+
+    async def _delegate_one(self, case_id: str) -> None:
+        from ..skills.disposition import DispositionStateError
+        from ..skills.investigation import InvestigationStateError
+
+        lk = self._flight.lock(case_id)
+        if lk.locked():
+            return  # 手动端点或上一轮正在处理该案件，跳过
+        async with lk:
+            try:
+                # 锁内复核：扫描到加锁之间案件可能已被人工/审批推进
+                row = await self._pool.fetchrow(
+                    "SELECT status FROM risk_case WHERE case_id=$1", case_id)
+                if row is None or row["status"] != "INVESTIGATING":
+                    return
+                await self._inv.run(case_id)            # AA-SK-02（agent:AA-AG-03）
+                gate = await self._disp.submit(         # AA-SK-03（agent:AA-AG-04）
+                    case_id, "freeze", None, f"{case_id}:delegate")
+                logger.info("EventWorker 委托 %s 完成：route=%s", case_id, gate.get("route"))
+            except (InvestigationStateError, DispositionStateError, LookupError):
+                logger.info("EventWorker 委托跳过 %s（状态已被接管或不可提交）", case_id)
+            except Exception:  # noqa: BLE001 —— 失败留待下轮扫描（幂等键/证据去重保证安全）
+                logger.exception("EventWorker 委托 %s 失败，留待下轮扫描", case_id)
 
     async def _sweep(self, window_minutes: int | None) -> None:
         try:

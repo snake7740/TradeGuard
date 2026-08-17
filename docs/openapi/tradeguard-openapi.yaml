@@ -5,7 +5,7 @@ info:
   description: |
     统一 OpenAPI 3.0 契约，覆盖两类接口：
     1. web-api REST 接口（/api/**，供 web-portal 前端与演示调用，见 04 §10.1）；
-    2. MCP 工具契约（AA-MCP-01/02 的 6+3 个工具，MCP 为 JSON-RPC 传输，
+    2. MCP 工具契约（AA-MCP-01/02 的 12+3 个工具，MCP 为 JSON-RPC 传输，
        其输入/输出 Schema 统一在 components.schemas 中以 x-mcp-tool 标注，
        与 REST 接口共用同一套组件，保证"所有接口统一 OpenAPI 3.0 规范"）。
     追溯：业务规则 BA-BR-x（01 §5）、场景 SC-x（06 §2）、数据字典 DD（08）。
@@ -77,8 +77,16 @@ paths:
       description: |
         从 account 表返回无未结案件（status<>ARCHIVED 视为未结）的真实主体；
         随机 subject_ref 不在三源底表内会令聚合走降级路径，演示语义失真，故前端一律经此取材。
+        severity 软过滤（BUG-01/R-46）：high 取 black/block 名单主体（黑名单垫分 75，
+        必走"调查→审批"人机链）；low 取 none 干净主体（低分自动放行）；
+        medium/缺省不过滤（全表随机，与 v1.4.4 行为兼容）。
       parameters:
         - { name: limit, in: query, schema: { type: integer, default: 10, minimum: 1, maximum: 50 } }
+        - name: severity
+          in: query
+          required: false
+          schema: { type: string, enum: [low, medium, high] }
+          description: 按立案严重度软过滤候选主体（缺省不过滤）
       responses:
         '200':
           description: 候选主体列表
@@ -597,8 +605,8 @@ components:
 
     CaseId:
       type: string
-      pattern: '^CASE-\d{8}-\d{4}$'
-      example: CASE-20260813-0001
+      pattern: '^CASE-\d{8}-[0-9a-f]{6}$'
+      example: CASE-20260813-a1b2c3
 
     CaseStatus:
       type: string
