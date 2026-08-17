@@ -104,6 +104,14 @@ docker compose exec postgres psql -U postgres -d tradeguard
   data/secrets/ 与 *.key/*.pem 私钥素材）。数据演进后用 `scripts/volume_export.py` 再生成
   （内置密钥扫描闸门：明文/base64 封装 PEM、sk-*、GitHub/AWS 凭据特征，检出即删件报错）并随代码提交。
 
+## Skill 治理（本机库分派，2026-08-17 建档）
+
+本机 skill 库 `C:\Users\junzh\.agents\skills`，开工前按 [`docs/reports/skill-governance.md`](docs/reports/skill-governance.md) 选定强制 skill，未列入治理表的 skill 不得用于本项目交付。
+
+- **元 skill 管线（每次修改/评审强制，顺序执行）**：engineering-execution-protocol → meta-cognitive-evolution → engineering-first-principles → engineering-problem-solving → ao-essence-injector；多 Agent 场景 Leader 加 expert-team-orchestration。
+- **领域分派摘要**：后端 python-skill、契约 api-design、测试 tdd-skill、前端 vue-skill、库 db-design、容器 docker、安全 security-engineering/*、文档核对 doc-cross-audit、调试 superpowers/systematic-debugging、完成验证 superpowers/verification-before-completion。
+- **防误选**：`fintech-trading` 是美股交易策略（名字近似），与本项目「交易反欺诈」无关，禁用；java-skill/mysql-skill/next 系与本项目技术栈不匹配。
+
 ## 文档回写纪律
 
 代码行为变更 → 同步回写对应文档并在 05 追溯矩阵留痕（R 编号续接）、07 Sprint 执行记录补行。
