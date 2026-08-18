@@ -1,3 +1,16 @@
+---
+name: AA-SK-05-knowledge-sedimentation
+version: 1.5.0
+description: 复盘与知识沉淀（BA-BP-04，人工发布门控 BA-BR-11）
+agent: AA-AG-05
+entrypoint: services/web-api/app/skills/knowledge.py
+depends-mcp: submit_kb_application, search_kb
+depends-tables: kb_document, kb_embedding, audit_log
+tests: services/web-api/tests/test_knowledge.py
+test-cases: 3
+degradation-paths: 向量化失败不回滚发布可重试, 检索无命中返回空不阻断定性
+---
+
 # AA-SK-05 knowledge-sedimentation · 复盘与知识沉淀
 
 > 承载：AA-AG-05（合规审计 Agent）｜ 确定性内核：services/web-api/app/skills/knowledge.py（向量化/检索）+ verification.py `_retrospective`（复盘申请）

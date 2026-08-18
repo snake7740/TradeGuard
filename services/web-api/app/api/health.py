@@ -41,7 +41,7 @@ async def _check_tcp(addr: str, timeout: float = 2.0) -> str:
 
 def _http_alive(url: str, timeout: float = 2.0) -> str:
     try:
-        with urllib.request.urlopen(url, timeout=timeout):
+        with urllib.request.urlopen(url, timeout=timeout):  # nosec B310 —— 探活地址来自 env 配置
             return "UP"
     except urllib.error.HTTPError:
         return "UP"  # 4xx/5xx 说明服务进程在响应（FastMCP 对 GET 回 405/406）

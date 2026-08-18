@@ -87,8 +87,8 @@ class HypothesisRanker(Protocol):
     """
 
     async def rank(self, signals: list[dict], graph_edge_types: set[str],
-                   kb_hints: list[str] | None = None) -> dict:
-        """按信号 + 图谱边 + 知识库提示，排序根因假设并给出可审计依据"""
+                   kb_hints: str = "") -> dict:
+        """按信号 + 图谱边 + 知识库提示（命中摘要），排序根因假设并给出可审计依据"""
         ...
 
 

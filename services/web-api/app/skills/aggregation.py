@@ -111,7 +111,8 @@ def _signal(
     # 确定性 signal_id（阶段2，R-41）：同 source+type+raw_ref+query_reason → 同 id，
     # 使信号落库幂等（EventWorker 重试不重复落），对齐 DA-T-04 signal_id varchar(40)
     seed = f"{source}|{type_}|{raw_ref or ''}|{query_reason}"
-    signal_id = hashlib.md5(seed.encode("utf-8")).hexdigest()
+    signal_id = hashlib.md5(seed.encode("utf-8"),
+                            usedforsecurity=False).hexdigest()  # 幂等键非安全哈希
     return {
         "signal_id": signal_id,
         "source": source,

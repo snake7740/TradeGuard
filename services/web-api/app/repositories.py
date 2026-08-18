@@ -51,12 +51,13 @@ class CaseRepository:
             args.append(risk_min)
             where.append(f"risk_score>=${len(args)}")
         cond = f" WHERE {' AND '.join(where)}" if where else ""
-        total = await self._pool.fetchval(
-            f"SELECT count(*) FROM risk_case{cond}", *args
-        )
+        # B608 豁免：cond 仅含 $n 占位符片段，值全部参数绑定
+        sql_count = f"SELECT count(*) FROM risk_case{cond}"  # nosec B608
+        sql_head = f"SELECT * FROM risk_case{cond} ORDER BY created_at DESC"  # nosec B608
+        sql_page = sql_head + f" LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}"  # nosec B608
+        total = await self._pool.fetchval(sql_count, *args)
         rows = await self._pool.fetch(
-            f"SELECT * FROM risk_case{cond} ORDER BY created_at DESC "
-            f"LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}",
+            sql_page,
             *args,
             size,
             (page - 1) * size,

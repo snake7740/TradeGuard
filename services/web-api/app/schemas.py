@@ -36,11 +36,24 @@ class VerifyIn(BaseModel):
     exec_id: str = Field(..., description="待核验处置执行凭证（DA-T-06）")
 
 
+class DispositionIn(BaseModel):
+    """API-W-23 处置提交入参（US-E5-02，SC-02/07/10 载体）
+    调查完成后的人工提交入口：高风险无凭证 → E-DISP-AUTH 建单转待审批。"""
+    action: str = Field(..., pattern="^(block|freeze|reduce|release)$",
+                        description="处置动作（白名单与 API-M-11 requested_action 对齐）")
+    amount: float | None = Field(None, ge=0, le=1e7,
+                                 description="处置金额（reduce 限额等场景，可选）")
+    idempotency_key: str | None = Field(None, max_length=120,
+                                        description="幂等键（缺省由服务端按 case+action 生成）")
+
+
 class KbPublishIn(BaseModel):
     """API-W-12/13 知识发布确认/驳回（DA-INV-06 人工门控）"""
+    # operator 可选：缺省由端点取 X-Operator 头（当前登录角色，门户自动携带），
+    # 无头时回落 human:kb_admin（兼容直调/旧客户端）；显式传值时仍受 pattern 约束
     # R-37 复审收口：operator 总长 ≤40（audit_log.actor / kb_document.reviewer
     # 均 varchar(40)，此前正则无长度上限可致截断 500）；comment 对齐 basis varchar(300)
-    operator: str = Field("human:kb_admin", pattern=r"^human:[a-z_]{1,34}$")
+    operator: str | None = Field(None, pattern=r"^human:[a-z_]{1,34}$")
     comment: str = Field("", max_length=300)
 
 

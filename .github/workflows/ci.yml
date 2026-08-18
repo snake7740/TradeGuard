@@ -17,8 +17,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  sast:
+    name: SAST 静态安全（bandit + 依赖漏洞 pip-audit，R-37 纵深）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: bandit（Python 静态分析，中高危即红）
+        run: |
+          pip install bandit
+          bandit -r services/web-api/app services/mcp-core/server.py \
+                 services/mcp-external-mock/server.py services/data-generator/generate.py \
+                 -lll
+      - name: pip-audit（依赖 CVE 审计，四服务全量，含传递依赖树）
+        run: |
+          pip install pip-audit
+          pip-audit -r services/web-api/requirements.txt \
+                    --find-links services/web-api/wheels \
+                    -r services/mcp-core/requirements.txt \
+                    -r services/mcp-external-mock/requirements.txt \
+                    -r services/data-generator/requirements.txt
+
   unit-test:
-    name: 契约测试 + 纯单元（R-44）
+    name: 全量测试（单元/契约/集成，PG + 双 MCP 实链路，R-44）
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -37,23 +60,58 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 安装依赖
-        run: pip install -r services/web-api/requirements.txt
-      - name: 初始化 schema（db/init 幂等迁移）
+      - name: Skill 打包自包含校验（frontmatter 与代码/测试计数零漂移，纯标准库，fail-fast）
+        run: python scripts/skill_pack_validate.py
+      - name: 安装依赖（web-api 测试端 + 双 MCP 服务端，同版本钉版；
+               rocketmq 轮子 vendored 于 services/web-api/wheels，见 wheels/README.md；
+               pytest 与本地全绿环境同版钉版——此前不在任何 requirements 中，
+               Actions 线上会因缺解释器直接红）
+        run: |
+          pip install pytest==9.1.1 \
+            -r services/web-api/requirements.txt \
+                      --find-links services/web-api/wheels \
+                      -r services/mcp-core/requirements.txt \
+                      -r services/mcp-external-mock/requirements.txt
+      - name: 初始化 schema（db/init 幂等迁移，含 02-roles 幂等建 tg_web/tg_app）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           for f in db/init/0*.sql; do
             echo "== $f =="
             psql "postgresql://postgres:tradeguard_dev@localhost:5433/tradeguard" -v ON_ERROR_STOP=1 -q -f "$f"
           done
-      - name: 契约测试 + 纯单元
+      - name: 启动 MCP 双服务（后台实链路，conftest 默认直连 127.0.0.1:8101/8102）
+        run: |
+          PG_DSN="postgresql://tg_app:tg_app_dev@localhost:5433/tradeguard" \
+            python services/mcp-core/server.py > /tmp/mcp-core.log 2>&1 &
+          python services/mcp-external-mock/server.py > /tmp/mcp-external.log 2>&1 &
+          # 探活：FastMCP streamable-http 仅挂 POST，GET /mcp/ 收到任意 HTTP 响应
+          # （405 等 4xx）即端口已监听；000 = 未就绪（连不通）。命中即跳出。
+          c1=000; c2=000
+          for i in $(seq 1 30); do
+            c1=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8101/mcp/ || true)
+            c2=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8102/mcp/ || true)
+            if [ "$c1" != "000" ] && [ "$c2" != "000" ]; then break; fi
+            sleep 2
+          done
+          echo "mcp-core HTTP $c1 / mcp-external HTTP $c2"
+          test "$c1" != "000"
+          test "$c2" != "000"
+      - name: 全量测试（tests/ 全部 25 文件，含 skill 装载器与动态分派）
+        env:
+          # CI 无 RocketMQ broker：指向无服务端口加速 producer.start() 失败降级
+          # （events.py 降级 InMemory fan-out，SSE 不断链，已本地全量验证）
+          ROCKETMQ_NAMESRV: 127.0.0.1:19876
         run: |
           cd services/web-api
-          python -m pytest tests/test_ports.py tests/test_state_machine.py tests/test_aggregation.py -q
-      - name: import 完整性（collect-only）
+          python -m pytest tests -q
+          # 注：不加 --cov——本地 Windows 曾把「-q 进度点缓冲不刷新 + 全量
+          # 251 例实跑 ~24 分钟」误判为 pytest-cov 死锁（-v 流式复跑 24 分钟
+          # 完整通过，死锁结论撤回，诚实记录）；覆盖率接入待 Linux 环境实测
+      - name: MCP 服务日志（失败诊断用）
+        if: failure()
         run: |
-          cd services/web-api
-          python -m pytest tests --collect-only -q
+          echo '== mcp-core ==' && tail -n 50 /tmp/mcp-core.log || true
+          echo '== mcp-external ==' && tail -n 50 /tmp/mcp-external.log || true
 
   build-portal:
     name: 前端构建
@@ -64,3 +122,5 @@ jobs:
         with:
           node-version: '20'
       - run: cd web-portal && npm ci && npm run build
+      - name: 产物校验（dist/index.html 存在，防空构建）
+        run: test -f web-portal/dist/index.html

@@ -35,7 +35,7 @@ def _fetch_nacos(addr: str, data_id: str, group: str) -> dict | None:
     req = urllib.request.Request(f"{addr}/nacos/v3/admin/cs/config?{qs}",
                                  headers={NACOS_IDENTITY_KEY: NACOS_IDENTITY_VALUE})
     try:
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310 —— Nacos 内部端点，addr 来自 env
             body = json.loads(resp.read().decode())
         if body.get("code") != 0:
             return None
@@ -55,7 +55,7 @@ def _publish_nacos(addr: str, data_id: str, group: str, values: dict) -> bool:
     req = urllib.request.Request(f"{addr}/nacos/v3/admin/cs/config", data=data,
                                  headers={NACOS_IDENTITY_KEY: NACOS_IDENTITY_VALUE})
     try:
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310 —— Nacos 内部端点，addr 来自 env
             body = json.loads(resp.read().decode())
         return body.get("code") == 0
     except Exception:
@@ -111,8 +111,8 @@ class ConfigService:
                 if fallback and fallback != self.values:
                     self.values, self.source = fallback, "db"
                     self.updated_at = datetime.now(timezone.utc)
-            except Exception:
-                pass  # 保持上一份可用配置
+            except Exception:  # nosec B110 —— 降级语义：保持上一份可用配置，不中断服务
+                pass
 
     def snapshot(self) -> dict:
         return {"source": self.source,

@@ -9,11 +9,11 @@ import random
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("tradeguard-external-mock", host="0.0.0.0", port=int(os.getenv("MCP_PORT", "8102")))
+mcp = FastMCP("tradeguard-external-mock", host="0.0.0.0", port=int(os.getenv("MCP_PORT", "8102")))  # nosec B104 —— 容器内必须绑全部接口，宿主暴露面由 compose 端口映射控制
 
 
 def _seed(subject: str) -> random.Random:
-    return random.Random(int(hashlib.sha256(subject.encode()).hexdigest()[:8], 16))
+    return random.Random(int(hashlib.sha256(subject.encode()).hexdigest()[:8], 16))  # nosec B311 —— mock 确定性回放种子，非安全用途
 
 
 def _require_reason(query_reason: str | None) -> dict | None:

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T09:43:11.646885+00:00",
+  "generated_at": "2026-08-17T18:12:32.926475+00:00",
   "thresholds": {
     "KPI-01": "低风险≤5分钟",
     "KPI-02": ">=85%",
@@ -7,62 +7,76 @@
     "KPI-04": "<=30%",
     "KPI-05": ">=100%"
   },
-  "all": {
+  "business": {
     "KPI-01": {
-      "total": 161,
-      "avg_min": 537.6925848115942,
-      "low_total": 98,
-      "low_avg_min": 883.3157809180273,
-      "value": 883.3157809180273
+      "total": 47,
+      "avg_min": 0.4643331606382979,
+      "low_total": 20,
+      "low_avg_min": 0.021219579166666665,
+      "value": 0.021219579166666665
     },
     "KPI-02": {
-      "hit": 7,
-      "total": 7,
-      "value": 1.0
-    },
-    "KPI-03": {
-      "hit": 8,
-      "total": 16,
-      "value": 0.5
-    },
-    "KPI-04": {
-      "hit": 152,
-      "total": 380,
-      "value": 0.4
-    },
-    "KPI-05": {
-      "hit": 180,
-      "total": 183,
-      "value": 0.9836065573770492
-    }
-  },
-  "demo": {
-    "KPI-01": {
-      "total": 9,
-      "avg_min": 0.16281765740740742,
-      "low_total": 3,
-      "low_avg_min": 0.015233427777777777,
-      "value": 0.015233427777777777
-    },
-    "KPI-02": {
-      "hit": 3,
-      "total": 3,
+      "hit": 21,
+      "total": 21,
       "value": 1.0
     },
     "KPI-03": {
       "hit": 0,
-      "total": 6,
+      "total": 33,
       "value": 0.0
     },
     "KPI-04": {
-      "hit": 6,
-      "total": 9,
-      "value": 0.6666666666666666
+      "hit": 33,
+      "total": 54,
+      "value": 0.6111111111111112
     },
     "KPI-05": {
-      "hit": 12,
-      "total": 12,
+      "hit": 59,
+      "total": 59,
       "value": 1.0
+    },
+    "KPI-06": {
+      "total": 33,
+      "kb_hit_rate": 0.5454545454545454,
+      "pending_rate_with_kb": 0.0,
+      "pending_rate_without_kb": 0.4666666666666667,
+      "grounding_gain": 0.4666666666666667
+    }
+  },
+  "demo": {
+    "KPI-01": {
+      "total": 38,
+      "avg_min": 0.43637767368421054,
+      "low_total": 12,
+      "low_avg_min": 0.02091148472222222,
+      "value": 0.02091148472222222
+    },
+    "KPI-02": {
+      "hit": 14,
+      "total": 14,
+      "value": 1.0
+    },
+    "KPI-03": {
+      "hit": 0,
+      "total": 24,
+      "value": 0.0
+    },
+    "KPI-04": {
+      "hit": 26,
+      "total": 38,
+      "value": 0.6842105263157895
+    },
+    "KPI-05": {
+      "hit": 50,
+      "total": 50,
+      "value": 1.0
+    },
+    "KPI-06": {
+      "total": 26,
+      "kb_hit_rate": 0.6923076923076923,
+      "pending_rate_with_kb": 0.0,
+      "pending_rate_without_kb": 0.0,
+      "grounding_gain": 0.0
     }
   }
 }

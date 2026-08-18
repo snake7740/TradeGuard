@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 PG_DSN = os.getenv("PG_DSN", "postgresql://tg_app:tg_app_dev@localhost:5432/tradeguard")
 
-mcp = FastMCP("tradeguard-core", host="0.0.0.0", port=int(os.getenv("MCP_PORT", "8101")))
+mcp = FastMCP("tradeguard-core", host="0.0.0.0", port=int(os.getenv("MCP_PORT", "8101")))  # nosec B104 —— 容器内必须绑全部接口，宿主暴露面由 compose 端口映射控制
 
 HIGH_RISK_SCORE = 70   # BA-BR-01 高风险线缺省值；正式值读 sys_config br-01-auto-block-score（SC-06 双端同源）
 MID_REVIEW_SCORE = 40  # BA-BR-01 中风险线缺省值；正式值读 sys_config br-01-mid-review-score
@@ -332,7 +332,8 @@ async def apply_risk_bonus(case_id: str, points: int, basis: str) -> str:
         return json.dumps({"code": "E-BAD-POINTS",
                            "message": f"加分值必须为 1~100 的整数（拒绝降分/越界）：{points!r}"})
     import hashlib
-    mark = "br06_" + hashlib.md5(basis.encode()).hexdigest()[:8]
+    mark = "br06_" + hashlib.md5(basis.encode(),
+                              usedforsecurity=False).hexdigest()[:8]  # 幂等键非安全哈希
     conn = await _conn()
     try:
         case = await conn.fetchrow(

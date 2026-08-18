@@ -27,6 +27,8 @@ Thumbs.db
 # 数据
 db/backup/
 *.dump
+# 公开数据集原始文件不入库（下载方式见 db/dataset/README.md）
+db/dataset/*.csv
 
 # 日志
 *.log

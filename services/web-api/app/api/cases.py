@@ -5,8 +5,9 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from ..core.state_machine import CaseEvent, InvalidTransition
 from ..repositories import OptimisticLockError
-from ..schemas import ReviewIn, VerifyIn
+from ..schemas import DispositionIn, ReviewIn, VerifyIn
 from ..skills.aggregation import AggregationStateError
+from ..skills.disposition import DispositionStateError
 from ..skills.investigation import InvestigationStateError
 from ..skills.verification import VerificationStateError
 from .common import operator_from_header
@@ -111,6 +112,36 @@ async def investigate_case(request: Request, case_id: str):
     except LookupError:
         raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "未找到该案件，请核对案件编号"})
     except InvestigationStateError as e:
+        raise HTTPException(409, detail={"code": e.code, "message": str(e)})
+
+
+@router.post("/{case_id}/disposition")
+async def submit_disposition(request: Request, case_id: str, body: DispositionIn):
+    """API-W-23：处置提交（AA-SK-03 确定性内核，US-E5-02，SC-02/07/10 载体）
+    调查完成（PENDING_APPROVAL/INVESTIGATING）后的人工提交入口，补齐 UI 全链
+    「调查→审批」交接：高风险无凭证 → mcp-core 拒 E-DISP-AUTH → 建审批工单转待审批
+    （SC-02）；中风险无凭证 → refused_mid_risk（E-DISP-SCOPE，SC-10）；已批凭证 →
+    自动执行至 DISPOSED。同案已存在待决工单时幂等返回既有工单（一案一单）。"""
+    # 一案一单：mcp-core create_approval_request 无 pending 去重，端点层守护
+    pending = await request.app.state.pool.fetchrow(
+        """SELECT a.approval_id, c.status FROM approval_record a
+           JOIN risk_case c ON c.case_id = a.case_id
+           WHERE a.case_id=$1 AND a.decision='pending'""", case_id)
+    if pending:
+        return {"case_id": case_id, "route": "approval_required",
+                "code": "E-DISP-AUTH", "approval_id": pending["approval_id"],
+                "case_status": pending["status"], "duplicate": True}
+    key = body.idempotency_key or f"{case_id}:{body.action}:manual"
+    try:
+        return await request.app.state.disposition.submit(
+            case_id, body.action, body.amount, key)
+    except LookupError:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "未找到该案件，请核对案件编号"})
+    except DispositionStateError as e:
+        raise HTTPException(409, detail={"code": e.code, "message": str(e)})
+    except InvalidTransition as e:
+        raise HTTPException(409, detail={"code": e.code, "message": e.message})
+    except OptimisticLockError as e:
         raise HTTPException(409, detail={"code": e.code, "message": str(e)})
 
 

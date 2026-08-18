@@ -2,6 +2,8 @@
 
 信用卡/支付交易反欺诈与自动化处置多 Agent 系统。
 
+**English README**: [`README.en.md`](./README.en.md) · 许可证：[Apache-2.0](./LICENSE)
+
 > **解决什么问题**：交易欺诈已从「单笔攻击」演变为「团伙化、工业化」——测卡攻击、账户盗用、
 > 跑分洗钱靠单交易视角的规则引擎无法发现跨账户关联；多源信号（流水/征信/舆情/投诉）分散、
 > 告警疲劳、处置留痕缺失。本系统以多 Agent 协同实现「信号聚合 → 根因定位 → 处置执行 →
@@ -107,7 +109,7 @@ Higress 路由重建 → AgentTeams 体检 → C1~C9 端到端取证，**全绿 
 | 入口 | 地址 | 说明 |
 | --- | --- | --- |
 | 风控门户 | <http://localhost:8300> | 顶栏切换 4 角色，完整演示五阶段闭环 |
-| OpenAPI 文档 | <http://localhost:8200/docs> | 22 个 REST 路径契约 |
+| OpenAPI 文档 | <http://localhost:8200/docs> | 24 个 REST 路径契约（含 /api/skills 技能注册表） |
 | 方案总览 | `docs/reports/tradeguard-overview.html` | 浏览器打开，含业务逻辑 + 操作流程 + 演示场景 |
 
 ### 5. 操作指引（启动后怎么用）
@@ -143,7 +145,7 @@ Higress 路由重建 → AgentTeams 体检 → C1~C9 端到端取证，**全绿 
 ├── web-portal/                 # Vue 3 + Element Plus 前端（5 页面 × 4 角色）
 ├── skills/                     # AA-SK-01~05 官方技能定义
 ├── scripts/                    # start_all / demo_playbook / kpi_report / offline_eval 等
-└── docs/                       # 方案文档集（00~09 + openapi + reports）
+└── docs/                       # 方案文档集（00~12 + openapi + reports）
 ```
 
 ## 本地等价与替换声明

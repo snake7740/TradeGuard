@@ -107,6 +107,83 @@ async def test_hypothesis_no_kb_match_declared_explicitly(pool, investigation):
     assert out["hypothesis"]["kb_note"] == "无库内匹配"          # 未命中显式声明
 
 
+# ---------- R-47 KB 提示接线（规划/假设排序的「知识库提示」真实输入） ----------
+
+class _CapturePlanLlm:
+    """捕获提示词的替身 LLM：按 system 角色区分规划/反思，返回合法 JSON"""
+
+    available = True
+
+    def __init__(self):
+        self.prompts: list[str] = []
+
+    async def chat(self, messages, temperature=0.2):
+        import json
+
+        self.prompts.append(messages[-1]["content"])
+        if "调查规划员" in messages[0]["content"]:
+            return json.dumps({
+                "hypotheses": [{"pattern": "跑分", "priority": 1,
+                                "rationale": "KB 提示同主题手法佐证"}],
+                "queries": [{"source": "credit", "reason": "核验流水", "priority": 1}],
+                "kb_queries": [], "skipped": [], "rationale": "测试计划"})
+        return json.dumps({"verdict": "sufficient", "gaps": [], "summary": "ok"})
+
+
+class _FlatExternalForHints:
+    """三源平返还（计划执行的确定外部输入）"""
+
+    async def query_credit_report(self, subject_id, query_reason):
+        return {"source": "credit-mock", "degraded": False}
+
+    async def query_sentiment(self, subject_id, query_reason):
+        return {"source": "sentiment-mock", "hits": [], "degraded": False}
+
+    async def query_complaints(self, subject_id, query_reason):
+        return {"source": "complaint-mock", "items": [], "degraded": False}
+
+
+async def test_plan_kb_hints_grounded_from_kb(pool, app_pool, case_repo):
+    """AG-01 规划的「知识库提示」输入真实接线：规划前 KB 预检（信号特征词）
+    命中摘要进入 LLM 提示词——此前生产恒传空串（宣称能力未接线的空槽，
+    多角度 review 修复）；未命中场景由既有全量回归覆盖（空串=基线行为）"""
+    import os
+
+    from app.skills.investigation import InvestigationService
+    from app.skills.knowledge import index_document
+    from app.skills.mcp_adapters import CoreClient
+
+    os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1")
+    os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
+    repo, pub = case_repo
+    cap = _CapturePlanLlm()
+    svc = InvestigationService(
+        pool=pool, cases=repo, core=CoreClient("http://127.0.0.1:8101/mcp/"),
+        pub=pub, external=_FlatExternalForHints(), llm_client=cap)
+
+    case_id = await _investigating_case(repo, score=55)
+    await _seed_velocity_signals(svc.core, case_id)   # sig_types=["velocity_anomaly"]
+
+    # 信号词必须写进 content：kb_embedding 只向量化 content（title 不参与向量，
+    # knowledge.publish_and_index L94），预检词去空格后与 content 前缀共享
+    # 「velocity_anomaly手法」18 连续字符 → cosine 远超 0.22 阈值，可靠命中
+    title = f"velocity_anomaly 手法复盘-{uuid.uuid4().hex[:6]}"
+    content = f"{title}：同设备指纹异常关联的夜间小额高频转出手法复盘。"
+    doc_id = uuid.uuid4().hex
+    await app_pool.execute(
+        """INSERT INTO kb_document (doc_id, category, title, content, status, applicant)
+           VALUES ($1, 'case', $2, $3, 'pending', 'AA-AG-05')""",
+        doc_id, title, content)
+    await index_document(pool, doc_id, operator="human:strategist")
+
+    out = await svc.run(case_id)
+
+    assert out["plan"]["source"] == "llm"                 # 替身被采纳（真实 LLM 分支）
+    plan_prompt = next(p for p in cap.prompts if "知识库提示" in p)
+    assert title in plan_prompt                          # 预检命中摘要进入提示词（接线断言）
+    assert "无" != plan_prompt.split("知识库提示：")[1].split("\n")[0]
+
+
 # ---------- US-E4-02 关联网络扩展 + BA-BR-06 加分 ----------
 
 async def test_ba_br06_black_neighbor_bonus_applied_once(pool, app_pool, investigation):

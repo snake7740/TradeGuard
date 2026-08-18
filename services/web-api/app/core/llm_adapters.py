@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+from typing import Any
 
 logger = logging.getLogger("tradeguard.llm")
 
@@ -78,10 +79,10 @@ class RuleHypothesisRanker:
 
     async def rank(
         self,
-        signals: list[dict],
+        signals: list[dict[str, Any]],
         graph_edge_types: set[str],
-        kb_hints: list[str] | None = None,
-    ) -> dict:
+        kb_hints: str = "",
+    ) -> dict[str, Any]:
         from app.skills.investigation import match_hypothesis
 
         pattern, basis = match_hypothesis(signals, graph_edge_types)
@@ -115,7 +116,7 @@ class LlmClient:
     def available(self) -> bool:
         return bool(self.api_key)
 
-    async def chat(self, messages: list[dict], temperature: float = 0.2) -> str:
+    async def chat(self, messages: list[dict[str, Any]], temperature: float = 0.2) -> str:
         import httpx
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -178,10 +179,10 @@ class LlmHypothesisRanker:
 
     async def rank(
         self,
-        signals: list[dict],
+        signals: list[dict[str, Any]],
         graph_edge_types: set[str],
-        kb_hints: list[str] | None = None,
-    ) -> dict:
+        kb_hints: str = "",
+    ) -> dict[str, Any]:
         if not self.client.available:
             return await self.fallback.rank(signals, graph_edge_types, kb_hints)
         try:
@@ -190,7 +191,7 @@ class LlmHypothesisRanker:
             logger.warning("LLM 假设排序失败，降级规则")
             return await self.fallback.rank(signals, graph_edge_types, kb_hints)
 
-    async def _llm_rank(self, signals, graph_edge_types, kb_hints) -> dict:
+    async def _llm_rank(self, signals, graph_edge_types, kb_hints: str) -> dict[str, Any]:
         prompt = (
             "你是金融交易风控调查员。根据风险信号与关联图谱，判断最可能的欺诈手法"
             "（跑分/盗卡/团伙盗刷/待定），给出可审计依据与置信度。只返回 JSON。\n"

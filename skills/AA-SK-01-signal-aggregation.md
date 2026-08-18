@@ -1,3 +1,16 @@
+---
+name: AA-SK-01-signal-aggregation
+version: 1.5.0
+description: 多源信号聚合与降噪（BA-BP-02，velocity 特征 BA-BR-14）
+agent: AA-AG-02
+entrypoint: services/web-api/app/skills/aggregation.py
+depends-mcp: query_transactions, query_credit_report, query_sentiment, query_complaints, record_case_signals
+depends-tables: risk_signal, risk_case
+tests: services/web-api/tests/test_aggregation.py, services/web-api/tests/test_br05_high_freq.py
+test-cases: 22
+degradation-paths: 单源超时重试 2 次后降级置空, 全源失败 E-AGG-ALL-FAIL 转人工
+---
+
 # AA-SK-01 signal-aggregation · 多源信号聚合与降噪
 
 > 承载：AA-AG-02（信号聚合 Agent）｜ 确定性内核：services/web-api/app/skills/aggregation.py

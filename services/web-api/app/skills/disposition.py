@@ -4,6 +4,10 @@
   submit              —— 处置提交编排（边界守卫 + 门控建单 + 幂等 + 重试，SC-02/07/10）
   approve / reject    —— 审批门户写路径闭环（API-W-09 的领域编排，SC-02/03）
   scan_pending_escalations —— BA-BR-13 审批时效升级扫描（SC-09，lifespan 定时驱动）
+  cross-review            —— R-47 Agent 互审：AG-04 处置建议建单前经 AG-01
+                             合规审查（证据充分性/处置恰当性/过度处置风险），
+                             结论并入审批单/证据链/审计供审批官参考
+                             （只建议不决策，人机边界不变，02 §3.3）
 
 边界规则（BA-BR-01/02，与 mcp-core execute_disposition 门控双层守护）：
   风险分 40-69 中风险：禁止任何无凭证自动处置（E-DISP-SCOPE，仅审计留痕，SC-10）；
@@ -26,6 +30,7 @@ import uuid
 
 from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
+from . import planner as planner_mod
 from .mcp_adapters import remember
 
 AUTO_SCORE_MAX = 40  # BA-BR-01 自动通道风险分上限（与 aggregation 同源常量语义）
@@ -56,12 +61,13 @@ class DispositionService:
     """处置编排服务：依赖注入 pool（tg_web 状态机/审计）、cases（CaseRepository）、
     core（AA-MCP-01 CoreClient）、pub（事件发布端口）。"""
 
-    def __init__(self, pool, cases, core, pub, config=None):
+    def __init__(self, pool, cases, core, pub, config=None, llm_client=None):
         self.pool = pool
         self.cases = cases
         self.core = core
         self.pub = pub
         self.config = config  # ConfigService（SC-06 阈值热加载 D1，可缺省用常量）
+        self.llm_client = llm_client  # R-47 互审 LLM 通道（None → planner 内延迟构造）
 
     def _cfg_int(self, key: str, default: int) -> int:
         """从 ConfigService 读整型阈值，未配置/非法值回退代码常量"""
@@ -191,11 +197,39 @@ class DispositionService:
                     "case_status": status,
                 }
             # SC-02：拒执行 + 建审批工单（tg_app，API-M-11）+ 转待审批
+            # R-47 Agent 互审：AG-04 处置建议建单前经 AG-01 合规审查
+            # （证据充分性/处置恰当性/过度处置风险），结论并入审批单与证据链；
+            # 人机边界不变——互审只建议不决策，建单与状态转移照常（02 §3.3）
+            review = await self._cross_review(case, action, amount)
             appr = await self.core.create_approval_request(
                 case_id,
                 action,
                 amount,
-                reason=f"risk_score={score} 高风险处置需人工审批（BA-BR-02，SC-02）",
+                reason=(
+                    f"risk_score={score} 高风险处置需人工审批（BA-BR-02，SC-02）"
+                    f"[AG-01 互审:{review.source}/{review.verdict}] {review.summary}"
+                ),
+            )
+            await self.core.record_case_evidence(
+                case_id,
+                [{
+                    "claim": (
+                        f"AG-01→AG-04 处置互审[{review.source}]{review.verdict}："
+                        f"{review.summary}；关注点：{'; '.join(review.findings) or '无'}"
+                        f"（建议 action={action}"
+                        f"{' amount=' + str(amount) if amount is not None else ''}，"
+                        f"供审批官参考，R-47）"
+                    ),
+                    "source_ref": "AA-AG-01:cross-review",
+                    "confidence": 0.6,
+                }],
+            )
+            await self._audit(
+                case_id,
+                "disposition.reviewed",
+                f"AG-01 互审[{review.source}] verdict={review.verdict}：{review.summary}"
+                f"（R-47 Agent 互审，建议性结论无决策权）",
+                trace_id,
             )
             if status == "INVESTIGATING":
                 out = await self.cases.transition(
@@ -319,6 +353,23 @@ class DispositionService:
             basis=f"处置失败转人工复核：{reason}",
         )
         return out["status"]
+
+    async def _cross_review(self, case, action: str, amount: float | None):
+        """R-47 互审封装：读案件证据链（tg_web 只读）→ AG-01 合规审查。
+
+        LLM 优先（可用时），不可用/失败降级规则版（planner.review_disposition
+        内建）；互审异常不影响建单主流程的确定性前提由降级保底保证。
+        """
+        evidence = await self.pool.fetch(
+            "SELECT claim, source_ref, confidence FROM case_evidence"
+            " WHERE case_id=$1 ORDER BY ts",
+            case["case_id"],
+        )
+        return await planner_mod.review_disposition(
+            action, amount, case["risk_score"],
+            [dict(e) for e in evidence],
+            client=self.llm_client,
+        )
 
     async def approve(self, approval_id: str, approver: str, opinion: str = "") -> dict:
         """批准闭环（API-W-09 编排）：回填决策 → ApprovalApproved → 自动执行处置"""

@@ -5,8 +5,16 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..schemas import KbPublishIn
 from ..skills.knowledge import publish_and_index
+from .common import operator_from_header
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
+
+
+def _operator(request: Request, body: KbPublishIn) -> str:
+    """操作者优先级：body 显式传值 > X-Operator 头（门户自动携带当前角色）>
+    human:kb_admin（直调/旧客户端回落）——审计留真人而非固定占位符"""
+    return body.operator or operator_from_header(
+        request.headers.get("X-Operator"), "human:kb_admin")
 
 
 @router.get("/applications")
@@ -21,7 +29,7 @@ async def publish_document(request: Request, doc_id: str, body: KbPublishIn):
     发布与审计同事务（tg.actor 声明供 DB 触发器校验），事务后向量化 kb_embedding。"""
     try:
         return await publish_and_index(
-            request.app.state.pool, doc_id, body.operator, body.comment)
+            request.app.state.pool, doc_id, _operator(request, body), body.comment)
     except PermissionError:
         raise HTTPException(403, detail={"code": "E-KB-HUMAN-GATE",
                                          "message": "知识发布仅限人工操作，请切换人工角色后重试"})
@@ -48,15 +56,16 @@ async def _decide(request: Request, doc_id: str, body: KbPublishIn, status: str,
         raise HTTPException(409, detail={"code": "E-ALREADY-DECIDED",
                                          "message": f"该条目已完成审核（{zh}），请勿重复操作"})
     async with pool.acquire() as conn, conn.transaction():
+        op = _operator(request, body)
         # DA-INV-06 双守护：事务内声明人类操作者，否则 DB 触发器拒发（04-invariants.sql）
-        await conn.execute("SELECT set_config('tg.actor', $1, true)", body.operator)
+        await conn.execute("SELECT set_config('tg.actor', $1, true)", op)
         await conn.execute(
             "UPDATE kb_document SET status=$1, reviewer=$2, reviewed_at=now() WHERE doc_id=$3",
-            status, body.operator, doc_id)
+            status, op, doc_id)
         await conn.execute(
             """INSERT INTO audit_log (log_id, actor, action, target, basis)
                VALUES ($1, $2, $3, $4, $5)""",
             # R-37 复审收口：comment 截断对齐 audit_log.basis varchar(300)
-            uuid.uuid4().hex, body.operator, action, doc_id,
+            uuid.uuid4().hex, op, action, doc_id,
             (body.comment or f"->{status}")[:300])
-    return {"doc_id": doc_id, "status": status, "reviewer": body.operator}
+    return {"doc_id": doc_id, "status": status, "reviewer": op}

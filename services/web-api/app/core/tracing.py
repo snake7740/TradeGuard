@@ -101,7 +101,8 @@ def _to_otlp(span: dict) -> dict:
         "resource": {"attributes": [
             {"key": "service.name", "value": _sv("tradeguard-web-api")}]},
         "scope_spans": [{"scope": {"name": "tradeguard.tracing"}, "spans": [{
-            "trace_id": hashlib.md5(span["trace_id"].encode()).hexdigest(),
+            "trace_id": hashlib.md5(span["trace_id"].encode(),
+                                    usedforsecurity=False).hexdigest(),  # 指纹非安全哈希
             "span_id": span["span_id"], "name": span["name"], "kind": 1,
             "start_time_unix_nano": str(int(span["start_ts"] * 1e9)),
             "end_time_unix_nano": str(int(span["end_ts"] * 1e9)),
@@ -116,7 +117,7 @@ def _otlp_export(span: dict):
             OTLP_ENDPOINT + "/v1/traces",
             data=json.dumps(_to_otlp(span), ensure_ascii=False).encode("utf-8"),
             headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=2) as resp:
+        with urllib.request.urlopen(req, timeout=2) as resp:  # nosec B310 —— OTLP 端点来自 env 配置
             resp.read()
         if not _otlp_state.get("ok"):
             _otlp_state["ok"] = True

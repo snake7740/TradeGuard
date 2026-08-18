@@ -101,17 +101,19 @@ def test_worker_enabled_default_off(monkeypatch):
 # ---------- R-46 方案甲：INVESTIGATING 超时自动委托 ----------
 
 class FakeDelegatePool:
-    """委托替身池：fetch 返回预设 INVESTIGATING 行，fetchrow 复核可配状态"""
+    """委托替身池：fetch 返回预设 INVESTIGATING 行，fetchrow 复核可配状态/risk_score"""
 
-    def __init__(self, case_ids, status="INVESTIGATING"):
+    def __init__(self, case_ids, status="INVESTIGATING", risk_score=75):
         self.case_ids = list(case_ids)
         self.status = status
+        self.risk_score = risk_score  # 缺省 75：R-49 规则档位 → freeze（审批线 70）
 
     async def fetch(self, query, *args):
         return [{"case_id": c} for c in self.case_ids]
 
     async def fetchrow(self, query, *args):
-        return {"status": self.status} if self.case_ids else None
+        return ({"status": self.status, "risk_score": self.risk_score}
+                if self.case_ids else None)
 
 
 class FakeInv:
@@ -135,8 +137,21 @@ class FakeDisp:
         return {"route": "approval_required", "approval_id": "AP-1"}
 
 
-async def test_delegate_sweep_runs_investigation_then_disposition():
-    """滞留案件先 AA-SK-02 调查、后 AA-SK-03 提交 freeze（幂等键 <case>:delegate）"""
+def _patch_dispatch_to_rule(monkeypatch):
+    """R-49 隔离：替身 dispatch_action（确定性 rule 档），
+    防配 Key 环境真实外呼导致非确定（LLM 协商另有单测覆盖）"""
+    from app.skills.planner import rule_dispatch
+
+    async def fake(risk_score, impact_accounts, citations, client=None):
+        return rule_dispatch(risk_score, impact_accounts, citations)
+
+    monkeypatch.setattr("app.skills.planner.dispatch_action", fake)
+
+
+async def test_delegate_sweep_runs_investigation_then_disposition(monkeypatch):
+    """滞留案件先 AA-SK-02 调查、后 AA-SK-03 提交（R-49 动作经 dispatch_action 协商，
+    缺省 risk_score=75 → freeze；幂等键 <case>:delegate）"""
+    _patch_dispatch_to_rule(monkeypatch)
     inv, disp = FakeInv(), FakeDisp()
     w = EventWorker(FakeDelegatePool(["CASE-D1"]), FakeAggregation(), SingleFlight(),
                     investigation=inv, disposition=disp)
@@ -154,8 +169,9 @@ async def test_delegate_skips_when_case_already_advanced():
     assert inv.calls == [] and disp.calls == []
 
 
-async def test_delegate_state_error_swallowed():
+async def test_delegate_state_error_swallowed(monkeypatch):
     """状态类异常（已被接管/不可提交）单次跳过不抛出"""
+    _patch_dispatch_to_rule(monkeypatch)
     from app.skills.disposition import DispositionStateError
     inv, disp = FakeInv(), FakeDisp(exc=DispositionStateError("案件已决策"))
     w = EventWorker(FakeDelegatePool(["CASE-D3"]), FakeAggregation(), SingleFlight(),
@@ -165,8 +181,9 @@ async def test_delegate_state_error_swallowed():
     assert disp.calls == [("CASE-D3", "freeze", "CASE-D3:delegate")]
 
 
-async def test_delegate_unknown_error_swallowed_for_next_scan():
+async def test_delegate_unknown_error_swallowed_for_next_scan(monkeypatch):
     """未知错误不抛出：案件仍滞留 INVESTIGATING，留待下轮扫描重试（幂等安全）"""
+    _patch_dispatch_to_rule(monkeypatch)
     inv, disp = FakeInv(), FakeDisp(exc=RuntimeError("mcp 不可达"))
     w = EventWorker(FakeDelegatePool(["CASE-D4"]), FakeAggregation(), SingleFlight(),
                     investigation=inv, disposition=disp)

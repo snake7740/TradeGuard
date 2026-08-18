@@ -27,14 +27,14 @@ async def list_demo_subjects(request: Request, limit: int = Query(10, ge=1, le=5
         flag_filter = "AND a.list_flag IN ('black', 'block')"
     elif severity == "low":
         flag_filter = "AND a.list_flag = 'none' AND a.risk_level = 0"
-    rows = await request.app.state.pool.fetch(
-        f"""SELECT a.account_hash, a.list_flag, a.risk_level
+    # B608 豁免：flag_filter 为代码内常量白名单（severity 三分支），无用户输入拼接
+    base_sql = """SELECT a.account_hash, a.list_flag, a.risk_level
            FROM account a
            WHERE NOT EXISTS (
                SELECT 1 FROM risk_case c
-               WHERE c.subject_ref = a.account_hash AND c.status <> 'ARCHIVED')
-           {flag_filter}
-           ORDER BY random() LIMIT $1""", limit)
+               WHERE c.subject_ref = a.account_hash AND c.status <> 'ARCHIVED')"""
+    rows = await request.app.state.pool.fetch(
+        base_sql + flag_filter + " ORDER BY random() LIMIT $1", limit)
     return {"items": [{"subject_ref": r["account_hash"].strip(),
                        "list_flag": r["list_flag"], "risk_level": r["risk_level"]}
                       for r in rows]}

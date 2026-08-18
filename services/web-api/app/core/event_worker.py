@@ -132,13 +132,23 @@ class EventWorker:
             try:
                 # 锁内复核：扫描到加锁之间案件可能已被人工/审批推进
                 row = await self._pool.fetchrow(
-                    "SELECT status FROM risk_case WHERE case_id=$1", case_id)
+                    "SELECT status, risk_score FROM risk_case WHERE case_id=$1", case_id)
                 if row is None or row["status"] != "INVESTIGATING":
                     return
-                await self._inv.run(case_id)            # AA-SK-02（agent:AA-AG-03）
+                inv_out = await self._inv.run(case_id) or {}  # AA-SK-02（agent:AA-AG-03）
+                # R-49：AG-03 结论（影响面/手法佐证）→ AG-04 动作动态协商，
+                # 替换硬编码 freeze；LLM 不可用降级确定性档位
+                from ..skills import planner as planner_mod
+                action = await planner_mod.dispatch_action(
+                    risk_score=row["risk_score"],
+                    impact_accounts=(inv_out.get("impact") or {}).get("accounts", 0),
+                    citations=len(
+                        (inv_out.get("hypothesis") or {}).get("citations") or []),
+                )
                 gate = await self._disp.submit(         # AA-SK-03（agent:AA-AG-04）
-                    case_id, "freeze", None, f"{case_id}:delegate")
-                logger.info("EventWorker 委托 %s 完成：route=%s", case_id, gate.get("route"))
+                    case_id, action, None, f"{case_id}:delegate")
+                logger.info("EventWorker 委托 %s 完成：route=%s action=%s（R-49 动态分派）",
+                            case_id, gate.get("route"), action)
             except (InvestigationStateError, DispositionStateError, LookupError):
                 logger.info("EventWorker 委托跳过 %s（状态已被接管或不可提交）", case_id)
             except Exception:  # noqa: BLE001 —— 失败留待下轮扫描（幂等键/证据去重保证安全）

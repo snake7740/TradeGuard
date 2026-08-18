@@ -16,6 +16,34 @@
 | AA-SK-04 compliance-audit | [AA-SK-04-compliance-audit.md](./AA-SK-04-compliance-audit.md) | AA-AG-05 | services/web-api/app/skills/verification.py |
 | AA-SK-05 knowledge-sedimentation | [AA-SK-05-knowledge-sedimentation.md](./AA-SK-05-knowledge-sedimentation.md) | AA-AG-05 | services/web-api/app/skills/knowledge.py + verification.py `_retrospective` |
 
+## 打包规范（自包含 frontmatter）
+
+每个 skill 文件首部携带 YAML frontmatter（扁平 `key: value` 单行键值，不依赖 PyYAML），
+使单文件即一个可分发的自包含技能包：编排器读 frontmatter 即可完成装配，无需解析正文。
+
+| 键 | 必填 | 说明 |
+| --- | --- | --- |
+| name | ✓ | 必须与文件名 stem 一致（注册名即文件名） |
+| version | ✓ | 语义化版本，与 CHANGELOG 同步 |
+| description | ✓ | 一句话能力描述（含业务规则锚点） |
+| agent | ✓ | 承载 Agent（AA-AG-02~05） |
+| entrypoint | ✓ | 确定性内核代码入口（仓库根相对路径） |
+| depends-mcp | ✓ | 依赖的 AA-MCP 工具，逗号分隔 |
+| depends-tables | ✓ | 读写的 DA 层数据表，逗号分隔 |
+| tests | ✓ | 测试文件路径，逗号分隔（仓库根相对） |
+| test-cases | ✓ | 测试用例数（质量指标，与实际 `def test_` 计数一致） |
+| degradation-paths | ✓ | 降级路径，逗号分隔（无 LLM/无 KB/图查询降级等） |
+| depth-limit | 可选 | 递归边界（仅递归类技能，如 AA-SK-02 图扩展 2 跳） |
+
+防漂移门禁：`python scripts/skill_pack_validate.py`（CI unit-test job 内置，fail-fast）
+校验必填键齐全、name/文件名一致、entrypoint/tests 文件存在、test-cases 与实际计数一致；
+漂移即红，杜绝「文档与代码脱节、测试数夸大」。
+
+消费侧（运行时注册表）：web-api `app/skills/loader.py` 以同源解析规则在运行时装载
+全部 AA-SK 包并校验 entrypoint 可导入，经 `GET /api/skills`（API-W-24）对外暴露
+元数据与降级路径——第三方 Agent/门户无需翻源码即可发现与分派；坏包不阻断
+（loadable=false + error 留痕）。
+
 执行纪律：
 
 1. 每个技能先跑**确定性规则内核**（可单测、可回放），LLM 仅做推理增强层——无 Key 时闭环不断；

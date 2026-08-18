@@ -26,7 +26,7 @@ def sha(s: str) -> str:
 
 
 async def main(accounts: int, txs: int, rings: int):
-    rnd = random.Random(20260813)
+    rnd = random.Random(20260813)  # nosec B311 —— 合成数据固定种子（可重现），非安全用途
     conn = await asyncpg.connect(PG_DSN)
     try:
         now = datetime.now(timezone.utc)

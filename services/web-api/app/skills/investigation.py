@@ -15,6 +15,7 @@ import uuid
 
 from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
+from . import planner as planner_mod
 from .knowledge import search_kb
 from .mcp_adapters import remember
 
@@ -61,12 +62,15 @@ class InvestigationService:
     """调查编排服务：依赖注入 pool（tg_web 读+状态机）、cases（CaseRepository）、
     core（AA-MCP-01 CoreClient）、pub（事件发布端口）、config（SC-06 热值，可选）。"""
 
-    def __init__(self, pool, cases, core, pub, config=None, ranker=None):
+    def __init__(self, pool, cases, core, pub, config=None, ranker=None,
+                 external=None, llm_client=None):
         self.pool = pool
         self.cases = cases
         self.core = core
         self.pub = pub
         self.config = config
+        self.external = external
+        self.llm_client = llm_client  # R-47 规划-反思用（None → 内部惰性 LlmClient，无 Key 降级规则）
         if ranker is None:  # 阶段1 接线（R-40）：规则 baseline，可注入 LLM 版
             from app.core.llm_adapters import RuleHypothesisRanker
 
@@ -132,22 +136,60 @@ class InvestigationService:
         ring_nodes.discard("")
         ring_size = len(ring_nodes) if ring_nodes else 1
 
+        # 0. AG-01 规划（R-47）：依据信号/图谱/先验生成调查计划并选择性深查外部源
+        #    （与 AG-02 全量三源互补：豁免源留痕可审计；LLM 不可用降级规则版）
+        #    规划前 KB 预检：以信号特征词先检索一次，命中摘要喂 kb_hints——规划与
+        #    假设排序提示词的「知识库提示」输入真实接线（此前恒传空串）；
+        #    未命中/失败传空串，行为与既有基线一致（不阻断）
+        sig_types = sorted({s.get("type", "") for s in sigs if s.get("type")})
+        kb_hints = ""
+        if sig_types:
+            try:
+                pre_hits = await search_kb(
+                    self.pool, f"{' '.join(sig_types)} 手法特征")
+                kb_hints = "; ".join(
+                    f"{h['title'][:40]}({h['similarity']:.2f})"
+                    for h in pre_hits[:3])
+            except Exception:  # noqa: BLE001 —— KB 预检失败不阻断规划（空提示）
+                kb_hints = ""
+        plan = await planner_mod.make_plan(
+            sigs, edge_types, kb_hints=kb_hints, client=self.llm_client)
+        findings = await planner_mod.execute_plan(
+            plan, self.external, case["subject_ref"])
+
         # 2. 假设匹配（规则兜底）+ DA-KB-01 检索引用（SC-05 联动，doc_id 引用对齐）
-        _hyp = await self.ranker.rank(sigs, edge_types)
+        #    R-48 记忆反哺：规则无法定性（待定）时以信号特征词检索 KB，命中则以
+        #    库内手法文档升级定性——知识沉淀→调查定性效率闭环（KPI-06 量化载体）；
+        #    未命中仍显式声明交人工（人机边界不变，02 §3.3）
+        _hyp = await self.ranker.rank(sigs, edge_types, kb_hints=kb_hints)
         pattern, rule_basis = _hyp["pattern"], _hyp["basis"]
-        citations, kb_note = [], ""
+        # 检索词优先取 AG-01 规划产出（LLM/规则间构，空时回退固定拼接词）
         if pattern != "待定":
-            hits = await search_kb(self.pool, f"{pattern} {rule_basis} 手法特征")
-            citations = [
-                {
-                    "doc_id": h["doc_id"],
-                    "title": h["title"],
-                    "similarity": round(h["similarity"], 3),
-                }
-                for h in hits
-            ]
-            if not citations:
-                kb_note = "无库内匹配"  # 未命中显式声明（AA-SK-02 步骤 1）
+            kb_terms = plan.kb_queries or [f"{pattern} {rule_basis} 手法特征"]
+        else:
+            kb_terms = [f"{' '.join(sig_types)} 手法特征", *plan.kb_queries]
+        hits = []  # search_kb 返回 list[dict]（首个命中词即停）
+        for term in kb_terms[:2]:
+            hits = await search_kb(self.pool, term)
+            if hits:
+                break
+        citations = [
+            {
+                "doc_id": h["doc_id"],
+                "title": h["title"],
+                "similarity": round(h["similarity"], 3),
+            }
+            for h in hits
+        ]
+        kb_note = ""
+        if not citations:
+            kb_note = "无库内匹配"  # 未命中显式声明（AA-SK-02 步骤 1）
+        elif pattern == "待定":
+            kb_note = (
+                f"KB 反哺定性：规则假设待定，依据库内文档"
+                f"「{hits[0]['title'][:50]}」升级定性（R-48）"
+            )
+            pattern = hits[0]["title"][:50]  # 文档标题即定性描述（审计可回放）
 
         # 3. BA-BR-06：2 跳内命中已确认欺诈主体（黑名单）→ 加分（幂等，API-M-13）
         #    加分值走热键 br-06-fraud-link-bonus（SC-06，docs/01 §5 配置位置=Nacos 动态配置）
@@ -175,7 +217,17 @@ class InvestigationService:
             [n.ljust(64) for n in nodes],
         )
 
+        # 4b. AG-01 反思（R-47）：对比计划/执行/结论，缺口落证据链（可回放闭环）
+        reflection = await planner_mod.reflect(
+            plan, findings, pattern, client=self.llm_client)
+
         # 5. 证据固化（DA-T-05 只增，BA-BR-03，经 API-M-12 tg_app 写角色）
+        plan_summary = (
+            f"AG-01 计划[{plan.source}]：查询源 "
+            f"{','.join(q.source for q in plan.queries)}，豁免 "
+            f"{','.join(s['source'] for s in plan.skipped) or '无'}；执行成功 "
+            f"{sum(1 for x in findings if x.get('ok'))}/{len(findings)}"
+        )
         await self.core.record_case_evidence(
             case_id,
             [
@@ -187,7 +239,16 @@ class InvestigationService:
                     ),
                     "source_ref": "AA-AG-03:investigation",
                     "confidence": 0.85,
-                }
+                },
+                {
+                    "claim": (
+                        f"{plan_summary}；反思[{reflection.source}]{reflection.verdict}："
+                        f"{reflection.summary}"
+                        + (f"；缺口：{'；'.join(reflection.gaps)}" if reflection.gaps else "")
+                    ),
+                    "source_ref": "AA-AG-01:plan-reflect",
+                    "confidence": 0.7,
+                },
             ],
         )
         await self.pool.execute(
@@ -197,7 +258,8 @@ class InvestigationService:
             ACTOR_INV_AUDIT,
             case_id,
             f"hypothesis={pattern},citations={len(citations)},impact_accounts={len(nodes)}"
-            f"（AA-SK-02，US-E4-01/02/03）",
+            f",plan={plan.source},reflect={reflection.verdict}"
+            f"（AA-SK-02，US-E4-01/02/03，R-47）",
             case["trace_id"],
         )
 
@@ -218,6 +280,23 @@ class InvestigationService:
                 "rule_basis": rule_basis,
                 "citations": citations,
                 "kb_note": kb_note,
+            },
+            "plan": {
+                "source": plan.source,
+                "hypotheses": plan.hypotheses,
+                "queries": [
+                    {"source": q.source, "reason": q.reason, "priority": q.priority}
+                    for q in plan.queries
+                ],
+                "skipped": plan.skipped,
+                "rationale": plan.rationale,
+                "findings": findings,
+                "reflection": {
+                    "source": reflection.source,
+                    "verdict": reflection.verdict,
+                    "gaps": reflection.gaps,
+                    "summary": reflection.summary,
+                },
             },
             "graph": {
                 "nodes": len(nodes),

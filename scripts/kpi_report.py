@@ -12,14 +12,19 @@
          已被回滚/申诉排除的误判不计入（核验闭环的纠错能力，AA-SK-04）；
   KPI-04 人工介入率（≤30%）：进入人工通道（建审批工单 / 停留 PENDING_APPROVAL /
          MANUAL_REVIEW / 全源失败转人工）案件占全部案件比例；
-  KPI-05 留痕完整率（100%）：disposition_record 均有对应 audit_log
-         action='disposition.submit' 的覆盖比例（04 §7 遍历 DA-T-06 检查 DA-T-08）。
+  KPI-05  留痕完整率（100%）：disposition_record 均有对应 audit_log
+         action='disposition.submit' 的覆盖比例（04 §7 遍历 DA-T-06 检查 DA-T-08）；
+  KPI-06  记忆进化增益（观测型，R-48）：investigation.complete 审计 basis 解析
+         hypothesis/citations 分组，KB 命中组 vs 未命中组的假设待定率差即
+         记忆反哺定性增益；另报 KB 命中率（知识沉淀覆盖度）。
 
-样本构成说明：库内含自动化测试案件（source_type=TEST）与演示剧本案件
-（demo_script），报告分全量与演示口径两组呈现；测试案件主体多为无账户
-档案的合成哈希，KPI-02/03 仅统计可关联 ground truth 的样本。
+样本构成说明：库内含自动化测试残留（立案审计 basis source=TEST，及绕过
+API-W-01 的直插无档案案件）与业务案件（门户/剧本立案 source=demo_script）。
+报告分业务与演示两口径：业务口径经立案审计来源剔除测试残留（与
+scripts/kpi_clean.py 物理清洗同一特征，口径侧双保险）；演示口径进一步
+限定 demo- 前缀播种主体（剧本 D1~D3 专用，多轮复跑稳定）。
 
-用法：.venv\\Scripts\\python.exe scripts\\kpi_report.py
+用法：.venv\\Scripts\\python.exe scripts/kpi_report.py
 产出：docs/reports/kpi-report.md + kpi-report.json（幂等覆盖，可复现取证）
 """
 from __future__ import annotations
@@ -27,8 +32,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
+from typing import Any
 
 import asyncpg
 
@@ -39,15 +46,24 @@ THRESHOLDS = {"KPI-02": (0.85, ">="), "KPI-03": (0.10, "<="),
 KPI01_TARGET_MIN = 5  # BA-KPI-01 目标线：低风险事件 ≤5 分钟（01 §7）
 
 
-async def compute(conn) -> dict:
-    out: dict = {"generated_at": datetime.now(timezone.utc).isoformat(),
+async def compute(conn) -> dict[str, Any]:
+    out: dict[str, Any] = {"generated_at": datetime.now(timezone.utc).isoformat(),
                  "thresholds": {"KPI-01": f"低风险≤{KPI01_TARGET_MIN}分钟"}
                  | {k: f"{op}{v:.0%}" for k, (v, op) in THRESHOLDS.items()}}
-    for scope, demo_only in (("all", False), ("demo", True)):
+    for scope, demo_only in (("business", False), ("demo", True)):
         kpi = {}
-        # 演示口径：主体有 demo- 前缀播种交易（剧本 D1~D3 专用主体，多轮复跑稳定）
-        scope_sql = ("AND rc.subject_ref IN (SELECT rtrim(account_hash) FROM transaction "
-                     "WHERE tx_id LIKE 'demo-%')" if demo_only else "")
+        if demo_only:
+            # 演示口径：主体有 demo- 前缀播种交易（剧本 D1~D3 专用主体，多轮复跑稳定）
+            scope_sql = ("AND rc.subject_ref IN (SELECT rtrim(account_hash) FROM transaction "
+                         "WHERE tx_id LIKE 'demo-%')")
+        else:
+            # 业务口径：主体可关联 account 档案（ground truth 载体，与 KPI-02/03
+            # 同一主体集）且立案审计来源非 TEST——即使测试残留再积累也不污染口径
+            # （物理清洗 kpi_clean.py 与口径过滤双保险）
+            scope_sql = ("AND EXISTS (SELECT 1 FROM account a WHERE a.account_hash=rc.subject_ref)"
+                         " AND EXISTS (SELECT 1 FROM audit_log al WHERE al.target=rc.case_id"
+                         " AND al.action='case.register'"
+                         " AND al.basis NOT LIKE 'source=TEST%')")
         # KPI-01 响应时效：立案→首条 executed 处置凭证（BA-KPI-01，低风险=risk_score<40）
         row = await conn.fetchrow(f"""
             SELECT count(*) AS total,
@@ -110,6 +126,34 @@ async def compute(conn) -> dict:
             WHERE 1=1 {scope_sql}""")
         kpi["KPI-05"] = {"hit": row["hit"], "total": row["total"],
                          "value": (row["hit"] / row["total"]) if row["total"] else None}
+        # KPI-06 记忆进化增益（R-48，观测型）：调查完成审计 basis 解析
+        # hypothesis/citations → 命中组 vs 未命中组的假设待定率差（反哺定性增益）
+        rows = await conn.fetch(f"""
+            SELECT al.basis FROM audit_log al
+            JOIN risk_case rc ON rc.case_id = al.target
+            WHERE al.action='investigation.complete' {scope_sql}""")
+        k_total = k_hit = w_n = wo_n = pend_w = pend_wo = 0
+        for r in rows:
+            m = re.search(r"hypothesis=([^,]+),citations=(\d+)", r["basis"] or "")
+            if not m:
+                continue
+            k_total += 1
+            is_pending = m.group(1) == "待定"
+            if int(m.group(2)) > 0:
+                k_hit += 1
+                w_n += 1
+                pend_w += is_pending
+            else:
+                wo_n += 1
+                pend_wo += is_pending
+        kpi["KPI-06"] = {
+            "total": k_total,
+            "kb_hit_rate": (k_hit / k_total) if k_total else None,
+            "pending_rate_with_kb": (pend_w / w_n) if w_n else None,
+            "pending_rate_without_kb": (pend_wo / wo_n) if wo_n else None,
+            "grounding_gain": (
+                pend_wo / wo_n - pend_w / w_n) if (w_n and wo_n) else None,
+        }
         out[scope] = kpi
     return out
 
@@ -124,36 +168,52 @@ def _verdict(kpi_id: str, value: float | None) -> str:
     return "达标" if ok else "未达标"
 
 
-def render_md(report: dict) -> str:
+def render_md(report: dict[str, Any]) -> str:
     # 复现命令用当前解释器相对路径（不硬编码 .venv/Scripts/python.exe，跨环境可复现）
     interp = os.path.relpath(sys.executable, os.path.join(os.path.dirname(__file__), ".."))
     lines = ["# TradeGuard KPI 评估报告（US-E7-04 离线评估，可复现）", "",
              f"- 生成时间：{report['generated_at']}",
              f"- 复现命令：`{interp.replace(os.sep, '/')} scripts/kpi_report.py`",
              "- Ground truth：`account.list_flag`（watch=团伙观察名单，black=确认欺诈，none=正常）",
-             "", "## 阈值与结论（全量 / 演示两口径分别独立判定，不互相掩盖）", "",
-             "| KPI | 定义 | 阈值 | 全量口径 | 全量结论 | 演示口径 | 演示结论 |",
+             "", "## 阈值与结论（业务 / 演示两口径分别独立判定，不互相掩盖）", "",
+             "| KPI | 定义 | 阈值 | 业务口径 | 业务结论 | 演示口径 | 演示结论 |",
              "|---|---|---|---|---|---|---|"]
     names = {"KPI-02": "欺诈召回率", "KPI-03": "误报率（最终定性口径）",
              "KPI-04": "人工介入率", "KPI-05": "处置留痕完整率"}
 
-    def _fmt_kpi01(k: dict) -> str:
+    def _fmt_kpi01(k: dict[str, Any]) -> str:
         if k["total"] == 0:
             return "N/A"
         low = (f"低风险 {k['low_avg_min']:.1f} 分（{k['low_total']}例）"
                if k["low_avg_min"] is not None else "低风险 N/A（0例）")
         return f"{low}／全部 {k['avg_min']:.1f} 分（{k['total']}例）"
 
-    a, d = report["all"]["KPI-01"], report["demo"]["KPI-01"]
+    a, d = report["business"]["KPI-01"], report["demo"]["KPI-01"]
     lines.append(f"| KPI-01 | 事件响应时效（立案→处置完成） | {report['thresholds']['KPI-01']} "
                  f"| {_fmt_kpi01(a)} | {_verdict('KPI-01', a['value'])} "
                  f"| {_fmt_kpi01(d)} | {_verdict('KPI-01', d['value'])} |")
     for k in ("KPI-02", "KPI-03", "KPI-04", "KPI-05"):
-        a, d = report["all"][k], report["demo"][k]
+        a, d = report["business"][k], report["demo"][k]
         fa = f"{a['value']:.1%}（{a['hit']}/{a['total']}）" if a["value"] is not None else "N/A"
         fd = f"{d['value']:.1%}（{d['hit']}/{d['total']}）" if d["value"] is not None else "N/A"
         lines.append(f"| {k} | {names[k]} | {report['thresholds'][k]} | {fa} "
                      f"| {_verdict(k, a['value'])} | {fd} | {_verdict(k, d['value'])} |")
+
+    def _pct(x: float | None) -> str:
+        return f"{x:.0%}" if x is not None else "N/A"
+
+    def _fmt_kpi06(k: dict[str, Any]) -> str:
+        if not k["total"]:
+            return "N/A（无调查样本）"
+        gain = (f"{k['grounding_gain']:+.0%}"
+                if k["grounding_gain"] is not None else "—")
+        return (f"命中 {_pct(k['kb_hit_rate'])}；待定率 命中组 "
+                f"{_pct(k['pending_rate_with_kb'])}/未命中组 "
+                f"{_pct(k['pending_rate_without_kb'])}；定性增益 {gain}")
+
+    a6, d6 = report["business"]["KPI-06"], report["demo"]["KPI-06"]
+    lines.append(f"| KPI-06 | 记忆进化增益（KB 反哺定性，R-48） | 观测型 "
+                 f"| {_fmt_kpi06(a6)} | — | {_fmt_kpi06(d6)} | — |")
     lines += ["", "## 口径说明", "",
               "- KPI-01 统计已处置闭环案件（DISPOSED/VERIFIED/ARCHIVED 且有 executed 处置凭证），"
               "时长 = risk_case.created_at → 首条处置凭证 ts；目标线仅约束低风险案件"
@@ -166,11 +226,18 @@ def render_md(report: dict) -> str:
               "全源失败转人工（signals.all_fail）。",
               "- KPI-05 遍历 DA-T-06（disposition_record）逐条检查 DA-T-08（audit_log）"
               "对应 disposition.submit 记录（04 §7 验收口径）。",
+              "- KPI-06 观测型：从 investigation.complete 审计 basis 解析 hypothesis/"
+              "citations 分组，KB 命中组 vs 未命中组的假设待定率差即记忆反哺定性增益"
+              "（R-48；A/B 对照测试实证见 services/web-api/tests/test_memory_kpi.py，"
+              "同源信号下待定率 1.0→0.0）。",
               "- 演示口径：主体带 demo- 前缀播种交易（剧本 D1/D2/D3 专用主体），复跑可复现。",
-              "- 全量口径含 Sprint 自动化测试案件（source=TEST，pytest 运行残留，多为",
-              "PENDING_APPROVAL 中间态），会抬升 KPI-03/04 全量数值；验收以演示口径为准。",
+              "- 业务口径：主体可关联账户档案（ground truth 载体）且立案审计来源非",
+              "  source=TEST（门户/剧本人工流）；测试残留另经 scripts/kpi_clean.py", 
+              "  物理清洗（审计特征同一来源，双保险）。",
               "- KPI-04 演示口径结构性偏高：三剧本中 D2/D3 本身即人机协同审批/申诉场景",
-              "（2/3 必入人工通道），自动通道能力由 SC-01 与测试矩阵 169 例覆盖。", ""]
+              "（2/3 必入人工通道），自动通道能力由 SC-01 与测试矩阵 169 例覆盖。",
+              "  业务口径同理：演示库的业务案件几乎全部来自剧本与门户人工演示",
+              "  （含四角色全链验收），生产库以自动通道案件为主体，人工率必然低于演示库。", ""]
     return "\n".join(lines)
 
 

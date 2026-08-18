@@ -295,6 +295,41 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/cases/{case_id}/disposition:
+    post:
+      tags: [事件工作台]
+      operationId: submitDisposition
+      summary: 处置提交（API-W-23，AA-SK-03 确定性内核，US-E5-02，SC-02/07/10 载体）
+      description: |
+        调查完成后的人工提交入口，补齐 UI 全链「调查→审批」交接（D2）。
+        高风险无凭证 → mcp-core 拒 E-DISP-AUTH → 建审批工单转待审批（SC-02，
+        route=approval_required）；中风险无凭证 → refused_mid_risk（E-DISP-SCOPE，
+        SC-10）；已批凭证 → 自动执行至 DISPOSED（route=executed）。
+        同案已存在待决工单时幂等返回既有工单（一案一单，duplicate=true）。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DispositionRequest' }
+      responses:
+        '200':
+          description: 处置提交结果（路由裁决：approval_required / refused_mid_risk / executed / idempotent_hit）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DispositionResult' }
+        '404':
+          description: 案件不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 案件状态不支持提交处置（E-BAD-STATE）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  
   /api/cases/{case_id}/verify:
     post:
       tags: [事件工作台]
@@ -411,8 +446,20 @@ paths:
       tags: [知识库后台]
       operationId: publishKbDocument
       summary: 确认发布（SC-05 载体，DA-INV-06 人工门控，仅策略管理员）
+      description: |
+        operator 缺省取 X-Operator 头（门户自动携带当前角色，URL 编码），
+        无头时回落 human:kb_admin；显式传值优先且须匹配 ^human:[a-z_]{1,34}$。
       parameters:
         - { $ref: '#/components/parameters/DocIdPath' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator: { type: string, pattern: '^human:[a-z_]{1,34}$' }
+                comment: { type: string, maxLength: 300 }
       responses:
         '200':
           description: 已发布并触发向量化
@@ -559,6 +606,51 @@ paths:
                   spans:
                     type: array
                     items: { $ref: '#/components/schemas/TraceSpan' }
+
+  /api/skills:
+    get:
+      tags: [系统]
+      operationId: listSkills
+      summary: Skill 注册表（API-W-24，AA-SK 自包含打包的消费侧，skills/README.md）
+      description: |
+        运行时装载 skills/AA-SK-*.md frontmatter（12 键）并校验 entrypoint
+        可导入——skill 包从「文档自包含」升级为「Agent 基座可发现/可分派」；
+        每请求实时装载（与阈值热加载同精神，frontmatter 变更免重启可见）。
+        坏包不阻断：loadable=false + error 留痕，与 degradation-paths 声明精神一致。
+      responses:
+        '200':
+          description: 已装载 skill 列表（含不可装载包的留痕）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  skills:
+                    type: array
+                    items: { $ref: '#/components/schemas/SkillSpec' }
+
+  /api/skills/{name}:
+    get:
+      tags: [系统]
+      operationId: getSkill
+      summary: 单个 skill 装载详情（API-W-24）
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, example: AA-SK-01-signal-aggregation }
+      responses:
+        '200':
+          description: skill 装载详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SkillSpec' }
+        '404':
+          description: skill 不存在（契约错误信封）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
 components:
   securitySchemes:
@@ -773,6 +865,26 @@ components:
       required: [exec_id]
       properties:
         exec_id: { type: string, description: 待核验处置执行凭证（DA-T-06） }
+
+    DispositionRequest:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [block, freeze, reduce, release], description: 处置动作（白名单与 API-M-11 requested_action 对齐） }
+        amount: { type: number, minimum: 0, maximum: 10000000, nullable: true, description: 处置金额（reduce 限额等场景，可选） }
+        idempotency_key: { type: string, maxLength: 120, nullable: true, description: 幂等键（缺省由服务端按 case+action 生成） }
+
+    DispositionResult:
+      type: object
+      description: AA-SK-03 处置提交裁决（SC-02 路由）
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        route: { type: string, enum: [approval_required, refused_mid_risk, executed, idempotent_hit, failed_manual, evidence_missing], description: 裁决路由 }
+        code: { type: string, description: 处置门控错误码（E-DISP-AUTH/E-DISP-SCOPE 等） }
+        approval_id: { type: string, description: 建单成功时的审批工单号 }
+        exec_id: { type: string, description: 执行成功时的处置凭证（DA-T-06） }
+        case_status: { $ref: '#/components/schemas/CaseStatus' }
+        duplicate: { type: boolean, description: 同案已有待决工单时幂等返回既有工单（一案一单） }
 
     InvestigationResult:
       type: object
@@ -1069,3 +1181,19 @@ components:
         start_ts: { type: number }
         end_ts: { type: number }
         duration_ms: { type: number }
+    SkillSpec:
+      description: Skill 装载元数据（API-W-24）；来源 skills/AA-SK-*.md frontmatter，与 scripts/skill_pack_validate.py 同源解析
+      type: object
+      properties:
+        name: { type: string, example: AA-SK-01-signal-aggregation }
+        version: { type: string, example: 1.5.0 }
+        description: { type: string }
+        agent: { type: string, description: 黄金岗位（AA-AG-02~05） }
+        entrypoint: { type: string, description: entrypoint 文件路径（相对仓库根） }
+        depends_mcp: { type: array, items: { type: string } }
+        depends_tables: { type: array, items: { type: string } }
+        tests: { type: string }
+        test_cases: { type: integer }
+        degradation_paths: { type: array, items: { type: string } }
+        loadable: { type: boolean, description: entrypoint 可导入且 frontmatter 齐全 }
+        error: { type: string, description: 不可装载原因（loadable=false 时留痕） }

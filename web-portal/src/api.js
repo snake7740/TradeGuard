@@ -37,6 +37,7 @@ export const postReview = (caseId, body) => http.post(`/cases/${caseId}/review`,
 // ---- pipeline actions（04 §10.1 三端真实调用链）----
 export const aggregateCase = (caseId) => http.post(`/cases/${caseId}/aggregate`)        // API-W-17
 export const investigateCase = (caseId) => http.post(`/cases/${caseId}/investigate`)    // API-W-18
+export const submitDisposition = (caseId, body) => http.post(`/cases/${caseId}/disposition`, body) // API-W-23（SC-02）body:{action:block|freeze|reduce|release, amount?}，调查完成后提请处置/建审批单
 export const verifyCase = (caseId, execId) => http.post(`/cases/${caseId}/verify`, { exec_id: execId }) // API-W-19
 export const getDispositions = (caseId) => http.get(`/cases/${caseId}/dispositions`)    // API-W-22（核验取 exec_id）
 export const getDemoSubjects = (limit = 10, severity) => http.get('/demo/subjects', { params: { limit, severity } }) // API-W-21（severity 软过滤，BUG-01/R-46）

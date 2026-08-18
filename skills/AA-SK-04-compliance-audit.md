@@ -1,3 +1,16 @@
+---
+name: AA-SK-04-compliance-audit
+version: 1.5.0
+description: 处置核验与合规审计（BA-BP-01K，十分钟核验 BA-BR-08）
+agent: AA-AG-05
+entrypoint: services/web-api/app/skills/verification.py
+depends-mcp: execute_disposition, record_case_evidence, submit_kb_application
+depends-tables: disposition_record, audit_log, case_evidence, kb_document, risk_case, risk_signal
+tests: services/web-api/tests/test_verification.py
+test-cases: 5
+degradation-paths: 核验不一致反向处置+P0 升级, 反向处置被拒 ROLLBACK_ESCALATED 转人工不谎报 RollbackExecuted
+---
+
 # AA-SK-04 compliance-audit · 处置核验与合规审计
 
 > 承载：AA-AG-05（合规审计 Agent）｜ 确定性内核：services/web-api/app/skills/verification.py
@@ -30,4 +43,4 @@
 
 ## 验收锚点
 
-SC-08（审计回放）、SC-04（核验不一致反向处置）、BA-BR-08 计时。测试载体：services/web-api/tests/test_verification.py（3 例，verification.py 覆盖率 93%，110/110 全绿）。
+SC-08（审计回放）、SC-04（核验不一致反向处置）、BA-BR-08 计时。测试载体：services/web-api/tests/test_verification.py（5 例，verification.py 覆盖率 93%，110/110 全绿）。

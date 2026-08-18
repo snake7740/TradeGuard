@@ -202,6 +202,9 @@
             @click="runPipeline('investigate')">启动调查</el-button>
           <el-button v-if="canVerify" type="primary" :loading="pipe.busy"
             @click="runPipeline('verify')">触发核验</el-button>
+          <!-- API-W-23（SC-02）：调查完成后人工提请处置，高风险经 E-DISP-AUTH 门控建单转审批 -->
+          <el-button v-if="canSubmitDisposition" type="primary" :loading="disp.submitting"
+            @click="openDisposition">提请处置审批</el-button>
           <el-button v-if="detail.info.status === 'MANUAL_REVIEW'" type="warning"
             @click="detailVisible = false">前往复核队列处理</el-button>
           <el-button v-if="detail.info.status === 'PENDING_APPROVAL'" type="warning"
@@ -240,6 +243,40 @@
         <el-button type="primary" :loading="review.submitting" @click="submitReview">提交复核</el-button>
       </template>
     </el-dialog>
+
+    <!-- 处置提交弹窗（API-W-23，SC-02）：调查完成后提请处置，高风险经门控建审批单 -->
+    <el-dialog v-model="dispVisible" :title="`提请处置 · ${disp.caseId}`" width="520px">
+      <el-form label-width="80px">
+        <el-form-item label="处置动作">
+          <el-radio-group v-model="disp.action" class="review-radios">
+            <el-radio value="freeze">
+              账户冻结
+              <span class="hint">冻结涉事账户资金流出（高风险默认）</span>
+            </el-radio>
+            <el-radio value="block">
+              交易拦截
+              <span class="hint">拦截后续交易指令</span>
+            </el-radio>
+            <el-radio value="reduce">
+              额度下调
+              <span class="hint">下调交易/取现额度（需填调整后额度）</span>
+            </el-radio>
+            <el-radio value="release">
+              解除管控
+              <span class="hint">解除既有管控措施</span>
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="disp.action === 'reduce'" label="调整后额度">
+          <el-input-number v-model="disp.amount" :min="0" :max="10000000" :step="1000"
+            controls-position="right" style="width:220px" placeholder="下调后的额度（元）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dispVisible = false">取消</el-button>
+        <el-button type="primary" :loading="disp.submitting" @click="submitDispositionAction">提交审批</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -248,7 +285,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { getCases, postAlert, getCase, getSignals, getEvidence, getGraph, getAuditTrail,
-  postReview, aggregateCase, investigateCase, verifyCase, getDispositions,
+  postReview, aggregateCase, investigateCase, submitDisposition, verifyCase, getDispositions,
   getDemoSubjects, openEventStream } from '../api'
 import { STAGES, STATUS_META, NEXT_STEP, SEVERITY_META, EDGE_LABELS, INFO_LABELS,
   DISP_STATUS_META, statusLabel, statusMeta, routeLabel, actionLabel, auditActionLabel,
@@ -354,6 +391,7 @@ const pipe = reactive({ busy: false })
 const canAggregate = computed(() => ['REGISTERED', 'AGGREGATING'].includes(detail.info.status))
 const canInvestigate = computed(() => detail.info.status === 'INVESTIGATING')
 const canVerify = computed(() => detail.info.status === 'DISPOSED')
+const canSubmitDisposition = computed(() => detail.info.status === 'PENDING_APPROVAL')
 
 async function refreshDetail() {
   try {
@@ -382,6 +420,33 @@ async function runPipeline(step) {
     await refreshDetail()
   } catch (e) { ElMessage.error(friendlyError(e, '推进失败')) }
   finally { pipe.busy = false }
+}
+
+// ---- 处置提交（API-W-23，SC-02）：调查完成后人工提请，高风险经门控建单转审批 ----
+const dispVisible = ref(false)
+const disp = reactive({ caseId: '', action: 'freeze', amount: null, submitting: false })
+
+function openDisposition() {
+  Object.assign(disp, { caseId: detail.caseId, action: 'freeze', amount: null, submitting: false })
+  dispVisible.value = true
+}
+
+async function submitDispositionAction() {
+  disp.submitting = true
+  try {
+    const body = { action: disp.action }
+    if (disp.action === 'reduce' && disp.amount != null) body.amount = disp.amount
+    const { data } = await submitDisposition(disp.caseId, body)
+    if (data.route === 'approval_required') {
+      ElMessage.success(`已${data.duplicate ? '存在待决工单' : '创建审批工单'} ${data.approval_id}，等待审批官决策`)
+    } else if (data.route === 'refused_mid_risk') {
+      ElMessage.warning('中风险段禁止无凭证自动处置（BA-BR-01），请走人工复核通道')
+    } else {
+      ElMessage.success(`已推进：${routeLabel(data.route)}`)
+    }
+    dispVisible.value = false
+    await refreshDetail()
+  } catch (e) { ElMessage.error(friendlyError(e, '处置提交失败')) } finally { disp.submitting = false }
 }
 
 // ---- 人工复核 ----

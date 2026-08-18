@@ -20,6 +20,18 @@
       </el-space>
     </el-row>
     <el-card v-if="queried" class="result" :header="`审计时间线 · ${queriedCaseId}`">
+      <!-- 结果核验入口（API-W-19/22，US-E6-01/02，AA-SK-04 审计员旅程）：
+           DISPOSED 待核验时提供一键核验（取最新 executed 凭证），一致→归档+复盘入库 -->
+      <el-alert v-if="caseInfo.status === 'DISPOSED'" type="warning" :closable="false"
+        show-icon class="verify-bar">
+        <template #title>
+          案件待核验（已执行处置，需比对凭证与实际状态一致后归档，BA-BR-08 时效内完成）
+        </template>
+        <el-button type="primary" size="small" :loading="verifying" class="verify-btn"
+          @click="runVerify">触发结果核验</el-button>
+      </el-alert>
+      <el-alert v-else-if="verifyResult" type="success" :closable="false" show-icon class="verify-bar"
+        :title="`核验一致，案件已归档（复盘已提入库申请：${verifyResult}，发布须策略管理员人工审核）`" />
       <el-timeline v-if="records.length">
         <el-timeline-item v-for="(a, i) in records" :key="i" :timestamp="a.ts" placement="top">
           <b>{{ a.actor }}</b>
@@ -38,8 +50,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getAuditTrail, getCases, openEventStream } from '../api'
-import { auditActionLabel, statusLabel, friendlyError } from '../labels'
+import { getAuditTrail, getCases, getCase, getDispositions, verifyCase, openEventStream } from '../api'
+import { auditActionLabel, statusLabel, friendlyError, routeLabel } from '../labels'
 
 const caseId = ref('')
 const queriedCaseId = ref('')
@@ -47,6 +59,9 @@ const queried = ref(false)
 const loading = ref(false)
 const records = ref([])
 const recent = ref([])
+const caseInfo = ref({})   // 所选案件状态（DISPOSED 时展示核验入口）
+const verifying = ref(false)
+const verifyResult = ref('')  // 核验一致后的复盘入库单号
 
 // 最近案件快捷选择（API-W-02 取最新 10 笔）+ SSE 事件驱动实时刷新（全页面实时闭环）
 async function refreshRecent() {
@@ -81,12 +96,36 @@ async function query() {
     records.value = Array.isArray(d) ? d : d?.items || []
     queriedCaseId.value = id
     queried.value = true
+    verifyResult.value = ''
+    try { caseInfo.value = (await getCase(id)).data } catch { caseInfo.value = {} }
   } catch (e) { ElMessage.error(friendlyError(e, '查询失败')) } finally { loading.value = false }
+}
+
+// ---- 结果核验（API-W-19，AA-SK-04）：取最新 executed 凭证比对，一致→VERIFIED→ARCHIVED ----
+async function runVerify() {
+  verifying.value = true
+  try {
+    // API-W-22：取最近一条执行成功的处置记录（多凭证时按业务取最新）
+    const { data } = await getDispositions(queriedCaseId.value)
+    const executed = (data.items || []).filter((d) => d.status === 'executed')
+    const exec = executed[executed.length - 1]
+    if (!exec) { ElMessage.warning('暂无已执行的处置记录，无法发起核验'); return }
+    const res = (await verifyCase(queriedCaseId.value, exec.exec_id)).data
+    if (res.consistency_check) {
+      verifyResult.value = res.kb_application || ''
+      ElMessage.success(`核验一致：${routeLabel('passed')}，复盘已提入库申请（pending）`)
+    } else {
+      ElMessage.error(`核验不一致：${routeLabel('rollback')}，案件已转人工复核（P0）`)
+    }
+    await query()   // 刷新状态与审计链（归档留痕立即可见）
+  } catch (e) { ElMessage.error(friendlyError(e, '核验失败')) } finally { verifying.value = false }
 }
 </script>
 
 <style scoped>
 .result { margin-top: 16px; }
+.verify-bar { margin-bottom: 16px; }
+.verify-btn { margin-left: 12px; }
 .action { margin-left: 8px; }
 .detail { color: var(--tg-text-sub); font-size: 13px; margin-top: 4px; }
 .detail.trace { font-family: Consolas, monospace; }

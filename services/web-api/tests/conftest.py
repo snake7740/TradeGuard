@@ -28,9 +28,12 @@ class RecordingPublisher:
     def __init__(self):
         self.published = []
 
-    async def publish(self, case_id, event, payload, actor, trace_id=None, **kwargs):
-        self.published.append({"case_id": case_id, "event": event, "payload": payload,
-                               "actor": actor, "trace_id": trace_id})
+    async def publish(self, case_id: str, event: str, payload: dict[str, object],
+                       actor: str, trace_id: str | None = None) -> dict[str, object]:
+        rec: dict[str, object] = {"case_id": case_id, "event": event,
+                                  "payload": payload, "actor": actor, "trace_id": trace_id}
+        self.published.append(rec)
+        return rec  # 对齐 EventPublisher 协议：返回发布信封（替身返回记录本身）
 
     async def subscribe(self, *a, **kw):  # pragma: no cover
         pass
@@ -42,9 +45,9 @@ class RecordingPublisher:
 @pytest.fixture(autouse=True, scope="session")
 def _clean_kb_tables():
     """会话级清场：kb_document/kb_embedding 无 DELETE 授权（只增语义，
-    02-roles.sql），跨轮污染会扰乱相似度检索断言，故经超级用户 TRUNCATE 保底。
-    同步清理演示剧本/历史轮次残留的 pending 审批工单：SC-09 时效扫描是全表
-    扫描，残留超期工单会被一并升级导致断言串扰。"""
+    02-roles.sql），跨轮污染由函数级 _clean_kb_per_test 兜底，此处 TRUNCATE
+    保会话起点干净。同步清理演示剧本/历史轮次残留的 pending 审批工单：
+    SC-09 时效扫描是全表扫描，残留超期工单会被一并升级导致断言串扰。"""
     import asyncio
 
     async def _truncate():
@@ -52,6 +55,26 @@ def _clean_kb_tables():
         try:
             await conn.execute("TRUNCATE kb_embedding, kb_document")
             await conn.execute("DELETE FROM approval_record WHERE decision='pending'")
+        finally:
+            await conn.close()
+
+    asyncio.run(_truncate())
+
+
+@pytest.fixture(autouse=True)
+def _clean_kb_per_test():
+    """函数级 KB 清场：kb 相似度断言对同轮前序测试留下的 published 文档
+    敏感——planner 待定档第二检索词「待定 手法特征」可命中任何含该子串的
+    文档（hash embedding cosine≈0.27 > 0.22 阈值），KPI-06 A/B 对照与
+    SC-DG-05 的「A 组无知识」前提会被污染（全量回归两次失败的根因，
+    2026-08-18）；所有 KB 断言均为函数内自包含（播种+消费同函数），
+    故每测试清空重建即可，无需跨函数保留。"""
+    import asyncio
+
+    async def _truncate():
+        conn = await asyncpg.connect(TG_SUPER_DSN)
+        try:
+            await conn.execute("TRUNCATE kb_embedding, kb_document")
         finally:
             await conn.close()
 
@@ -139,12 +162,13 @@ async def disposition(case_repo, pool):
 
 @pytest.fixture
 async def investigation(case_repo, pool):
-    """InvestigationService 装配（AA-SK-02，真实 CoreClient：图谱/证据/加分实链路）"""
+    """InvestigationService 装配（AA-SK-02，真实 CoreClient：图谱/证据/加分实链路）；
+    R-47：注入 FakeExternal 使 AG-01 规划-反思的计划执行走真实查询路径"""
     from app.skills.investigation import InvestigationService
     from app.skills.mcp_adapters import CoreClient
     repo, pub = case_repo
     return InvestigationService(pool=pool, cases=repo, core=CoreClient(MCP_CORE_URL),
-                                pub=pub), repo, pub
+                                pub=pub, external=FakeExternal()), repo, pub
 
 
 @pytest.fixture

@@ -31,7 +31,8 @@ def hash_embedding(text: str) -> list[float]:
     for g in grams:
         if not g:
             continue
-        idx = int(hashlib.md5(g.encode("utf-8")).hexdigest(), 16) % EMBED_DIM
+        idx = int(hashlib.md5(g.encode("utf-8"),
+                             usedforsecurity=False).hexdigest(), 16) % EMBED_DIM  # 特征索引非安全哈希
         vec[idx] += 1.0
     norm = math.sqrt(sum(x * x for x in vec)) or 1.0
     return [round(x / norm, 6) for x in vec]

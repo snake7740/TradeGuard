@@ -32,6 +32,7 @@ from .api import (
     health,
     kb,
     observability,
+    skills,
 )
 from .api_guards import apply_api_guards
 from .core.config_service import ConfigService
@@ -88,10 +89,11 @@ async def lifespan(app: FastAPI):
     app.state.config = ConfigService(pool=app.state.pool)  # US-E1-03 阈值热加载
     await app.state.config.start()
     # AA-SK-01 确定性聚合内核（US-E3-03/04）：外部源经 AA-MCP-02，落库经 AA-MCP-01（tg_app 写角色）
+    external = ExternalSourcesClient(MCP_EXTERNAL_URL)
     app.state.aggregation = AggregationService(
         pool=app.state.pool,
         cases=app.state.cases,
-        external=ExternalSourcesClient(MCP_EXTERNAL_URL),
+        external=external,
         core=CoreClient(MCP_CORE_URL),
         config=app.state.config,
     )  # BA-BR-05 阈值热加载
@@ -109,13 +111,15 @@ async def lifespan(app: FastAPI):
         pub=app.state.publisher,
         config=app.state.config,
     )  # SC-06 阈值热加载（D1）
-    # AA-SK-02 欺诈调查确定性内核（US-E4-01~03）：图谱/黑名单/证据固化，移交审批
+    # AA-SK-02 欺诈调查确定性内核（US-E4-01~03）：图谱/黑名单/证据固化，移交审批；
+    # R-47 AG-01 规划-反思注入同 external 通道（选择性深查与 AG-02 全量互补）
     app.state.investigation = InvestigationService(
         pool=app.state.pool,
         cases=app.state.cases,
         core=core,
         pub=app.state.publisher,
         config=app.state.config,
+        external=external,
     )  # SC-06 阈值热加载（BR-06 加分值）
     # R-46 方案甲：worker 注入双内核，滞留 INVESTIGATING 案件超时自动委托
     # （TG_DELEGATE_INVESTIGATING_SECONDS，代码缺省 0=OFF，compose 置 900）
@@ -222,6 +226,7 @@ def create_app() -> FastAPI:
         events_stream,
         config,
         observability,
+        skills,
         demo,
     ):
         app.include_router(module.router)
