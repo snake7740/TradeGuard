@@ -168,6 +168,98 @@ Feature: BA-BR-14 信号频次统计特征
 
 映射：BA-BR-14，AA-SK-01，DA-T-04 velocity_json。
 
+### SC-12 自适应基线捕获渐进盗用
+
+```gherkin
+Feature: BA-BR-15 账户自适应基线双轨评分
+  Scenario: SC-12 平稳基线突增交易入中通道
+    Given 账户 30 天小额平稳基线（DA-T-14 account_baseline 已建立）
+    When 突增约 8 倍金额交易并聚合
+    Then baseline_dev ≥ 3.0 且双轨评分取高上调风险分
+    And 全局阈值未触发亦不入自动放行通道
+```
+
+映射：BA-BR-15，DA-T-14，AA-SK-01（见 [14](./14-增强路线图多层分拆-4A到敏捷排期.md) A1）。
+
+### SC-13 拓扑分命中团伙但不驱动处置
+
+```gherkin
+Feature: BA-BR-16 / DA-INV-07 拓扑仅线索不裁决
+  Scenario: SC-13 同设备二部子图高嫌疑分不触发状态迁移
+    Given 同设备 5 账户二部子图（SAME_DEVICE 边集中度 ≥ 0.8）
+    When 调查查询 query_related_graph 返回 topology_stats
+    Then 嫌疑分 ≥ 0.3 且 degraded=false 仅作线索展示
+    And 案件状态迁移不因该分发生（risk_score 保持不变）
+```
+
+映射：BA-BR-16，DA-INV-07，AA-MCP-01。
+
+### SC-14 时序回路命中跑分剧本
+
+```gherkin
+Feature: BA-BR-17 三时序模式进入聚合评分
+  Scenario: SC-14 A→B→C→A 90 分钟内闭环命中资金回路
+    Given 主体出账→一级收款方转账→回款主体 90 分钟内闭环
+    When 信号聚合执行时序模式匹配
+    Then temporal_json 命中 fund_loop 且评分上调 ≥ 20
+```
+
+映射：BA-BR-17，AA-SK-01 temporal_patterns。
+
+### SC-15 并行假设留痕完备
+
+```gherkin
+Feature: BA-BR-18 并行假设与豁免留痕
+  Scenario: SC-15 高风险案 ≥2 假设并行深查且豁免有痕
+    Given 高风险案件含 velocity_high 与 large_amount_burst 双信号
+    When 调查 planner 生成假设并并行深查
+    Then E-INV-HYPOTHESIS 载荷 parallel=true 且 hypotheses ≥ 2
+    And 失败/跳过假设的豁免原因（如 BA-BR-10 查询事由门）入审计留痕
+```
+
+映射：BA-BR-18，AA-SK-02 planner。
+
+### SC-16 控辩辩论入审计不改裁决
+
+```gherkin
+Feature: BA-BR-19 / DA-INV-09 控辩互审
+  Scenario: SC-16 冻结建议经控辩互审且裁决权仍归审批官
+    Given 处置建议 freeze 触发 approval_required
+    When AG-01 控辩互审生成 debate_json（控/辩/裁三段）
+    Then 审批单含六键集辩论记录且 E-REVIEW-DEBATE 入审计
+    And 最终批准/驳回仍由审批官作出（debate 仅建议）
+```
+
+映射：BA-BR-19，DA-INV-09，AA-SK-03/planner debate。
+
+### SC-17 知识降级自动、发布人工
+
+```gherkin
+Feature: BA-BR-20/21 知识代谢与人审门
+  Scenario: SC-17 零引用自动降级且 Agent 直发被拒
+    Given 知识条目 30 天零引用（effectiveness 统计）
+    When 代谢任务运行
+    Then 条目自动转 pending 且 E-KB-DECAY 留痕
+    When Agent 试图直接 publish
+    Then 被拒（E-KB-HUMAN-GATE，DA-INV-06/08）
+```
+
+映射：BA-BR-20/21，DA-INV-06/08，AA-SK-05。
+
+### SC-18 角色边界 API 层强制（A0）
+
+```gherkin
+Feature: 03 §6 权限矩阵 × BA-BR-09 端点级 RBAC
+  Scenario: SC-18 越权 403 与未识别调用方留痕放行
+    Given 值班员持有效令牌
+    When 调审批/发布/配置端点
+    Then 403 E-FORBIDDEN-ROLE 且 api.forbidden 留痕
+    When 未识别调用方
+    Then 放行 + api.unknown_actor 留痕（收敛节奏同 R-37）
+```
+
+映射：03 §6，BA-BR-09，app/api_guards.py（test_multi_role_flow 流程 E）。
+
 ---
 
 ## 3. TDD 测试金字塔
@@ -176,8 +268,8 @@ Feature: BA-BR-14 信号频次统计特征
 | --- | --- | --- | --- |
 | 单元测试 | 降噪合并算法、风险评分加权、velocity 频次统计（BA-BR-14）、状态机迁移（DA-INV-01）、幂等键判定（DA-INV-03）、证据链校验（DA-INV-04） | Pytest；纯函数优先，无外部依赖 | ≥60% 行覆盖（核心域模块） |
 | 契约测试 | AA-MCP-01/02 工具 Schema 校验、错误码表、重试与降级行为；领域事件 Schema（03 §9.2） | Pytest + JSON Schema 校验 | 每个 MCP 工具 ≥2 用例（成功/失败） |
-| 集成测试 | 事件发布-订阅端到端（进程内总线必达 + RocketMQ 尽力而为，03 §9.2）、PolarDB 权限矩阵（03 §6，DA-INV-05）、RAG 检索匹配与引用对齐 | docker compose 活栈测试环境（先起栈后 pytest） | 覆盖全部 21 事件名的发布侧语义 |
-| 场景测试（E2E） | SC-01～SC-11 全量，经 compose 活栈真实链路执行（Sprint 8 实现修订：pytest 场景矩阵 `tests/test_scenario_matrix.py` 承载断言，demo_playbook 以真实 HTTP + MCP 复现同源场景，未采用 Matrix 房间断言） | pytest + 活栈 HTTP/MCP 探针 | 11/11 通过为验收线 |
+| 集成测试 | 事件发布-订阅端到端（进程内总线必达 + RocketMQ 尽力而为，03 §9.2）、PolarDB 权限矩阵（03 §6，DA-INV-05）、RAG 检索匹配与引用对齐 | docker compose 活栈测试环境（先起栈后 pytest） | 覆盖全部 25 事件名的发布侧语义 |
+| 场景测试（E2E） | SC-01～SC-18 全量，经 compose 活栈真实链路执行（Sprint 8 实现修订：pytest 场景矩阵 `tests/test_scenario_matrix.py` 承载断言，demo_playbook 以真实 HTTP + MCP 复现同源场景，未采用 Matrix 房间断言） | pytest + 活栈 HTTP/MCP 探针 | 17/17 业务场景 + SC-18 角色门控通过为验收线 |
 | 评估测试 | BA-KPI-01~05 离线评估（响应时效/召回率/误报率/人工介入率/留痕完整率） | `scripts/kpi_report.py` 双范围（全量/演示）分列判定，落盘 docs/reports/ | 固化于仓库，可复现 |
 
 **先测后码原则**：Skill 与状态机代码必须先有失败测试（红）再实现（绿）；LLM 相关断言采用"行为断言"（输出结构、引用 doc_id 存在性、审批准入触发）而非文本精确匹配，规避 LLM 不确定性。
@@ -199,8 +291,15 @@ Feature: BA-BR-14 信号频次统计特征
 | SC-09 | BR-13 | — | 集成 | CL-07 |
 | SC-10 | BR-01（中风险） | INV-01 | 场景+单元 | CL-04 |
 | SC-11 | BR-14 | — | 单元+场景 | CL-02 |
+| SC-12 | BR-15 | INV-01 | 单元+场景 | CL-02 |
+| SC-13 | BR-16 | INV-07 | 契约+场景 | CL-02 |
+| SC-14 | BR-17 | INV-01 | 单元+场景 | CL-02 |
+| SC-15 | BR-18 | INV-01 | 集成 | CL-06 |
+| SC-16 | BR-19 | INV-09 | 集成+场景 | CL-06/07 |
+| SC-17 | BR-20/21 | INV-06/08 | 集成+场景 | CL-08 |
+| SC-18 | 03 §6 × BR-09 | —（A0） | 契约（流程 E） | CL-07 |
 
-**完备性声明**：14 条 BA 规则中，阈值类规则 BR-06 由评分单元测试覆盖，BR-05 高频异常规则由专项测试（tests/test_br05_high_freq.py）覆盖触发/未触发/阈值可配置三个分支，BR-12 数据保留为运维策略不在测试范围；其余规则均有场景或单元级测试承载；6 条 DA 不变量 100% 有测试映射。
+**完备性声明**：21 条 BA 规则中，阈值类规则 BR-06 由评分单元测试覆盖，BR-05 高频异常规则由专项测试（tests/test_br05_high_freq.py）覆盖触发/未触发/阈值可配置三个分支，BR-12 数据保留为运维策略不在测试范围；其余规则均有场景或单元级测试承载；9 条 DA 不变量 100% 有测试映射。
 
 ---
 
@@ -212,7 +311,7 @@ Feature: BA-BR-14 信号频次统计特征
 | 实现 M1 | 最小闭环：Manager 分派→Worker 调 MCP→状态流转；契约测试 + SC-01 通过 |
 | 实现 M2 | 审批链路：SC-02/SC-03 通过；状态机与幂等单元测试全绿 |
 | 实现 M3 | 知识与审计：SC-05/SC-08 通过；集成测试全绿 |
-| 验收 | 11/11 场景通过 + 评估脚本输出 KPI 报告 + Demo 场景与场景测试同源（演示即测试复现） |
+| 验收 | 17/17 业务场景 + SC-18 角色门控通过 + 评估脚本输出 KPI 报告 + Demo 场景与场景测试同源（演示即测试复现） |
 
 **纪律**：任何场景测试失败不得发布；演示 Demo 的场景数据与场景测试夹具同源，保证"现场演示 = 已验证行为"，杜绝演示专用旁路代码。
 

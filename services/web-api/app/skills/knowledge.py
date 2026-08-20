@@ -7,17 +7,32 @@ embedding 仅需换 hash_embedding 实现（端口/适配器，02 §6）。
 
 发布门控（DA-INV-06 双守护）：应用层强制 human:* 操作者 + 事务内
 set_config('tg.actor') 供 DB 触发器校验；检索仅见 published（SC-05）。
+
+知识代谢（E1，BA-BR-20，docs/14 US-E11）：cite_count/hit_correct 累积 →
+effectiveness_score 统计；长期零引用自动降级 pending（降级自动，升级与
+发布人工），降级留痕并发 E-KB-DECAY 事件。
 """
 from __future__ import annotations
 
 import hashlib
 import math
 import uuid
+from typing import Any
 
 EMBED_DIM = 1024
 CHUNK_SIZE = 200          # 切块长度（字符）
 SIMILARITY_MIN = 0.22     # 检索命中阈值：哈希 embedding 下同主题实测 ≈0.29、异主题 ≤0.09，
                           # 取 0.22 分隔（低于即视为未命中，AA-SK-02 引用纪律）
+KB_DECAY_DAYS = 30        # E1 代谢窗口：published 条目 N 天零引用自动转 pending（BA-BR-20）
+KB_DECAY_ACTOR = "system:kb-metabolism"
+
+
+def effectiveness(cite_count: int, hit_correct: int) -> float:
+    """E1 有效性分（单测目标）：命中且反哺定性成功次数 / 引用次数，
+    零引用记 0.0（未经验证不得给高分，BA-BR-20 降级依据同源）"""
+    if not cite_count:
+        return 0.0
+    return round(min(1.0, max(0.0, hit_correct / cite_count)), 2)
 
 
 def hash_embedding(text: str) -> list[float]:
@@ -115,5 +130,64 @@ async def search_kb(pool, query: str, top_k: int = 5, embedder=None) -> list[dic
            GROUP BY e.doc_id, d.title
            ORDER BY similarity DESC LIMIT $2""",
         _vec_literal(await embedder.embed(query)), top_k)
-    return [{"doc_id": r["doc_id"], "title": r["title"], "similarity": float(r["similarity"])}
+    hits = [{"doc_id": r["doc_id"], "title": r["title"], "similarity": float(r["similarity"])}
             for r in rows if r["similarity"] >= SIMILARITY_MIN]
+    if hits:  # E1 引用计数累积（代谢统计输入，best-effort 不阻断检索）
+        try:
+            await pool.execute(
+                "UPDATE kb_document SET cite_count = cite_count + 1"
+                " WHERE doc_id = ANY($1::varchar[])",
+                [h["doc_id"] for h in hits])
+        except Exception:  # noqa: BLE001 —— 计数失败不影响检索结果
+            pass
+    return hits
+
+
+async def mark_kb_feedback(pool, doc_ids: list[str]) -> None:
+    """E1 命中正确性反哺：KB 引用成功升级定性（R-48 反哺路径）时记 hit_correct，
+    best-effort 不阻断调查主链路（US-E11）"""
+    if not doc_ids:
+        return
+    try:
+        await pool.execute(
+            "UPDATE kb_document SET hit_correct = hit_correct + 1"
+            " WHERE doc_id = ANY($1::varchar[])", list(dict.fromkeys(doc_ids)))
+    except Exception:  # noqa: BLE001 —— 统计失败不影响调查结论
+        pass
+
+
+async def kb_metabolism(pool, pub, decay_days: int = KB_DECAY_DAYS) -> dict[str, Any]:
+    """E1 知识代谢任务（BA-BR-20，SC-17 载体，US-E11）：
+      1) effectiveness_score 全量重算（published 条目，cite/hit 累积输入）；
+      2) 自动降级：超窗零引用 published → pending（降级自动；升级/发布仍人工，
+         DA-INV-06 方向不变：本函数从不置 published）+ 审计 + E-KB-DECAY 事件。
+    """
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute(
+            """UPDATE kb_document SET effectiveness_score = CASE
+                   WHEN cite_count > 0
+                   THEN ROUND(LEAST(1.0, hit_correct::numeric / cite_count), 2)
+                   ELSE 0 END
+               WHERE status = 'published'""")
+        decayed = await conn.fetch(
+            """UPDATE kb_document SET status='pending'
+               WHERE status='published' AND cite_count = 0
+                 AND COALESCE(reviewed_at, ts)
+                     < now() - make_interval(days=>$1)
+               RETURNING doc_id, title""",
+            decay_days)
+        for r in decayed:
+            await conn.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis)
+                   VALUES ($1, $2, 'kb.decay', $3, $4)""",
+                uuid.uuid4().hex, KB_DECAY_ACTOR, r["doc_id"],
+                f"{decay_days} 天零引用自动降级 pending（BA-BR-20，重新发布须人工）"[:300])
+    for r in decayed:  # 事件在事务外发（SSE/MQ 不因投递失败回滚降级）
+        await pub.publish(
+            r["doc_id"], "E-KB-DECAY",
+            {"doc_id": r["doc_id"], "title": r["title"],
+             "reason": f"zero_citation_{decay_days}d",
+             "new_status": "pending"},
+            KB_DECAY_ACTOR)
+    return {"decayed": len(decayed),
+            "doc_ids": [r["doc_id"] for r in decayed]}

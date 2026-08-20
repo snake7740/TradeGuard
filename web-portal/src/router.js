@@ -11,13 +11,13 @@ const HOME_BY_ROLE = {
 const routes = [
   { path: '/', redirect: () => HOME_BY_ROLE[currentRole()] || '/observe' },
   { path: '/cases', name: 'cases', component: () => import('./views/CaseWorkbench.vue'),
-    meta: { title: '案件工作台', roles: ['风控值班员'] } },
+    meta: { title: '案件工作台', roles: ['风控值班员'] } },  // A0 角色工作台分化：案件工作台专属值班员
   { path: '/approvals', name: 'approvals', component: () => import('./views/ApprovalPortal.vue'),
-    meta: { title: '审批门户', roles: ['风控审批官'] } },
+    meta: { title: '复核审批工作台', roles: ['风控审批官'] } },  // 审批官专属：人工复核队列 + 审批工单
   { path: '/audit', name: 'audit', component: () => import('./views/AuditQuery.vue'),
-    meta: { title: '审计查询', roles: ['合规审计员'] } },
+    meta: { title: '审计工作台', roles: ['合规审计员'] } },  // 审计员专属：审计回放 + 结果核验
   { path: '/kb', name: 'kb', component: () => import('./views/KnowledgeBase.vue'),
-    meta: { title: '知识库管理', roles: ['风控策略管理员'] } },
+    meta: { title: '策略工作台', roles: ['风控策略管理员'] } },  // 策略管理员专属：知识审核发布
   { path: '/observe', name: 'observe', component: () => import('./views/Observability.vue'),
     meta: { title: '可观测面板', roles: [...ROLES] } },
   // 404 兜底：未知路径不再白屏，统一回到当前角色首页

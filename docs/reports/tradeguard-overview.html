@@ -489,8 +489,8 @@
         <div class="meta">
           覆盖风控决策完整闭环 ｜ 5 Agent 黄金岗位协同（AgentTeams）｜ 5 Skill
           自包含技能包 ｜ 文档体系 docs/00~12<br />
-          自动化测试 252 例全绿（25 文件实链路）｜ 五维度终评 89/100 ｜
-          三个典型业务场景 + SC-01~11 BDD 矩阵 ｜ 展示日期 2026-08-19<br />
+          自动化测试 296 例全绿（29 文件实链路）｜ 五维度终评 89/100 ｜
+          三个典型业务场景 + SC-01~18 BDD 矩阵 ｜ 展示日期 2026-08-19<br />
           <b style="color: #e8c98a"
             >本材料所有结论均来自真实运行，而非仅停留在方案推演。</b
           >
@@ -512,8 +512,8 @@
           <div class="card">
             <h4>二、业务设计<span class="toc-chip">P6–P10</span></h4>
             <p>
-              业务能力地图（七项能力）→ 核心业务对象（13 表）→ 端到端流程与风险分级
-              → 业务规则（完整 14 条）→ 角色与人机边界
+              业务能力地图（七项能力）→ 核心业务对象（15 表）→ 端到端流程与风险分级
+              → 业务规则（完整 21 条）→ 角色与人机边界
             </p>
           </div>
           <div class="card">
@@ -526,7 +526,7 @@
           <div class="card">
             <h4>四、质量与验证<span class="toc-chip">P18–P21</span></h4>
             <p>
-              BDD·DDD·TDD 验证体系（SC-01~11 追溯矩阵）→ 质量保障（252 例 +
+              BDD·DDD·TDD 验证体系（SC-01~18 追溯矩阵）→ 质量保障（296 例 +
               五道 CI 门禁）→ 运行效果与六维 KPI → 五维度终评（66 → 89）
             </p>
           </div>
@@ -702,7 +702,7 @@
         <div class="card" style="margin-top: 14px">
           <h4>可验证性承诺</h4>
           <p>
-            设计不停留在纸面：252 例自动化测试（真实数据库 + 双 MCP 实链路）、SC-01~11
+            设计不停留在纸面：296 例自动化测试（真实数据库 + 双 MCP 实链路）、SC-01~18
             BDD 场景矩阵、ULB
             公开数据集 284,807 笔回放、六维 KPI 周期落盘——第四部分逐项给出证据。
           </p>
@@ -937,12 +937,12 @@
         </div>
       </section>
 
-      <!-- ============ P09 二(4/5) 业务规则（完整 14 条） ============ -->
+      <!-- ============ P09 二(4/5) 业务规则（完整 21 条） ============ -->
       <section class="slide">
         <div class="kicker">二、业务设计 · 4/5</div>
-        <h2 class="title">业务规则：完整 14 条（BA-BR-01 ~ BA-BR-14）</h2>
+        <h2 class="title">业务规则：完整 21 条（BA-BR-01 ~ BA-BR-21）</h2>
         <div class="subtitle">
-          每条规则末列标注守护它的 BDD 场景或不变量（追溯矩阵见 P18）——14 条规则无一条悬空；7 条经 Nacos 动态可调，变化无需改代码
+          每条规则末列标注守护它的 BDD 场景或不变量（追溯矩阵见 P18）——21 条规则无一条悬空；7 条经 Nacos 动态可调，变化无需改代码；BR-15~21 为增强路线图（docs/14）扩展
         </div>
         <table class="compact">
           <tr>
@@ -1034,6 +1034,48 @@
             <td>信号强制携带 velocity_1h / velocity_24h 频次特征参与评分（对标社区 velocity 实践）</td>
             <td>Nacos 动态（阈值）</td>
             <td>SC-11</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-15</b></td>
+            <td>账户自适应基线偏离度进入评分，与全局阈值双轨取高（缺失回退全局）</td>
+            <td>硬编码（双轨）</td>
+            <td>SC-12 · INV-01</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-16</b></td>
+            <td>图拓扑团伙分仅作调查线索，不得进入处置裁决</td>
+            <td>硬编码强制</td>
+            <td>SC-13 · INV-07</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-17</b></td>
+            <td>资金回路/快进快出/夜间突发三时序模式进入聚合评分</td>
+            <td>硬编码（规则）</td>
+            <td>SC-14</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-18</b></td>
+            <td>并行假设调查必须留痕「为什么没查 X」（豁免原因入审计）</td>
+            <td>硬编码强制</td>
+            <td>SC-15</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-19</b></td>
+            <td>控辩辩论记录必须入审计，且不改变裁决权归属</td>
+            <td>硬编码强制</td>
+            <td>SC-16 · INV-09</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-20</b></td>
+            <td>知识有效性降级自动、升级与发布人工（effectiveness 统计驱动）</td>
+            <td>定时任务 + 人工门</td>
+            <td>SC-17 · INV-06</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-21</b></td>
+            <td>规则提案（rule_proposal）经策略管理员审核方可生效</td>
+            <td>DB 触发器 + 人工门</td>
+            <td>SC-17 · INV-08</td>
           </tr>
         </table>
         <div class="foot">
@@ -1391,7 +1433,7 @@
           <tr>
             <td><b>PostgreSQL（pgvector）</b></td>
             <td>业务 / 向量 / 审计一体存储</td>
-            <td>13 表 + 向量索引 + 触发器双守护</td>
+            <td>15 表 + 向量索引 + 触发器双守护</td>
           </tr>
           <tr>
             <td><b>Higress</b></td>
@@ -1628,12 +1670,12 @@
         <div class="kicker">四、质量与验证 · 1/4</div>
         <h2 class="title">BDD · DDD · TDD：规格、设计与测试互锁</h2>
         <div class="subtitle">
-          承接前三部分：14 条规则（P09）、13 表与 6 条不变量（P07/P17）、5 Skill（P12）如何互锁？追溯矩阵是粘合剂——每条规则有场景守护，每个场景有测试承载
+          承接前三部分：21 条规则（P09）、15 表与 9 条不变量（P07/P17）、5 Skill（P12）如何互锁？追溯矩阵是粘合剂——每条规则有场景守护，每个场景有测试承载
         </div>
         <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px">
           <table class="compact">
             <tr>
-              <th>BDD 场景（SC-01~11）</th>
+              <th>BDD 场景（SC-01~18）</th>
               <th>BA 规则</th>
               <th>DA 不变量</th>
               <th>测试层</th>
@@ -1649,22 +1691,29 @@
             <tr><td><b>SC-09</b> 审批时效升级</td><td>BR-13</td><td>—</td><td>集成</td></tr>
             <tr><td><b>SC-10</b> 中风险禁自动处置</td><td>BR-01（中风险）</td><td>INV-01</td><td>场景+单元</td></tr>
             <tr><td><b>SC-11</b> velocity 频次特征</td><td>BR-14</td><td>—</td><td>单元+场景</td></tr>
+            <tr><td><b>SC-12</b> 自适应基线双轨</td><td>BR-15</td><td>INV-01</td><td>单元+场景</td></tr>
+            <tr><td><b>SC-13</b> 图拓扑团伙线索化</td><td>BR-16</td><td>INV-07</td><td>契约+场景</td></tr>
+            <tr><td><b>SC-14</b> 异常窗口自修正</td><td>BR-17</td><td>INV-01</td><td>单元+场景</td></tr>
+            <tr><td><b>SC-15</b> 调查记忆沉淀</td><td>BR-18</td><td>INV-01</td><td>集成</td></tr>
+            <tr><td><b>SC-16</b> 控辩辩论裁决</td><td>BR-19</td><td>INV-09</td><td>集成+场景</td></tr>
+            <tr><td><b>SC-17</b> 结果核验与沉淀闭环</td><td>BR-20/21</td><td>INV-06/08</td><td>集成+场景</td></tr>
+            <tr><td><b>SC-18</b> 角色门控（菜单×API）</td><td>03 §6 × BR-09</td><td>—（A0）</td><td>契约（流程 E）</td></tr>
           </table>
           <div>
             <div class="card" style="margin-bottom: 10px">
               <h4>DDD：设计依据</h4>
               <p>
                 5 聚合根（RiskCase / EvidenceChain / Disposition / Approval /
-                KbDocument，跨聚合只以 ID 引用）+ 21 个领域事件（立案 1 +
-                状态迁移 18 + 计时 2，与 OpenAPI SseEvent 逐字一致）+ 6
-                条不变量 DA-INV-01~06 作为代码与测试的一致性契约（docs/03 §9）。
+                KbDocument，跨聚合只以 ID 引用）+ 25 个领域事件（立案 1 +
+                状态迁移 18 + 计时 2 + 领域扩展 4，与 OpenAPI SseEvent 逐字一致）+ 9
+                条不变量 DA-INV-01~09 作为代码与测试的一致性契约（docs/03 §9）。
               </p>
             </div>
             <div class="card" style="margin-bottom: 10px">
               <h4>BDD：行为规格</h4>
               <p>
-                11 个场景以 Given-When-Then
-                写成可执行验收标准——设计期即行为规格，实现期即验收线（11/11
+                18 个场景以 Given-When-Then
+                写成可执行验收标准——设计期即行为规格，实现期即验收线（SC-01~18
                 全绿）；左表每行可回溯到规则与不变量，无悬空场景。
               </p>
             </div>
@@ -1673,7 +1722,7 @@
               <p>
                 先测后码（红-绿-重构）：单元（降噪/评分/velocity/状态机/幂等）→
                 契约（MCP Schema/错误码/降级）→ 集成（活栈事件/权限矩阵/RAG）→
-                场景 E2E（SC-01~11 真实链路）→ 评估（KPI 落盘可复现，P20）。
+                场景 E2E（SC-01~18 真实链路）→ 评估（KPI 落盘可复现，P20）。
               </p>
             </div>
           </div>
@@ -1681,8 +1730,8 @@
         <div class="card" style="margin-top: 12px">
           <h4>完备性声明（docs/06 §4）与「演示即测试复现」</h4>
           <p>
-            14 条规则中 BR-06 由评分单元测试、BR-05 由专项三分支测试（test_br05_high_freq.py）承载、BR-12
-            为运维策略不在测试范围，其余 11 条全部由左表场景守护；6 条不变量 100%
+            21 条规则中 BR-06 由评分单元测试、BR-05 由专项三分支测试（test_br05_high_freq.py）承载、BR-12
+            为运维策略不在测试范围，其余全部由左表场景守护；9 条不变量 100%
             有测试映射。演示剧本 D1~D3 与场景矩阵同源（同一契约与断言），第五部分三场景即本表
             SC-01 / SC-02+08 / SC-03+07 的真人操作回放。
           </p>
@@ -1701,8 +1750,8 @@
         </div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px">
           <div class="card" style="text-align: center">
-            <div class="num">252</div>
-            <p>自动化测试全绿<br />（25 文件 · PG + 双 MCP 实链路）</p>
+            <div class="num">296</div>
+            <p>自动化测试全绿<br />（29 文件 · PG + 双 MCP 实链路）</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">5/5</div>
@@ -1725,7 +1774,7 @@
           <tr>
             <td><b>全量实链路回归</b></td>
             <td>
-              25 文件 252 例：PG16/pgvector :5433 + 双 MCP :8101/:8102
+              29 文件 296 例：PG16/pgvector :5433 + 双 MCP :8101/:8102
               真实服务 + RocketMQ 降级矩阵；宿主 Docker
               当夜随机崩溃 4 次，以文件粒度断点续跑 + 崩溃自动恢复的分批监督脚本跑完全绿（工程韧性实证）
             </td>
@@ -1865,7 +1914,7 @@
             <td>25%</td>
             <td>16</td>
             <td><b>22</b></td>
-            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~11 BDD 矩阵</td>
+            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~18 BDD 矩阵</td>
           </tr>
           <tr>
             <td><b>2 协同能力</b></td>
@@ -1886,7 +1935,7 @@
             <td>20%</td>
             <td>16</td>
             <td><b>18</b></td>
-            <td>252 例全绿（实链路）；CI 五道门禁 + 实质缺陷修复；R-37 安全纵深；压测 + 备份演练</td>
+            <td>296 例全绿（实链路）；CI 五道门禁 + 实质缺陷修复；R-37 安全纵深；压测 + 备份演练</td>
           </tr>
           <tr>
             <td><b>5 开源开放</b></td>
@@ -2119,16 +2168,16 @@
         <div class="subtitle">「下载即完整启动、结论即真实运行」是本方案的可信基线</div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px">
           <div class="card" style="text-align: center">
-            <div class="num">252</div>
-            <p>自动化测试全绿<br />（25 文件实链路）</p>
+            <div class="num">296</div>
+            <p>自动化测试全绿<br />（29 文件实链路）</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">89/100</div>
             <p>五维度终评<br />（66 → 89，证据可复现）</p>
           </div>
           <div class="card" style="text-align: center">
-            <div class="num">3 + 11</div>
-            <p>三个典型演示场景<br />+ SC-01~11 BDD 矩阵全绿</p>
+            <div class="num">3 + 18</div>
+            <p>三个典型演示场景<br />+ SC-01~18 BDD 矩阵全绿</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">284,807</div>

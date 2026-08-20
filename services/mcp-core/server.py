@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import uuid
+from typing import Any
 
 import asyncpg
 from mcp.server.fastmcp import FastMCP
@@ -98,14 +99,70 @@ async def query_transactions(account_hash: str, hours: int = 24, limit: int = 10
         await conn.close()
 
 
+def _topology_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """B1 拓扑统计（BA-BR-16 / DA-INV-07，docs/14 US-E9）：星型密度/三角形环/
+    SAME_DEVICE 二部集中度/嫌疑分。与 web-api investigation.topology_stats 同源算法；
+    仅作调查线索，不得驱动处置裁决（DA-INV-07）。"""
+    if not rows:
+        return {"nodes": 1, "edges": 0, "star_density": 0.0, "cycle_count": 0,
+                "bipartite_concentration": 0.0, "suspicion": 0.0, "degraded": False}
+    adj: dict[str, set[str]] = {}
+    deg: dict[str, int] = {}
+    for e in rows:
+        s, d = str(e.get("src_node", "")).strip(), str(e.get("dst_node", "")).strip()
+        if not s or not d:
+            continue
+        adj.setdefault(s, set()).add(d)
+        adj.setdefault(d, set())
+        deg[s] = deg.get(s, 0) + 1
+        deg[d] = deg.get(d, 0) + 1
+    n = len(adj) or 1
+    m = sum(len(v) for v in adj.values())
+    star_density = round((max(deg.values()) / m) if m else 0.0, 3)
+    cycle_count = 0
+    seen: set[tuple[str, ...]] = set()
+    for a, outs in adj.items():
+        for b in outs:
+            for c in adj.get(b, ()):
+                if (c in adj.get(a, ()) or a in adj.get(c, ())) \
+                        and c != a and c != b:
+                    key = tuple(sorted((a, b, c)))
+                    if key not in seen:
+                        seen.add(key)
+                        cycle_count += 1
+    bip = 0.0
+    dv: dict[str, int] = {}
+    for e in rows:
+        if e.get("edge_type") == "SAME_DEVICE":
+            k = str(e.get("dst_node", "")).strip()
+            dv[k] = dv.get(k, 0) + 1
+    if dv:
+        bip = round(max(dv.values()) / max(1, len(dv)), 3)
+    suspicion = round(min(1.0, 0.4 * star_density + 0.3 * min(cycle_count, 3) / 3
+                          + 0.3 * bip), 3)
+    return {"nodes": n, "edges": m, "star_density": star_density,
+            "cycle_count": cycle_count, "bipartite_concentration": bip,
+            "suspicion": suspicion, "degraded": False}
+
+
 @mcp.tool()
 async def query_related_graph(account_hash: str, hops: int = 2) -> str:
-    """API-M-02：关联图谱查询（UnifiedModel 退化路径，2 跳上限 AA-SK-02 安全边界）"""
+    """API-M-02：关联图谱查询（UnifiedModel 退化路径，2 跳上限 AA-SK-02 安全边界）。
+    返回 edges + topology_stats（B1 拓扑线索，仅研判不裁决，DA-INV-07，US-E9）；
+    拓扑计算异常降级空统计（degraded=true），图查询本体不阻断。"""
     hops = min(max(hops, 1), 2)
     conn = await _conn()
     try:
         rows = await conn.fetch("SELECT * FROM fn_related_graph($1, $2)", account_hash, hops)
-        return json.dumps([dict(r) for r in rows], ensure_ascii=False, default=str)
+        edges = [dict(r) for r in rows]
+        try:
+            stats = await asyncio.wait_for(
+                asyncio.to_thread(_topology_stats, edges), timeout=2.0)
+        except Exception:  # noqa: BLE001 —— 拓扑统计降级空统计，图查询不阻断
+            stats = {"nodes": 0, "edges": 0, "star_density": 0.0, "cycle_count": 0,
+                     "bipartite_concentration": 0.0, "suspicion": 0.0, "degraded": True}
+        return json.dumps({"edges": edges, "topology_stats": stats},
+                          ensure_ascii=False, default=str)
     finally:
         await conn.close()
 
@@ -420,8 +477,10 @@ async def record_case_signals(case_id: str, risk_score: int, signals: list[dict]
 
 @mcp.tool()
 async def submit_kb_application(case_id: str, category: str, title: str, content: str) -> str:
-    """API-M-05：知识入库申请（AA-SK-05；仅写 pending 申请单，发布由人类经 API-W-12 确认，DA-INV-06）"""
-    if category not in ("case", "regulation", "runbook"):
+    """API-M-05：知识入库申请（AA-SK-05；仅写 pending 申请单，发布由人类经 API-W-12 确认，DA-INV-06）。
+    E2 规则进化（US-E11）：rule_proposal 类目以 pending 申请单进入，置 published 须
+    经 human:* 人审（DA-INV-08 DB 触发器守护，BA-BR-21），直接发布一律拒绝。"""
+    if category not in ("case", "regulation", "runbook", "rule_proposal"):
         return json.dumps({"code": "E-BAD-CATEGORY", "message": f"非法类目 {category}"})
     doc_id = uuid.uuid4().hex
     conn = await _conn()

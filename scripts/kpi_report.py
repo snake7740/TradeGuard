@@ -17,6 +17,9 @@
   KPI-06  记忆进化增益（观测型，R-48）：investigation.complete 审计 basis 解析
          hypothesis/citations 分组，KB 命中组 vs 未命中组的假设待定率差即
          记忆反哺定性增益；另报 KB 命中率（知识沉淀覆盖度）。
+  KPI-07  处置后 30 天再犯率（观测型，docs/14 C2/US-E12）：disposition_outcome
+         T+30 窗口已回填案件中 t30_label='recidivism'（同主体再立案）占比；
+         另报 T+7 同口径与申诉率（appealed，误处置信号）。
 
 样本构成说明：库内含自动化测试残留（立案审计 basis source=TEST，及绕过
 API-W-01 的直插无档案案件）与业务案件（门户/剧本立案 source=demo_script）。
@@ -154,6 +157,24 @@ async def compute(conn) -> dict[str, Any]:
             "grounding_gain": (
                 pend_wo / wo_n - pend_w / w_n) if (w_n and wo_n) else None,
         }
+        # KPI-07 处置后 30 天再犯率（C2 长窗回填，docs/14 US-E12，观测型）
+        row = await conn.fetchrow(f"""
+            SELECT count(*) FILTER (WHERE do.t30_label IS NOT NULL) AS n30,
+                   count(*) FILTER (WHERE do.t30_label='recidivism') AS recur30,
+                   count(*) FILTER (WHERE do.t7_label IS NOT NULL) AS n7,
+                   count(*) FILTER (WHERE do.t7_label='recidivism') AS recur7,
+                   count(*) FILTER (WHERE do.appealed_flag) AS appealed,
+                   count(*) AS total
+            FROM disposition_outcome do
+            JOIN risk_case rc ON rc.case_id=do.case_id
+            WHERE 1=1 {scope_sql}""")
+        kpi["KPI-07"] = {
+            "t30_total": row["n30"], "t30_recidivism": row["recur30"],
+            "value": (row["recur30"] / row["n30"]) if row["n30"] else None,
+            "t7_total": row["n7"], "t7_recidivism": row["recur7"],
+            "t7_value": (row["recur7"] / row["n7"]) if row["n7"] else None,
+            "appealed": row["appealed"], "registered": row["total"],
+        }
         out[scope] = kpi
     return out
 
@@ -214,6 +235,19 @@ def render_md(report: dict[str, Any]) -> str:
     a6, d6 = report["business"]["KPI-06"], report["demo"]["KPI-06"]
     lines.append(f"| KPI-06 | 记忆进化增益（KB 反哺定性，R-48） | 观测型 "
                  f"| {_fmt_kpi06(a6)} | — | {_fmt_kpi06(d6)} | — |")
+
+    def _fmt_kpi07(k: dict[str, Any]) -> str:
+        if not k["registered"]:
+            return "N/A（无回填样本）"
+        t30 = (f"T+30 {k['value']:.1%}（{k['t30_recidivism']}/{k['t30_total']}）"
+               if k["t30_total"] else "T+30 未到窗")
+        t7 = (f"T+7 {k['t7_value']:.1%}（{k['t7_recidivism']}/{k['t7_total']}）"
+              if k["t7_total"] else "T+7 未到窗")
+        return f"{t30}；{t7}；申诉 {k['appealed']} 例"
+
+    a7, d7 = report["business"]["KPI-07"], report["demo"]["KPI-07"]
+    lines.append(f"| KPI-07 | 处置后 30 天再犯率（C2 长窗回填） | 观测型 "
+                 f"| {_fmt_kpi07(a7)} | — | {_fmt_kpi07(d7)} | — |")
     lines += ["", "## 口径说明", "",
               "- KPI-01 统计已处置闭环案件（DISPOSED/VERIFIED/ARCHIVED 且有 executed 处置凭证），"
               "时长 = risk_case.created_at → 首条处置凭证 ts；目标线仅约束低风险案件"
@@ -230,6 +264,9 @@ def render_md(report: dict[str, Any]) -> str:
               "citations 分组，KB 命中组 vs 未命中组的假设待定率差即记忆反哺定性增益"
               "（R-48；A/B 对照测试实证见 services/web-api/tests/test_memory_kpi.py，"
               "同源信号下待定率 1.0→0.0）。",
+              "- KPI-07 观测型：disposition_outcome 由 follow_outcomes 定时任务 T+7/T+30"
+              " 双窗回填（同主体再立案=recidivism，投诉信号=appealed，否则 clean）；"
+              " 演示库窗口未到即 N/A，不设达标线（docs/14 C2，再犯触发 rule_proposal 提案）。",
               "- 演示口径：主体带 demo- 前缀播种交易（剧本 D1/D2/D3 专用主体），复跑可复现。",
               "- 业务口径：主体可关联账户档案（ground truth 载体）且立案审计来源非",
               "  source=TEST（门户/剧本人工流）；测试残留另经 scripts/kpi_clean.py", 

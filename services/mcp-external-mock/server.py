@@ -2,10 +2,12 @@
 征信 / 舆情 / 投诉三类外部源的确定性模拟 + 防腐层字段翻译；query_reason 强制（BA-BR-10，E-REASON-REQUIRED）。
 调用链路本身（HTTP→MCP→存储）与生产一致，仅响应内容为合成。
 """
+import asyncio
 import hashlib
 import json
 import os
 import random
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -74,6 +76,74 @@ async def query_complaint(subject_id: str, query_reason: str | None = None) -> s
         "query_reason": query_reason,
         "degraded": False,
     }, ensure_ascii=False)
+
+
+# ---------- F1 pyod_* 异常检测工具族（US-E12，docs/14 §1.4） ----------
+# optional extras：pyod/numpy 未安装即白名单拒绝（E-TOOL-UNAVAILABLE），
+# 主链路无感；输出仅建议分（advisory=true），不进入裁决（与 DA-INV-07 同精神）
+
+def _pyod_detect(algo: str, values: list[float], contamination: float) -> dict[str, Any]:
+    """pyod 三检测器统一入口：金额序列 → 异常索引+分数；依赖缺失抛出供上层白名单拒绝"""
+    import numpy as np  # pyright: ignore[reportMissingImports] —— pyod 传递依赖，同属 optional extras
+    x = np.asarray(values, dtype=float).reshape(-1, 1)
+    if algo == "iforest":
+        from pyod.models.iforest import IForest  # pyright: ignore[reportMissingImports]
+        model = IForest(contamination=contamination, random_state=42)
+    elif algo == "lof":
+        from pyod.models.lof import LOF  # pyright: ignore[reportMissingImports]
+        model = LOF(contamination=contamination)
+    else:
+        from pyod.models.ecod import ECOD  # pyright: ignore[reportMissingImports]
+        model = ECOD(contamination=contamination)
+    model.fit(x)
+    labels = model.labels_.tolist()
+    scores = [round(float(s), 4) for s in model.decision_scores_]
+    return {"anomaly_indices": [i for i, v in enumerate(labels) if v == 1],
+            "scores": scores, "advisory": True}
+
+
+async def _pyod_tool(algo: str, values: list[float], query_reason: str | None,
+                     contamination: float) -> str:
+    if err := _require_reason(query_reason):
+        return json.dumps(err, ensure_ascii=False)
+    if len(values or []) < 5:
+        return json.dumps({"code": "E-BAD-INPUT",
+                           "message": "pyod 检测需 ≥5 个样本点"}, ensure_ascii=False)
+    contamination = min(max(contamination, 0.01), 0.5)
+    try:
+        out = await asyncio.to_thread(_pyod_detect, algo, values, contamination)
+    except ImportError:
+        # 白名单拒绝：optional extras 未安装，工具不可用（主链路无感，14 §1.4）
+        return json.dumps({"code": "E-TOOL-UNAVAILABLE",
+                           "message": "pyod/numpy 未安装（optional extras），"
+                                      "工具白名单拒绝，不影响主链路"}, ensure_ascii=False)
+    except Exception as e:  # noqa: BLE001 —— 检测异常降级，不抛裸错
+        return json.dumps({"code": "E-TOOL-ERROR", "message": str(e)[:200]},
+                          ensure_ascii=False)
+    return json.dumps({"source": f"pyod-{algo}", "n": len(values),
+                       "query_reason": query_reason, "degraded": False, **out},
+                      ensure_ascii=False)
+
+
+@mcp.tool()
+async def pyod_iforest(values: list[float], query_reason: str | None = None,
+                       contamination: float = 0.1) -> str:
+    """F1 隔离森林检测（仅建议输出）：金额序列离群点，供调查研判参考"""
+    return await _pyod_tool("iforest", values, query_reason, contamination)
+
+
+@mcp.tool()
+async def pyod_lof(values: list[float], query_reason: str | None = None,
+                   contamination: float = 0.1) -> str:
+    """F1 局部离群因子检测（仅建议输出）：局部密度异常，适合小额高频簇识别"""
+    return await _pyod_tool("lof", values, query_reason, contamination)
+
+
+@mcp.tool()
+async def pyod_ecod(values: list[float], query_reason: str | None = None,
+                    contamination: float = 0.1) -> str:
+    """F1 经验累积分布检测（仅建议输出）：尾部概率异常，适合大额单笔识别"""
+    return await _pyod_tool("ecod", values, query_reason, contamination)
 
 
 if __name__ == "__main__":

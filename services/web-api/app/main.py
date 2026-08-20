@@ -43,9 +43,11 @@ from .skills.aggregation import AggregationService
 from .skills.disposition import (
     ESCALATION_MINUTES,
     DispositionService,
+    follow_outcomes,
     scan_pending_escalations,
 )
 from .skills.investigation import InvestigationService
+from .skills.knowledge import KB_DECAY_DAYS, kb_metabolism
 from .skills.mcp_adapters import CoreClient, ExternalSourcesClient
 from .skills.verification import (
     VERIFICATION_MINUTES,
@@ -65,6 +67,9 @@ logging.basicConfig(
 ESCALATION_SCAN_INTERVAL = float(
     os.getenv("ESCALATION_SCAN_INTERVAL", "30")
 )  # BA-BR-13 轮询周期（秒）
+KB_METABOLISM_INTERVAL = float(
+    os.getenv("KB_METABOLISM_INTERVAL", "3600")
+)  # E1 知识代谢轮询周期（秒，低频：降级窗口以天计，US-E11）
 
 PG_DSN = os.getenv("PG_DSN", "postgresql://tg_web:tg_web_dev@localhost:5432/tradeguard")
 # MCP 客户端（httpx）自动读取代理配置：回环/服务名地址需旁路，否则被代理拦截返回 502
@@ -165,10 +170,30 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(ESCALATION_SCAN_INTERVAL)
 
     escalation_task = asyncio.create_task(_escalation_loop())
+
+    async def _metabolism_loop():
+        # E1 知识代谢（BA-BR-20）+ C2 outcome 长窗回填（US-E11/E12）：
+        # 低频巡检，异常吞掉防任务退出（与 _escalation_loop 同构）
+        while True:
+            try:
+                await kb_metabolism(
+                    app.state.pool, app.state.publisher, decay_days=KB_DECAY_DAYS)
+                await follow_outcomes(
+                    app.state.pool, app.state.publisher, core=core)
+            except Exception:  # noqa: BLE001 —— 后台巡检不中断服务
+                logger.exception("E1 知识代谢/C2 outcome 回填任务异常，等待下轮")
+            await asyncio.sleep(KB_METABOLISM_INTERVAL)
+
+    metabolism_task = asyncio.create_task(_metabolism_loop())
     yield
     escalation_task.cancel()
+    metabolism_task.cancel()
     try:
         await escalation_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await metabolism_task
     except asyncio.CancelledError:
         pass
     await app.state.config.stop()

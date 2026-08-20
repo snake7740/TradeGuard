@@ -1,10 +1,10 @@
 <template>
-  <!-- 知识库管理（API-W-11~13 消费方，01 §6 风控策略管理员旅程，SC-05；SSE 事件驱动实时刷新） -->
+  <!-- 策略工作台（风控策略管理员专属工作台，A0 角色工作台分化；API-W-11~13 消费方，01 §6 风控策略管理员旅程，SC-05；SSE 事件驱动实时刷新） -->
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="page-title">知识库管理</div>
-        <div class="page-desc">案件结案后，Agent 复盘产出的欺诈手法知识会以「入库申请」形式进入本队列。知识发布仅限人工审核——确认内容准确后发布入库，供后续案件调查检索引用。</div>
+        <div class="page-title">策略工作台</div>
+        <div class="page-desc">策略管理员专属工作台：案件结案后，Agent 复盘产出的欺诈手法知识会以「入库申请」形式进入本队列。知识发布仅限人工审核——确认内容准确后发布入库，供后续案件调查检索引用。</div>
       </div>
       <div class="page-actions">
         <el-tooltip content="入库申请随 SSE 领域事件实时刷新" placement="top">

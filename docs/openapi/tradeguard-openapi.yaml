@@ -427,6 +427,40 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/AuditRecord' }
 
+  /api/audit/{case_id}/precheck:
+    get:
+      tags: [审计查询]
+      operationId: getAuditPrecheck
+      summary: 专家清单预检（D1，US-E10；只读体检，不推进状态）
+      description: |
+        处置要件六项逐项体检：signals_present / evidence_chain /
+        hypothesis_fixed / cross_review_done / debate_recorded /
+        disposition_anchored；status 取 ok/warn/fail，passed=无 fail。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 预检清单
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [case_id, status, items, passed]
+                properties:
+                  case_id: { type: string }
+                  status: { type: string, description: 案件当前状态 }
+                  passed: { type: boolean }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, status, basis]
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        status: { type: string, enum: [ok, warn, fail] }
+                        basis: { type: string }
+
   /api/kb/applications:
     get:
       tags: [知识库后台]
@@ -984,6 +1018,8 @@ components:
         SSE 事件体（03 §9.2 消息体 Schema，扁平信封）。trace_id 透传案件 trace_id
         （A4：同案事件可观测侧串联回放；无案件上下文的定时器事件回落新 uuid）。
         ApprovalEscalated/VerificationOverdue 为后台巡检事件，不驱动状态迁移。
+        E-INV-HYPOTHESIS/E-REVIEW-DEBATE/E-KB-DECAY/E-OUTCOME-FOLLOW 为 docs/14
+        增强事件（B3/C1/E1/C2）：均为留痕/观测类，不驱动状态迁移。
       properties:
         event:
           type: string
@@ -993,7 +1029,8 @@ components:
                  DispositionSubmitted, DispositionExecuted, DispositionFailed,
                  RollbackToReview, VerificationPassed, VerificationFailed,
                  VerificationOverdue, RollbackExecuted, RollbackEscalated,
-                 ReviewConfirmed, ReviewDismissed, CaseArchived]
+                 ReviewConfirmed, ReviewDismissed, CaseArchived,
+                 E-INV-HYPOTHESIS, E-REVIEW-DEBATE, E-KB-DECAY, E-OUTCOME-FOLLOW]
         case_id: { $ref: '#/components/schemas/CaseId' }
         trace_id: { type: string, description: 案件 trace_id 透传（缺省回落新 uuid） }
         actor: { type: string, description: 触发者（agent:AA-AG-0x 或 human:*） }

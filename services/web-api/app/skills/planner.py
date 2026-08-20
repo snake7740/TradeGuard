@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -26,6 +27,14 @@ logger = logging.getLogger("tradeguard.planner")
 
 SOURCE_WHITELIST = ("credit", "sentiment", "complaint")
 VELOCITY_1H_COUNT = 10  # 与 investigation.VELOCITY_1H_COUNT 同源（BA-BR-14）
+
+# B3 并行假设编排（BA-BR-18，docs/14 US-E9）：假设→首选深查源映射，
+# 用于假设覆盖核算——未覆盖假设必须留痕「为什么没查 X」
+HYPOTHESIS_SOURCES = {
+    "跑分": ("credit", "complaint"),
+    "盗卡": ("credit", "complaint"),
+    "团伙盗刷": ("complaint", "sentiment"),
+}
 
 
 @dataclass
@@ -47,6 +56,29 @@ class InvestigationPlan:
     kb_queries: list[str] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)  # 豁免留痕 [{source,reason}]
     rationale: str = ""
+
+
+def hypothesis_skipped(plan: InvestigationPlan,
+                       findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """B3 假设覆盖核算（BA-BR-18）：未被任何成功深查源覆盖的假设，留痕
+    「为什么没查 X」；已覆盖/待定假设不产生豁免项。"""
+    executed = {f["source"] for f in findings if f.get("ok")}
+    out: list[dict[str, Any]] = []
+    for h in plan.hypotheses:
+        pattern = str(h.get("pattern", "待定"))
+        if pattern == "待定":
+            continue
+        wanted = HYPOTHESIS_SOURCES.get(pattern)
+        if wanted is None:  # 未知手法无首选源映射：以全部计划源成功视为覆盖
+            continue
+        covered = [s for s in wanted if s in executed]
+        if not covered:
+            out.append({
+                "hypothesis": pattern,
+                "reason": f"假设[{pattern}]首选深查源 {'/'.join(wanted)} 均未成功"
+                          f"执行（降级/异常/未入计划），未深查留痕（BA-BR-18）",
+            })
+    return out
 
 
 @dataclass
@@ -211,7 +243,9 @@ async def make_plan(signals: list[dict[str, Any]], edge_types: set[str],
 # ---------------------------------------------------------------- 计划执行
 
 async def execute_plan(plan: InvestigationPlan, external, subject: str) -> list[dict[str, Any]]:
-    """按计划执行外部源查询；单源失败记录 degraded 不阻断（与 AG-02 降级同构）。
+    """按计划并行执行外部源查询（B3 asyncio.gather，US-E9）；单源失败记录
+    degraded 不阻断其余分支（与 AG-02 降级同构，14 §1.4）。结果按 priority
+    序稳定输出（并行不改结果顺序，反思/证据链可回放）。
 
     external 为 None（旧装配/测试未注入）时返回显式未执行标记，反思按 gaps 记录。
     """
@@ -221,20 +255,22 @@ async def execute_plan(plan: InvestigationPlan, external, subject: str) -> list[
     method = {"credit": external.query_credit_report,
               "sentiment": external.query_sentiment,
               "complaint": external.query_complaints}
-    findings: list[dict[str, Any]] = []
-    for q in sorted(plan.queries, key=lambda x: x.priority):
+
+    async def _one(q: SourceQuery) -> dict[str, Any]:
         try:
             payload = await method[q.source](subject, q.reason)
             if isinstance(payload, str):  # mock 通道偶发 json 字符串
                 payload = json.loads(payload)
             degraded = bool(payload.get("degraded")) or bool(payload.get("code"))
-            findings.append({"source": q.source, "ok": not degraded,
-                             "degraded": degraded,
-                             "summary": json.dumps(payload, ensure_ascii=False)[:400]})
-        except Exception:  # noqa: BLE001 —— 单源失败不阻断其余计划项
-            findings.append({"source": q.source, "ok": False, "degraded": True,
-                             "summary": f"{q.source} 源查询异常（降级记录）"})
-    return findings
+            return {"source": q.source, "ok": not degraded,
+                    "degraded": degraded,
+                    "summary": json.dumps(payload, ensure_ascii=False)[:400]}
+        except Exception:  # noqa: BLE001 —— 单源失败不阻断其余并行分支
+            return {"source": q.source, "ok": False, "degraded": True,
+                    "summary": f"{q.source} 源查询异常（降级记录）"}
+
+    ordered = sorted(plan.queries, key=lambda x: x.priority)
+    return list(await asyncio.gather(*(_one(q) for q in ordered)))
 
 
 # ---------------------------------------------------------------- 反思（规则/LLM）
@@ -403,6 +439,112 @@ async def review_disposition(action: str, amount: float | None, risk_score: int,
         )
     except Exception:  # noqa: BLE001 —— LLM 互审失败降级规则，处置链路不受阻
         logger.warning("LLM 处置互审失败，降级规则互审")
+        return base
+
+
+# ---------------------------------------------------------------- 控辩互审 debate（C1，BA-BR-19 / DA-INV-09，docs/14 US-E10）
+
+@dataclass
+class DebateRecord:
+    """控/辩/裁三段辩论记录（建议性输出，裁决权仍在人工审批官，BA-BR-19）。
+    落 approval_record.debate_json / audit_log.debate_json，只增不改（DA-INV-09）。"""
+
+    source: str  # "llm" | "rule"
+    prosecution: list[str] = field(default_factory=list)   # 控方：主张从严处置的论据
+    defense: list[str] = field(default_factory=list)       # 辩方：主张从轻/保护的论据
+    adjudication: str = ""                                  # 裁判倾向：从严|从轻|维持人工裁决
+    verdict: str = ""    # 与互审同枚举：pass | concerns | escalate
+    summary: str = ""
+
+
+def rule_debate(action: str, amount: float | None, risk_score: int,
+                evidence: list[dict[str, Any]]) -> DebateRecord:
+    """确定性控辩下限（LLM 不可用/失败时保底，可解释可回放）。
+
+    控方取规则互审的关注点/升级理由；辩方按证据薄弱/轻处置/中风险线生成
+    对向论据；裁判倾向映射互审 verdict，最终裁决仍由审批官作出。
+    """
+    base = rule_review(action, amount, risk_score, evidence)
+    n = len(evidence)
+    prosecution = [
+        f"risk_score={risk_score}，建议动作 {action}"
+        f"{'（金额 ' + str(amount) + '）' if amount is not None else ''}"]
+    if base.verdict != "pass":
+        prosecution.extend(base.findings)
+    else:
+        prosecution.append(f"证据链 {n} 条支撑处置建议")
+    defense: list[str] = []
+    if n <= 1:
+        defense.append("证据链单薄，误处置将损害客户体验，建议补强后再从严")
+    if action in REVIEW_HEAVY_ACTIONS:
+        defense.append(f"{action} 为重型处置，误伤成本高，建议优先考虑更轻档位")
+    if risk_score < DISPATCH_FREEZE_SCORE:
+        defense.append("风险分未达审批线（BA-BR-02），从严依据不充分")
+    if not defense:
+        defense.append("未发现显著从轻情节，辩方无保留意见")
+    adj = {"escalate": "从严审视（证据缺口/过度处置风险显著）",
+           "concerns": "倾向从轻（有关注点，建议人工斟酌处置力度）",
+           "pass": "维持人工裁决（控辩无实质分歧，证据充分）"}[base.verdict]
+    return DebateRecord(
+        source="rule", prosecution=prosecution[:5], defense=defense[:5],
+        adjudication=adj, verdict=base.verdict,
+        summary=f"规则控辩：action={action} 证据 {n} 条，裁判倾向「{adj}」，"
+                f"最终裁决仍由审批官作出（BA-BR-19）",
+    )
+
+
+_DEBATE_PROMPT = """你是风控控辩仲裁员（AG-01），对处置建议组织一场控辩辩论。
+控方立场：主张从严处置（论证风险事实与处置必要性）；辩方立场：主张从轻/保护
+（论证误处置风险与证据缺口）；你最后以裁判身份给出倾向。你没有决策权，
+最终裁决由人工审批官作出（BA-BR-19）。
+
+处置建议：action={action} amount={amount}
+案件风险分：{risk_score}
+证据链摘要（共 {evidence_count} 条）：
+{evidence_digest}
+
+只返回 JSON：{{"prosecution":["控方论据"],"defense":["辩方论据"],
+  "adjudication":"从严|从轻|维持人工裁决","verdict":"pass|concerns|escalate",
+  "summary":"一句话裁判结论"}}"""
+
+
+async def debate_disposition(action: str, amount: float | None, risk_score: int,
+                             evidence: list[dict[str, Any]],
+                             client=None) -> DebateRecord:
+    """控辩互审入口（C1，US-E10）：LLM 三段辩论优先，不可用/失败/非法降级规则版。
+    输出仅建议：不改变裁决权归属（建单/审批流程照常，BA-BR-19）。"""
+    base = rule_debate(action, amount, risk_score, evidence)
+    if client is None:
+        from app.core.llm_adapters import LlmClient
+        client = LlmClient()
+    if not getattr(client, "available", False):
+        return base
+    try:
+        digest = "\n".join(
+            f"- [{e.get('source_ref', '')}] conf={e.get('confidence', '')} "
+            f"{str(e.get('claim', ''))[:120]}"
+            for e in evidence[:10]) or "（无证据）"
+        raw = await client.chat(
+            [{"role": "system", "content": "你是严谨的风控控辩仲裁员，只输出 JSON。"},
+             {"role": "user", "content": _DEBATE_PROMPT.format(
+                 action=action, amount=amount, risk_score=risk_score,
+                 evidence_count=len(evidence), evidence_digest=digest)}],
+            temperature=0.2,
+        )
+        m = re.search(r"\{.*\}", raw, re.S)
+        data = json.loads(m.group(0) if m else raw)
+        verdict = str(data.get("verdict", ""))
+        if verdict not in ("pass", "concerns", "escalate"):
+            raise ValueError(verdict)
+        return DebateRecord(
+            source="llm", verdict=verdict,
+            prosecution=[str(x)[:200] for x in data.get("prosecution", [])][:5],
+            defense=[str(x)[:200] for x in data.get("defense", [])][:5],
+            adjudication=str(data.get("adjudication", ""))[:50] or "维持人工裁决",
+            summary=str(data.get("summary", ""))[:300],
+        )
+    except Exception:  # noqa: BLE001 —— LLM 控辩失败降级规则，建单链路不受阻
+        logger.warning("LLM 控辩互审失败，降级规则控辩")
         return base
 
 

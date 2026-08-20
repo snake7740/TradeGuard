@@ -13,9 +13,12 @@
     已归档案件重复核验 → 409
   流程 D 调查→处置审批交接链（API-W-23，SC-02）：调查完成 PENDING_APPROVAL 后
     经处置提交建单（补齐 UI 全链 D2 断链）→ 审批批准冻结 → 核验归档；含一案一单防重
+  流程 E 角色边界强制（A0：03 §6 权限矩阵 API 层落地）：值班员调审批/发布/配置
+    端点 → 403 E-FORBIDDEN-ROLE；未识别调用方放行 + api.unknown_actor 留痕
 
-角色名与 role.js ROLES 逐字对齐（test_routes 的"复核员/审批主管/配置管理员"
-为历史测试名，本文件起统一正式角色名）；X-Operator 均为前端契约的
+角色名与 role.js ROLES 逐字对齐（test_routes 的“复核员/审批主管/配置管理员”
+为历史测试名，不在正式 4 角色白名单内，按未识别角色放行处理，本文件起统一正式角色名）；
+X-Operator 均为前端契约的
 encodeURIComponent 编码中文（axios 拦截器统一注入，common.py 解码）。
 """
 import asyncio
@@ -300,3 +303,50 @@ def test_human_only_boundary_and_verify_guard(client):
     assert r.status_code == 200 and r.json()["status"] == "ARCHIVED"
     r = client.post(f"/api/cases/{archived}/verify", json={"exec_id": "exec-nope"})
     assert r.status_code == 409   # 非 DISPOSED 拒绝核验（非法迁移守护）
+
+
+# ---------- 流程 E：角色边界强制（A0：03 §6 权限矩阵 × API 层 RBAC） ----------
+
+def test_role_boundary_enforcement_at_api_gate(client):
+    """角色边界不再是前端菜单的纸面约定：网关按白名单×角色集合强制拦截。
+    修复前隐患：任何持 token 者自声明 X-Operator 即可调任意端点（审批/发布/配置）。"""
+    case_id = _investigating_case("high")
+
+    # 值班员越权复核 → 403（/cases/*/review 仅风控审批官）
+    r = client.post(f"/api/cases/{case_id}/review",
+                    json={"conclusion": "block", "opinion": "值班员无权复核确认欺诈"},
+                    headers={"X-Operator": OP_ONCALL})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+
+    # 值班员越权审批/知识发布/阈值配置 → 均 403（端点白名单对齐 tg_web 授权面）
+    r = client.post("/api/approvals/AP-NOPE/decide",
+                    json={"decision": "approve", "opinion": "值班员无权审批决策"},
+                    headers={"X-Operator": OP_ONCALL})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+    r = client.post("/api/kb/applications/KB-NOPE/publish",
+                    json={"comment": "值班员无权发布知识条目入库"},
+                    headers={"X-Operator": OP_ONCALL})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+    r = client.put("/api/config/thresholds", json={"br-01-mid-review-score": "50"},
+                   headers={"X-Operator": OP_ONCALL})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+
+    # 审计员越权审批 → 403（审计职责只读回放，不得兼裁决）
+    r = client.post("/api/approvals/AP-NOPE/decide",
+                    json={"decision": "approve", "opinion": "审计员不得兼任审批裁决"},
+                    headers={"X-Operator": OP_AUDITOR})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+
+    # 越权拦截必须留痕（BA-BR-09：拒绝也要可追责）
+    rows = _fetch("""SELECT count(*) AS c FROM audit_log
+                     WHERE action='api.forbidden' AND actor LIKE 'human:风控%'""")
+    assert rows[0]["c"] >= 4, "每次越权拦截须落 api.forbidden 审计"
+
+    # 未识别调用方（历史名/无头）：放行 + api.unknown_actor 留痕（兼容 MCP/CI）
+    r = client.put("/api/config/thresholds", json={},
+                   headers={"X-Operator": urllib.parse.quote("配置管理员")})
+    assert r.status_code == 422                                  # 穿透到端点（非 403）
+    rows = _fetch("""SELECT count(*) AS c FROM audit_log
+                     WHERE action='api.unknown_actor' AND basis LIKE '%/api/config%'""")
+    assert rows[0]["c"] >= 1, "未识别角色访问白名单端点须留痕"

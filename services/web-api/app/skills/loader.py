@@ -39,8 +39,10 @@ LIST_KEYS = ("depends-mcp", "depends-tables", "degradation-paths")
 _FM_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
 _KEY_RE = re.compile(r"^([A-Za-z0-9_-]+):[ \t]*(.*)$", re.M)
 
-# loader.py 位于 <repo>/services/web-api/app/skills/ → parents[4] 即仓库根
-REPO_ROOT = Path(__file__).resolve().parents[4]
+# loader.py 位于 <repo>/services/web-api/app/skills/ → parents[4] 即仓库根；
+# 容器内路径深度不足（/srv/app/skills/）且 TG_SKILLS_DIR 已显式设置，越界回落 /srv
+_res = Path(__file__).resolve().parents
+REPO_ROOT = _res[4] if len(_res) > 4 else Path("/srv")
 _ENTRYPOINT_PREFIX = "services/web-api/"
 
 

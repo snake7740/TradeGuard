@@ -1,0 +1,13 @@
+# web-api 构建上下文为仓库根（compose build.context=.）：白名单仅保留必需路径
+# —— skills/ 位于仓库根，API-W-24 运行时注册表需随镜像装载（TG_SKILLS_DIR）
+/*
+!/services
+!/skills
+/services/*
+!/services/web-api
+# web-api 内非运行时内容裁剪（测试/缓存/日志不入库镜像）
+services/web-api/tests
+services/web-api/logs
+services/web-api/.pytest_cache
+services/web-api/.coverage
+**/__pycache__

@@ -162,7 +162,9 @@ services:
 
   web-api:                       # web-portal 后端进程（FastAPI，04 §10.1 三端调用链）
     <<: *python-base
-    build: ./services/web-api
+    build:
+      context: .                 # 仓库根上下文：skills/ 注册表随镜像装载（API-W-24，.dockerignore 白名单裁剪）
+      dockerfile: services/web-api/Dockerfile
     depends_on:
       postgres: { condition: service_healthy }
       rocketmq-broker: { condition: service_healthy }

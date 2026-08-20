@@ -21,6 +21,7 @@ import json
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
@@ -45,6 +46,17 @@ AUTO_AMOUNT_MAX = 5000  # BA-BR-01：单笔涉案 <5000 元可自动处置
 BLACK_FLAG_SCORE = 75  # BA-BR-04：黑名单主体立案即高风险（≥BA-BR-02 审批线 70，SC-04）
 EXTERNAL_SOURCES = ("credit", "sentiment", "complaint")
 
+# ---------- A1 自适应基线（BA-BR-15）/ B2 时序三模式（BA-BR-17，docs/14 US-E8） ----------
+BASELINE_ALPHA = 0.3          # EWMA 平滑系数（纯 Python，无新组件，14 §1.4）
+BASELINE_MIN_TX = 20          # 冷启动样本下限：不足回退全局阈值（双轨取高）
+BASELINE_DEV_RATIO = 3.0      # 偏离度阈值：近期笔均 ≥3 倍基线 EWMA 视为偏离
+BASELINE_DEV_BONUS = 15       # 基线偏离加分（全局阈值未触发亦入中通道，SC-12）
+BASELINE_WINDOW_DAYS = 30     # 基线窗口
+LOOP_WINDOW = timedelta(minutes=90)   # 资金回路闭环窗口（SC-14）
+NIGHT_HOURS = range(0, 6)     # 夜间时段 00:00-05:59
+RAPID_GAP = timedelta(hours=2)        # 快进快出：入账后 2h 内出账
+TEMPORAL_BONUS = {"fund_loop": 20, "rapid_inout": 15, "night_burst": 10}
+
 ZERO_VELOCITY = {
     "velocity_1h": {"count": 0, "amount": 0.0},
     "velocity_24h": {"count": 0, "amount": 0.0},
@@ -55,6 +67,118 @@ class AggregationStateError(Exception):
     """案件当前状态不允许聚合（非 REGISTERED/AGGREGATING）"""
 
     code = "E-BAD-STATE"
+
+
+# ---------- A1 自适应基线纯函数（BA-BR-15，单测目标） ----------
+
+
+def ewma(prev: float, x: float, alpha: float = BASELINE_ALPHA) -> float:
+    """指数加权更新：无历史值时取首笔观测（冷启动）"""
+    return float(x) if not prev else prev + alpha * (float(x) - prev)
+
+
+def percentile(values: list[float], q: float = 0.95) -> float:
+    """线性插值分位数（空集 0.0）"""
+    if not values:
+        return 0.0
+    vs = sorted(float(v) for v in values)
+    if len(vs) == 1:
+        return vs[0]
+    pos = (len(vs) - 1) * q
+    lo, hi = int(pos), min(int(pos) + 1, len(vs) - 1)
+    return vs[lo] + (vs[hi] - vs[lo]) * (pos - lo)
+
+
+def compute_baseline(txs: list[dict[str, Any]]) -> dict[str, Any]:
+    """近 30 天流水（ts 升序）→ EWMA/p95/24 桶小时直方图（DA-T-14 纯计算）"""
+    amounts = [float(t["amount"]) for t in txs]
+    ew = 0.0
+    for i, a in enumerate(amounts):
+        ew = float(a) if i == 0 else ewma(ew, a)
+    hist = [0] * 24
+    for t in txs:
+        hist[t["ts"].hour] += 1
+    return {
+        "ewma_amount": round(ew, 2),
+        "p95_amount": round(percentile(amounts), 2),
+        "hour_histogram": hist,
+        "tx_count": len(amounts),
+    }
+
+
+def baseline_deviation(baseline: dict[str, Any] | None, txs: list[dict[str, Any]]) -> float | None:
+    """近期笔均金额 / 基线 EWMA 偏离度；冷启动（样本<20 或 EWMA=0）→ None
+    （BA-BR-15 双轨：基线缺失回退全局阈值）"""
+    if not baseline or not txs:
+        return None
+    if (baseline.get("tx_count") or 0) < BASELINE_MIN_TX:
+        return None
+    ew = float(baseline.get("ewma_amount") or 0)
+    if ew <= 0:
+        return None
+    recent = sum(float(t["amount"]) for t in txs) / len(txs)
+    return round(recent / ew, 2)
+
+
+def baseline_bonus(dev: float | None) -> int:
+    """偏离度 ≥ 阈值 → 加分（SC-12：全局阈值未触发亦入中通道）"""
+    return BASELINE_DEV_BONUS if dev is not None and dev >= BASELINE_DEV_RATIO else 0
+
+
+# ---------- B2 时序三模式纯函数（BA-BR-17，单测目标） ----------
+
+
+def match_fund_loop(edges: list[tuple[str, str, datetime]], subject: str, now: datetime) -> bool:
+    """90 分钟内 A→B→C→A 资金闭环（edges=[(src,dst,ts)]，纯规则无训练）。
+    链时间单调递增且全链落在窗口内；B/C 不得为主体自身或一级收款方（防自环）。"""
+    win = [e for e in edges if now - e[2] <= LOOP_WINDOW]
+    l1 = [(e[2], e[1]) for e in win if e[0] == subject and e[1] != subject]
+    for t1, a in l1:
+        for e in win:
+            if e[0] == a and e[1] not in (subject, a) and e[2] >= t1:
+                b, t2 = e[1], e[2]
+                if any(e2[0] == b and e2[1] == subject and e2[2] >= t2 for e2 in win):
+                    return True
+    return False
+
+
+def match_rapid_inout(incoming: list[dict[str, Any]], outgoing: list[dict[str, Any]], now: datetime) -> bool:
+    """快进快出（跑分剧本）：24h 内入/出各 ≥3 笔、总额比 [0.85,1.15]、
+    且 ≥2 笔入账后 2h 内有出账（过账特征）"""
+    day = timedelta(hours=24)
+    inc = sorted((t for t in incoming if now - t["ts"] <= day), key=lambda t: t["ts"])
+    out = sorted((t for t in outgoing if now - t["ts"] <= day), key=lambda t: t["ts"])
+    if len(inc) < 3 or len(out) < 3:
+        return False
+    si = sum(float(t["amount"]) for t in inc)
+    so = sum(float(t["amount"]) for t in out)
+    if not si or not (0.85 <= so / si <= 1.15):
+        return False
+    pairs = 0
+    for i in inc:
+        if any(timedelta(0) <= o["ts"] - i["ts"] <= RAPID_GAP for o in out):
+            pairs += 1
+    return pairs >= 2
+
+
+def match_night_burst(txs: list[dict[str, Any]], histogram: list[int] | None, now: datetime) -> bool:
+    """夜间突发：24h 内 00-05 时交易 ≥3 且历史夜间占比 <10%（相对基线突发），
+    或绝对突发 ≥5 笔（无基线兜底）"""
+    night = [t for t in txs if t["ts"].hour in NIGHT_HOURS and now - t["ts"] <= timedelta(hours=24)]
+    if len(night) >= 5:
+        return True
+    if not histogram:
+        return False
+    total = sum(histogram)
+    if not total:
+        return False
+    night_ratio = sum(histogram[h] for h in NIGHT_HOURS) / total
+    return len(night) >= 3 and night_ratio < 0.10
+
+
+def temporal_bonus(patterns: dict[str, bool]) -> int:
+    """三模式命中加分合计（BA-BR-17）"""
+    return sum(b for k, b in TEMPORAL_BONUS.items() if patterns.get(k))
 
 
 # ---------- velocity 频次统计（BA-BR-14） ----------
@@ -261,8 +385,11 @@ def score_signals(
     t1h: int = VELOCITY_1H_THRESHOLD,
     t24h: int = VELOCITY_24H_THRESHOLD,
     bonus: int = VELOCITY_BONUS,
+    temporal: dict | None = None,
+    baseline_dev: float | None = None,
 ) -> int:
-    """基础分 = Σ(confidence × 源权重) × 100 + velocity 加分，封顶 100"""
+    """基础分 = Σ(confidence × 源权重) × 100 + velocity 加分
+    + 时序三模式加分（BA-BR-17）+ 基线偏离加分（BA-BR-15 双轨），封顶 100"""
     base = (
         sum(s["confidence"] * SOURCE_WEIGHTS.get(s["source"], 0.0) for s in signals)
         * 100
@@ -271,7 +398,11 @@ def score_signals(
         100,
         int(
             math.floor(
-                base + velocity_bonus(velocity, t1h=t1h, t24h=t24h, bonus=bonus) + 0.5
+                base
+                + velocity_bonus(velocity, t1h=t1h, t24h=t24h, bonus=bonus)
+                + temporal_bonus(temporal or {})
+                + baseline_bonus(baseline_dev)
+                + 0.5
             )
         ),
     )
@@ -417,6 +548,30 @@ class AggregationService:
 
         # 2-3. 标准化 + 降噪合并
         velocity = compute_velocity(txs, now)
+        # 2.5 A1/B2：自适应基线 + 时序三模式（BA-BR-15/17，docs/14 US-E8）
+        baseline = await self._refresh_baseline(case["subject_ref"], now)
+        incoming: list[dict] = []
+        if "tx" not in degraded:
+            try:
+                incoming = await self._fetch_incoming(case["subject_ref"])
+            except Exception:  # noqa: BLE001 —— 入账读失败降级为不命中快进快出
+                incoming = []
+        dev = baseline_deviation(baseline, txs)
+        patterns: dict[str, bool] = {
+            "fund_loop": await self._detect_fund_loop(case["subject_ref"], now),
+            "rapid_inout": match_rapid_inout(incoming, txs, now),
+            "night_burst": match_night_burst(
+                txs, (baseline or {}).get("hour_histogram"), now),
+        }
+        velocity_ext = dict(velocity)
+        velocity_ext["temporal_json"] = patterns   # DA-T-04 velocity_json 增载（14 §1.3）
+        velocity_ext["baseline_dev"] = dev
+
+        def _done(res: dict) -> dict:
+            res["temporal"] = patterns
+            res["baseline_dev"] = dev
+            return res
+
         signals: list[dict] = []
         if "tx" not in degraded:
             tx_sig = build_tx_signal(
@@ -428,7 +583,19 @@ class AggregationService:
                 t24h=th["t24h"],
                 bonus=th["bonus"],
             )
+            if tx_sig is None and (temporal_bonus(patterns) or baseline_bonus(dev)):
+                # A1/B2 双轨：全局频次阈值未触发，基线偏离/时序模式独立产出信号（SC-12/14）
+                hits = sum(1 for v in patterns.values() if v) + (
+                    1 if baseline_bonus(dev) else 0)
+                tx_sig = _signal(
+                    "tx", "tx_temporal_anomaly",
+                    min(1.0, round(0.4 + 0.15 * hits, 2)),
+                    reason, now,
+                    raw_ref=f"case={case_id}:temporal",
+                    velocity_json=velocity_ext,
+                )
             if tx_sig:
+                tx_sig["velocity_json"] = velocity_ext
                 signals.append(tx_sig)
         for name, normalize in (
             ("credit", normalize_credit_report),
@@ -488,7 +655,8 @@ class AggregationService:
 
         # 5-6. 评分 + 落库（经 AA-MCP-01，tg_app 写角色 DA-INV-05）
         _scored = self.scorer.score(
-            signals, velocity, t1h=th["t1h"], t24h=th["t24h"], bonus=th["bonus"]
+            signals, velocity, t1h=th["t1h"], t24h=th["t24h"], bonus=th["bonus"],
+            temporal=patterns, baseline_dev=dev,
         )
         score = _scored["score"]
         # BA-BR-04（SC-04）：黑名单主体立案即高风险，处置建议拦截，
@@ -541,9 +709,9 @@ class AggregationService:
                 version,
                 basis="零信号降噪放行（AA-SK-01 步骤 6）",
             )
-            return self._result(
-                case_id, out["status"], route, score, velocity, signals, degraded
-            )
+            return _done(self._result(
+                    case_id, out["status"], route, score, velocity, signals, degraded
+                ))
         if route == "auto_release":
             out = await self.cases.transition(
                 case_id,
@@ -573,15 +741,15 @@ class AggregationService:
                     version,
                     basis=f"自动放行失败转人工复核：{e}",
                 )
-                return self._result(
-                    case_id,
-                    out["status"],
-                    "failed_manual",
-                    score,
-                    velocity,
-                    signals,
-                    degraded,
-                )
+                return _done(self._result(
+                        case_id,
+                        out["status"],
+                        "failed_manual",
+                        score,
+                        velocity,
+                        signals,
+                        degraded,
+                    ))
             out = await self.cases.transition(
                 case_id,
                 CaseEvent.DISPOSITION_EXECUTED,
@@ -589,9 +757,9 @@ class AggregationService:
                 version,
                 basis=f"risk_score={score} amount={amount:.2f} action=release 低风险自动放行（BA-CAP-05，SC-01）",
             )
-            result = self._result(
+            result = _done(self._result(
                 case_id, out["status"], route, score, velocity, signals, degraded
-            )
+            ))
             result["exec_id"] = exec_id
             return result
         out = await self.cases.transition(
@@ -601,9 +769,9 @@ class AggregationService:
             version,
             basis=f"risk_score={score} 转调查（中/高风险分段）",
         )
-        result = self._result(
+        result = _done(self._result(
             case_id, out["status"], route, score, velocity, signals, degraded
-        )
+        ))
         if recommended_action:
             result["recommended_action"] = (
                 recommended_action  # SC-04 处置建议随裁决输出
@@ -618,6 +786,102 @@ class AggregationService:
             subject_ref,
         )
         return [{"amount": r["amount"], "ts": r["ts"]} for r in rows]
+
+    async def _refresh_baseline(self, subject_ref: str, now: datetime) -> dict | None:
+        """A1：历史稳态基线（30d 窗口、排除近 24h 突发段）纯计算后 upsert DA-T-14。
+        读/写失败一律降级 None（BA-BR-15 双轨回退全局阈值，14 §1.4）。"""
+        try:
+            rows = await self.pool.fetch(
+                """SELECT amount, ts FROM transaction
+                   WHERE account_hash=$1
+                     AND ts >= now() - make_interval(days=>$2)
+                     AND ts < now() - interval '24 hours'
+                   ORDER BY ts""",
+                subject_ref, BASELINE_WINDOW_DAYS,
+            )
+            if not rows:
+                row = await self.pool.fetchrow(
+                    "SELECT ewma_amount, p95_amount, hour_histogram, tx_count "
+                    "FROM account_baseline WHERE account_id=$1", subject_ref)
+                if not row:
+                    return None
+                hist = row["hour_histogram"]
+                if isinstance(hist, str):
+                    hist = json.loads(hist)
+                return {"ewma_amount": row["ewma_amount"], "p95_amount": row["p95_amount"],
+                        "hour_histogram": hist, "tx_count": row["tx_count"]}
+            b = compute_baseline([{"amount": r["amount"], "ts": r["ts"]} for r in rows])
+            await self.pool.execute(
+                """INSERT INTO account_baseline
+                       (account_id, "window", ewma_amount, p95_amount, hour_histogram, tx_count, updated_at)
+                   VALUES ($1, '30d', $2, $3, $4::jsonb, $5, now())
+                   ON CONFLICT (account_id) DO UPDATE SET
+                       ewma_amount=EXCLUDED.ewma_amount, p95_amount=EXCLUDED.p95_amount,
+                       hour_histogram=EXCLUDED.hour_histogram, tx_count=EXCLUDED.tx_count,
+                       updated_at=now()""",
+                subject_ref, b["ewma_amount"], b["p95_amount"],
+                json.dumps(b["hour_histogram"]), b["tx_count"],
+            )
+            return b
+        except Exception:  # noqa: BLE001 —— 基线层失败不阻断聚合主链路
+            return None
+
+    async def _fetch_incoming(self, subject_ref: str) -> list[dict]:
+        """B2：主体为收款方的入账流水（快进快出检测输入）"""
+        rows = await self.pool.fetch(
+            """SELECT amount, ts FROM transaction
+               WHERE payee_hash=$1 AND ts >= now() - interval '24 hours'""",
+            subject_ref,
+        )
+        return [{"amount": r["amount"], "ts": r["ts"]} for r in rows]
+
+    async def _detect_fund_loop(self, subject_ref: str, now: datetime) -> bool:
+        """B2：90 分钟三层收款链边集 → 纯函数 match_fund_loop（每层 ≤50 防爆炸，
+        14 §1.4 进程内计算）；读失败降级不命中。
+
+        注意：account_hash/payee_hash 为 char(64) 读回带尾随空格，主体为
+        varchar 未填充——进程内比较前统一 strip（SQL 层 bpchar 比较自动对齐，
+        不受影响；SC-14 回归取证修复）。
+        """
+        subject = subject_ref.strip()
+        try:
+            r1 = await self.pool.fetch(
+                """SELECT account_hash, payee_hash, ts FROM transaction
+                   WHERE account_hash=$1 AND payee_hash IS NOT NULL
+                     AND ts >= now() - interval '90 minutes' LIMIT 200""",
+                subject_ref,
+            )
+            l1 = sorted({r["payee_hash"].strip() for r in r1
+                         if r["payee_hash"].strip() != subject})[:50]
+            if not l1:
+                return False
+            r2 = await self.pool.fetch(
+                """SELECT account_hash, payee_hash, ts FROM transaction
+                   WHERE account_hash = ANY($1) AND payee_hash IS NOT NULL
+                     AND ts >= now() - interval '90 minutes' LIMIT 500""",
+                l1,
+            )
+            l2 = sorted(
+                {r["payee_hash"].strip() for r in r2
+                 if r["payee_hash"].strip() != subject
+                 and r["payee_hash"].strip() not in l1}
+            )[:50]
+            edges = [(r["account_hash"].strip(), r["payee_hash"].strip(), r["ts"])
+                     for r in r1]
+            edges += [(r["account_hash"].strip(), r["payee_hash"].strip(), r["ts"])
+                      for r in r2]
+            if l2:
+                r3 = await self.pool.fetch(
+                    """SELECT account_hash, payee_hash, ts FROM transaction
+                       WHERE account_hash = ANY($1) AND payee_hash=$2
+                         AND ts >= now() - interval '90 minutes' LIMIT 200""",
+                    l2, subject_ref,
+                )
+                edges += [(r["account_hash"].strip(), r["payee_hash"].strip(), r["ts"])
+                          for r in r3]
+            return match_fund_loop(edges, subject, now)
+        except Exception:  # noqa: BLE001 —— 回路检测失败不阻断聚合
+            return False
 
     async def _fetch_external(self, method, subject: str, reason: str) -> dict:
         """外部源调用：超时控制 + 重试（AA-SK-01：5s 超时重试 2 次→降级）"""

@@ -10,13 +10,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
+from typing import Any
 
 from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
 from . import planner as planner_mod
-from .knowledge import search_kb
+from .knowledge import mark_kb_feedback, search_kb
 from .mcp_adapters import remember
 
 ACTOR_INV = "agent:AA-AG-03"  # 调查取证 Agent（02 §3）
@@ -26,6 +28,71 @@ BR06_BONUS = (
 )
 VELOCITY_1H_COUNT = 10  # 跑分假设阈值（与 BA-BR-14 同源）
 LARGE_AMOUNT = 5000  # 盗卡假设阈值（单点大额，BA-BR-01 金额线同源）
+TOPO_TIMEOUT = 2.0  # 拓扑统计进程内计算超时上限（超时返回空统计，调查不阻断，14 §1.4）
+
+
+# ---------- B1 图拓扑统计（BA-BR-16 / DA-INV-07，docs/14 US-E9；与 mcp-core 同源算法） ----------
+
+def topology_stats(edges: list[dict[str, Any]], root: str) -> dict[str, Any]:
+    """星型/环型密度 + 二部集中度 + 嫌疑分（进程内纯函数，子图 ≤ 百节点）。
+
+    仅调查线索：输出不进入评分与状态迁移入参（DA-INV-07，BA-BR-16），
+    只随证据链与 graph 摘要留痕供人工研判。
+    """
+    if not edges:
+        return {"nodes": 1, "edges": 0, "star_density": 0.0, "cycle_count": 0,
+                "bipartite_concentration": 0.0, "suspicion": 0.0, "degraded": False}
+    adj: dict[str, set[str]] = {}
+    deg: dict[str, int] = {}
+    for e in edges:
+        s, d = str(e.get("src_node", "")).strip(), str(e.get("dst_node", "")).strip()
+        if not s or not d:
+            continue
+        adj.setdefault(s, set()).add(d)
+        adj.setdefault(d, set())
+        deg[s] = deg.get(s, 0) + 1
+        deg[d] = deg.get(d, 0) + 1
+    nodes = set(adj)
+    n = len(nodes) or 1
+    m = sum(len(v) for v in adj.values())
+    star_density = round((max(deg.values()) / m) if m else 0.0, 3)  # 枢纽集中度
+    # 环型计数：三角形（A→B→C→A，资金回路同构特征；无向三角同构 a→b→c 且 a-c
+    # 有边亦计入；sorted key 去重）
+    cycle_count = 0
+    seen: set[tuple[str, ...]] = set()
+    for a, outs in adj.items():
+        for b in outs:
+            for c in adj.get(b, ()):  # noqa: SIM110 —— 三角形枚举，规模 ≤ 百节点可控
+                if (c in adj.get(a, ()) or a in adj.get(c, ())) \
+                        and c != a and c != b:
+                    key = tuple(sorted((a, b, c)))
+                    if key not in seen:
+                        seen.add(key)
+                        cycle_count += 1
+    # SAME_DEVICE 二部集中度：账户侧最大同设备关联数 / 设备侧最大关联账户数
+    bip = 0.0
+    dv: dict[str, int] = {}
+    for e in edges:
+        if e.get("edge_type") == "SAME_DEVICE":
+            dv[str(e.get("dst_node", "")).strip()] = (
+                dv.get(str(e.get("dst_node", "")).strip(), 0) + 1)
+    if dv:
+        bip = round(max(dv.values()) / max(1, len(dv)), 3)
+    suspicion = round(min(1.0, 0.4 * star_density + 0.3 * min(cycle_count, 3) / 3
+                          + 0.3 * bip), 3)
+    return {"nodes": n, "edges": m, "star_density": star_density,
+            "cycle_count": cycle_count, "bipartite_concentration": bip,
+            "suspicion": suspicion, "degraded": False}
+
+
+async def compute_topology(edges: list[dict[str, Any]], root: str) -> dict[str, Any]:
+    """带超时的拓扑统计：计算超时返回空统计（degraded=True），调查链路不阻断"""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(topology_stats, edges, root), timeout=TOPO_TIMEOUT)
+    except Exception:  # noqa: BLE001 —— 超时/异常均降级空统计（含 asyncio.TimeoutError）
+        return {"nodes": 0, "edges": 0, "star_density": 0.0, "cycle_count": 0,
+                "bipartite_concentration": 0.0, "suspicion": 0.0, "degraded": True}
 
 
 class InvestigationStateError(Exception):
@@ -127,6 +194,11 @@ class InvestigationService:
             edge_types.add(e["edge_type"])
         nodes.discard("")
 
+        # 1a. B1 拓扑统计（US-E9）：进程内计算，超时降级空统计不阻断；
+        #     输出仅作调查线索留痕，不进入评分/状态迁移入参（DA-INV-07）
+        topo = await compute_topology(
+            [dict(e) for e in edges], case["subject_ref"])
+
         # 1b. 团伙发现（阶段3 R-43）：WCC 弱连通分量，ring_size = 团伙规模（补充信息，
         #     不替代 2 跳邻域，只作影响面团伙边界）
         ring_rows = await self.pool.fetch(
@@ -156,6 +228,22 @@ class InvestigationService:
             sigs, edge_types, kb_hints=kb_hints, client=self.llm_client)
         findings = await planner_mod.execute_plan(
             plan, self.external, case["subject_ref"])
+        # B3 假设覆盖核算（BA-BR-18）：未深查假设留痕「为什么没查 X」，并入豁免留痕
+        hyp_skipped = planner_mod.hypothesis_skipped(plan, findings)
+        # ≥2 假设 → 并行分支已生成，发 E-INV-HYPOTHESIS 领域事件（docs/14 §2，
+        # OpenAPI SseEvent 枚举逐字同步）
+        if len(plan.hypotheses) >= 2:
+            await self.pub.publish(
+                case_id,
+                "E-INV-HYPOTHESIS",
+                {
+                    "hypotheses": [h.get("pattern", "待定") for h in plan.hypotheses],
+                    "parallel": True,
+                    "plan_source": plan.source,
+                },
+                ACTOR_INV,
+                case["trace_id"],
+            )
 
         # 2. 假设匹配（规则兜底）+ DA-KB-01 检索引用（SC-05 联动，doc_id 引用对齐）
         #    R-48 记忆反哺：规则无法定性（待定）时以信号特征词检索 KB，命中则以
@@ -190,6 +278,8 @@ class InvestigationService:
                 f"「{hits[0]['title'][:50]}」升级定性（R-48）"
             )
             pattern = hits[0]["title"][:50]  # 文档标题即定性描述（审计可回放）
+            # E1 命中正确性反哺（US-E11）：KB 引用成功升级定性 → hit_correct 累积
+            await mark_kb_feedback(self.pool, [h["doc_id"] for h in hits])
 
         # 3. BA-BR-06：2 跳内命中已确认欺诈主体（黑名单）→ 加分（幂等，API-M-13）
         #    加分值走热键 br-06-fraud-link-bonus（SC-06，docs/01 §5 配置位置=Nacos 动态配置）
@@ -224,8 +314,10 @@ class InvestigationService:
         # 5. 证据固化（DA-T-05 只增，BA-BR-03，经 API-M-12 tg_app 写角色）
         plan_summary = (
             f"AG-01 计划[{plan.source}]：查询源 "
-            f"{','.join(q.source for q in plan.queries)}，豁免 "
-            f"{','.join(s['source'] for s in plan.skipped) or '无'}；执行成功 "
+            f"{','.join(q.source for q in plan.queries)}（并行分支），豁免 "
+            f"{','.join(s['source'] for s in plan.skipped) or '无'}"
+            f"{('；假设未深查留痕：' + '；'.join(s['hypothesis'] for s in hyp_skipped)) if hyp_skipped else ''}"
+            f"；执行成功 "
             f"{sum(1 for x in findings if x.get('ok'))}/{len(findings)}"
         )
         await self.core.record_case_evidence(
@@ -239,6 +331,17 @@ class InvestigationService:
                     ),
                     "source_ref": "AA-AG-03:investigation",
                     "confidence": 0.85,
+                },
+                {
+                    "claim": (
+                        f"拓扑线索（仅研判不裁决，DA-INV-07）：星型密度 "
+                        f"{topo['star_density']}，三角形环 {topo['cycle_count']} 个，"
+                        f"同设备二部集中度 {topo['bipartite_concentration']}，"
+                        f"嫌疑分 {topo['suspicion']}"
+                        + ("（计算超时降级空统计）" if topo["degraded"] else "")
+                    ),
+                    "source_ref": "AA-AG-03:topology",
+                    "confidence": 0.6,
                 },
                 {
                     "claim": (
@@ -288,7 +391,7 @@ class InvestigationService:
                     {"source": q.source, "reason": q.reason, "priority": q.priority}
                     for q in plan.queries
                 ],
-                "skipped": plan.skipped,
+                "skipped": [*plan.skipped, *hyp_skipped],
                 "rationale": plan.rationale,
                 "findings": findings,
                 "reflection": {
@@ -304,6 +407,7 @@ class InvestigationService:
                 "edges": len(edges),
                 "edge_types": sorted(edge_types),
                 "black_hits": black_hit,
+                "topology": topo,
             },
             "impact": {"accounts": len(nodes), "amount_24h": float(amount)},
             "evidence_fixed": True,

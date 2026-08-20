@@ -68,6 +68,10 @@ def test_audit_middleware_records_write_ops(monkeypatch):
     assert pool.executed == []
     client.post("/api/cases/CASE-X/review",
                 headers={"X-Operator": "human:reviewer"})
-    assert len(pool.executed) == 1                                  # 写操作落审计
-    q, args = pool.executed[0]
-    assert "api.request" in args and "human:reviewer" in args
+    # A0 角色门控：非正式 4 角色命中白名单端点补 api.unknown_actor 留痕，
+    # 写操作 api.request 审计不受影响（两条均属 BA-BR-09 全动作留痕）
+    actions = [args[2] for _, args in pool.executed]
+    assert actions.count("api.request") == 1
+    assert actions.count("api.unknown_actor") == 1
+    req = [args for _, args in pool.executed if args[2] == "api.request"][0]
+    assert "human:reviewer" in req

@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- A0 端点级角色门控（`app/api_guards.py` PATH_ROLE_RULES）：review 仅审批官、decide 仅审批官/策略管理员、kb publish/reject 仅策略管理员、config 写仅策略管理员/审批官；越权 403 E-FORBIDDEN-ROLE 并 `api.forbidden` 留痕，未识别调用方 `api.unknown_actor` 留痕放行（兼容收敛节奏同 R-37）；前端 api.js 按角色携带 X-Operator；流程 E 角色边界契约测试（SC-18）
 - CI 全量化：19 个测试文件全量接入（PG service + 双 MCP 服务实链路 + RocketMQ 降级），前端构建产物校验，本地全真模拟 206 例两轮全绿
 - SAST 安全门禁：bandit（Python 静态分析）+ pip-audit（依赖漏洞）进 CI
 - 并发/性能验证：异步压测脚本与基线报告（`scripts/perf_smoke.py` + `docs/reports/perf-report.md`）
@@ -16,8 +17,18 @@
 - Skill 运行时注册表：`app/skills/loader.py` + `GET /api/skills`（API-W-24）——frontmatter 同源装载、entrypoint 导入校验、坏包留痕不阻断，skill 包从文档自包含升级为基座可发现/可分派
 - R-49 动态处置分派：委托通道动作由 AG-03 调查结论（图谱影响面 + KB 佐证）动态协商（规则档位下限 + LLM 白名单降级），替换硬编码 freeze
 - 开源化：Apache-2.0 LICENSE、英文 README、CONTRIBUTING、CHANGELOG
+- 增强路线图 docs/14 全量集成（US-E8~E12，13 增强点，零新中间件/零状态机变更/既有不变量只增不改）：A1 自适应基线（DA-T-14 account_baseline + EWMA/分位双轨评分 BA-BR-15）、B2 三时序模式（资金回路/快进快出/夜间突发 BA-BR-17）、B1 图拓扑 topology_stats（星型/环型/二部，仅线索不裁决 BA-BR-16 + DA-INV-07）、B3 并行假设编排+「为什么没查 X」豁免留痕（BA-BR-18）、C1 控辩互审 debate_json 入审批单与审计（BA-BR-19 + DA-INV-09）、D1 专家清单预检 precheck 只读 API、E1 知识代谢 effectiveness 自动降级（BA-BR-20）、E2 rule_proposal 人审门（BA-BR-21 + DA-INV-08）、C2 disposition_outcome T+7/T+30 回填、F1 pyod 工具族白名单门禁；4 新领域事件（E-INV-HYPOTHESIS/E-REVIEW-DEBATE/E-KB-DECAY/E-OUTCOME-FOLLOW）OpenAPI SseEvent 枚举逐字同步
+- 门户增强展示：审批工单控辩抽屉（控方/辩方/裁判倾向三段 + BA-BR-19 不替代人工裁决提示）、审计工作台专家清单预检六项卡片、策略工作台待审核队列+审核发布人审门
+- SC-12~17 六场景 BDD 矩阵落地（test_scenario_matrix +190 行），全量金字塔回归 296 例全绿；浏览器四角色×多菜单协作完整前端路径复测通过（立案→聚合→调查→提请→控辩→批准→执行→预检→核验归档→知识沉淀人审发布）
+
+### Changed
+- 四角色 × 四专属工作台分化（消除「所有角色共用一个案件工作台」的归属错乱）：案件工作台归值班员专属（剥离复核 tab/复核弹窗/角色判断）；`ApprovalPortal.vue` 重写为审批官专属「复核审批工作台」（人工复核队列默认 tab + 审批工单双 tab，复核 UI 自案件工作台迁入）；审计查询/知识库分别更名审计工作台（审计员专属）/策略工作台（策略管理员专属）；`router.js` meta.roles 白名单 + `App.vue` menus roles + HOME_BY_ROLE 三层同步，可观测面板为唯一共享页
 
 ### Fixed
+- fund_loop 时序回路检测恒不命中：transaction.account_hash/payee_hash 为 char(64) 读回带尾随空格、risk_case.subject_ref 为 varchar 未填充，进程内比较永不匹配——_detect_fund_loop 全链 .strip()（SC-14 取证修复；SQL 层 bpchar 自动对齐不受影响）
+- topology_stats 三角形枚举只认 a→c 闭边、漏 c→a 有向环，与 docstring A→B→C→A 语义不符——investigation.py 与 mcp-core server.py 同源双修
+- v_graph_edge 视图性能隐患：清理 transaction 表 20 万行 TX- 测试残留（452 万边自连接单次 25s）并 VACUUM ANALYZE
+- 角色业务边界纸面化隐患：此前 API 层仅全局 Bearer 认证、X-Operator 仅作审计标识，任意角色可调用他角色写端点（生产实证值班员越权 review 返回 200）——A0 端点级 RBAC 落地后复测 403 生效；前端 UI 角色归属同步对齐：复核队列/复核按钮归审批官专属复核审批工作台、立案按钮归值班员、角色切换统一回各自首页
 - D2 浏览器断链：调查→审批交接（API-W-23 提交处置端点 + UI 入口 + 一案一单防重）
 - D3 审计缺口：审计员核验入口（Verification 回执 UI + 端点）
 - KPI 业务口径：主体可关联账户档案 + 非 TEST 来源双保险，消除测试残留污染（KPI-01 883→0.0 分，KPI-03 50%→0%，KPI-05 98.4%→100%）

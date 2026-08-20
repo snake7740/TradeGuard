@@ -40,30 +40,30 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { getHealth } from './api'
 import { ROLES, currentRole, setRole } from './role'
 
-// 5 页面 × 4 角色（01 §6 用户旅程 × 04 §10）；roles 为空数组=全角色可见
+// 四角色 × 四专属工作台（01 §6 用户旅程 × 04 §10，A0 角色工作台分化）+ 共享可观测面板；
+// roles 为空数组=全角色可见
 const menus = [
   { path: '/cases', title: '案件工作台', roles: ['风控值班员'] },
-  { path: '/approvals', title: '审批门户', roles: ['风控审批官'] },
-  { path: '/audit', title: '审计查询', roles: ['合规审计员'] },
-  { path: '/kb', title: '知识库管理', roles: ['风控策略管理员'] },
+  { path: '/approvals', title: '复核审批工作台', roles: ['风控审批官'] },
+  { path: '/audit', title: '审计工作台', roles: ['合规审计员'] },
+  { path: '/kb', title: '策略工作台', roles: ['风控策略管理员'] },
   { path: '/observe', title: '可观测面板', roles: [] },
 ]
 
 const router = useRouter()
-const route = useRoute()
 const role = ref(currentRole())
 const visibleMenus = computed(() =>
   menus.filter((m) => m.roles.length === 0 || m.roles.includes(role.value)))
 
-// 角色切换：写回 localStorage；当前页面对新角色不可见时跳回其角色首页
+// 角色切换：写回 localStorage 并回到新角色首页（A0：菜单权限按角色分化，
+// 切换后统一回首页避免旧角色页面状态残留）
 function onRoleChange(r) {
   setRole(r)
-  const allowed = route.meta.roles
-  if (allowed && !allowed.includes(r)) router.push('/')
+  router.push('/')
 }
 
 // 健康状态：UP 全部正常 / DEGRADED 部分组件降级（悬停提示故障明细）/ DOWN 探针失联

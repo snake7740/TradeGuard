@@ -1,10 +1,10 @@
 <template>
-  <!-- 审计查询（API-W-10 消费方，01 §6 合规审计员旅程，SC-08；SSE 事件驱动实时刷新） -->
+  <!-- 审计工作台（合规审计员专属工作台，A0 角色工作台分化；API-W-10 消费方，01 §6 合规审计员旅程，SC-08；SSE 事件驱动实时刷新） -->
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="page-title">审计查询</div>
-        <div class="page-desc">输入案件编号回放完整操作审计链：每一步由谁、在何时、基于什么依据做出（含追踪标识 trace_id），全程留痕、不可篡改，满足合规追溯要求。</div>
+        <div class="page-title">审计工作台</div>
+        <div class="page-desc">审计员专属工作台：输入案件编号回放完整操作审计链——每一步由谁、在何时、基于什么依据做出（含追踪标识 trace_id），全程留痕、不可篡改；已处置案件可触发结果核验，一致后归档。满足合规追溯要求。</div>
       </div>
     </div>
     <div class="page-body">
@@ -16,9 +16,29 @@
             :label="`${c.case_id} · ${statusLabel(c.status)}`" />
         </el-select>
         <el-button type="primary" :loading="loading" @click="query">回放审计链</el-button>
+        <el-button :loading="prechecking" @click="runPrecheck">专家清单预检</el-button>
         <span class="hint">案件编号也可在「案件工作台」列表中获取</span>
       </el-space>
     </el-row>
+    <!-- D1 专家清单预检（US-E10）：处置要件逐项体检，裁决前快速定位缺口（只读，不推进状态） -->
+    <el-card v-if="precheck" class="result" :header="`专家清单预检 · ${queriedCaseId}`">
+      <template #extra>
+        <el-tag :type="precheck.passed ? 'success' : 'danger'" effect="light">
+          {{ precheck.passed ? '体检通过（无硬性缺口）' : '存在硬性缺口，请先补齐' }}
+        </el-tag>
+      </template>
+      <el-table :data="precheck.items" size="small" stripe>
+        <el-table-column prop="name" label="检查项" width="220" />
+        <el-table-column label="结果" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'warn' ? 'warning' : 'danger'">
+              {{ row.status === 'ok' ? '通过' : row.status === 'warn' ? '关注' : '缺口' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="basis" label="依据" show-overflow-tooltip />
+      </el-table>
+    </el-card>
     <el-card v-if="queried" class="result" :header="`审计时间线 · ${queriedCaseId}`">
       <!-- 结果核验入口（API-W-19/22，US-E6-01/02，AA-SK-04 审计员旅程）：
            DISPOSED 待核验时提供一键核验（取最新 executed 凭证），一致→归档+复盘入库 -->
@@ -50,7 +70,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getAuditTrail, getCases, getCase, getDispositions, verifyCase, openEventStream } from '../api'
+import { getAuditTrail, getAuditPrecheck, getCases, getCase, getDispositions, verifyCase, openEventStream } from '../api'
 import { auditActionLabel, statusLabel, friendlyError, routeLabel } from '../labels'
 
 const caseId = ref('')
@@ -62,6 +82,22 @@ const recent = ref([])
 const caseInfo = ref({})   // 所选案件状态（DISPOSED 时展示核验入口）
 const verifying = ref(false)
 const verifyResult = ref('')  // 核验一致后的复盘入库单号
+const prechecking = ref(false)
+const precheck = ref(null)    // D1 专家清单预检结果（US-E10）
+
+// 专家清单预检（D1）：只读体检，不改变案件状态；未选案件时提示先回放
+async function runPrecheck() {
+  const id = caseId.value.trim() || queriedCaseId.value
+  if (!id) { ElMessage.warning('请选择或输入案件编号'); return }
+  prechecking.value = true
+  try {
+    const d = (await getAuditPrecheck(id)).data
+    if (d.code) { ElMessage.error(d.message); precheck.value = null; return }
+    precheck.value = d
+    queriedCaseId.value = id
+  } catch (e) { ElMessage.error(friendlyError(e, '预检失败')) }
+  finally { prechecking.value = false }
+}
 
 // 最近案件快捷选择（API-W-02 取最新 10 笔）+ SSE 事件驱动实时刷新（全页面实时闭环）
 async function refreshRecent() {
@@ -97,6 +133,7 @@ async function query() {
     queriedCaseId.value = id
     queried.value = true
     verifyResult.value = ''
+    precheck.value = null
     try { caseInfo.value = (await getCase(id)).data } catch { caseInfo.value = {} }
   } catch (e) { ElMessage.error(friendlyError(e, '查询失败')) } finally { loading.value = false }
 }

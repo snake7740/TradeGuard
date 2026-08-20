@@ -26,12 +26,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import uuid
+from typing import Any
 
 from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
 from . import planner as planner_mod
 from .mcp_adapters import remember
+
+logger = logging.getLogger("tradeguard.disposition")
 
 AUTO_SCORE_MAX = 40  # BA-BR-01 自动通道风险分上限（与 aggregation 同源常量语义）
 HIGH_RISK_SCORE = 70  # BA-BR-02 高风险强制审批线
@@ -40,6 +45,10 @@ ESCALATION_MINUTES = 30  # BA-BR-13 审批时效（Nacos 可下发，SC-06 后�
 ACTOR_DISP = "agent:AA-AG-04"  # 状态机 actor（Agent 前缀约定，02 §3）
 ACTOR_DISP_AUDIT = "AA-AG-04"  # 审计 actor（与 mcp-core 落库一致，SC-01 沿用）
 ACTOR_ESCALATION = "system:timer-BA-BR-13"
+ACTOR_OUTCOME = "system:outcome-follow"  # C2 长窗回填任务 actor（US-E12）
+
+OUTCOME_T7_DAYS = 7   # C2 短窗：处置后 7 天效果标签
+OUTCOME_T30_DAYS = 30  # C2 长窗：处置后 30 天效果标签（KPI「处置后 30 天再犯率」口径）
 
 # 重试归类（B2）：确定性门控/幂等错误码不重试；其余错误码与网络异常重试，退避 0.3s/1s
 _NON_RETRYABLE = {
@@ -197,10 +206,10 @@ class DispositionService:
                     "case_status": status,
                 }
             # SC-02：拒执行 + 建审批工单（tg_app，API-M-11）+ 转待审批
-            # R-47 Agent 互审：AG-04 处置建议建单前经 AG-01 合规审查
-            # （证据充分性/处置恰当性/过度处置风险），结论并入审批单与证据链；
-            # 人机边界不变——互审只建议不决策，建单与状态转移照常（02 §3.3）
-            review = await self._cross_review(case, action, amount)
+            # R-47 Agent 互审 + C1 控辩互审（US-E10）：AG-04 处置建议建单前经 AG-01
+            # 合规审查与控辩辩论，结论并入审批单/证据链/审计；人机边界不变——
+            # 互审/控辩只建议不决策，裁决权仍在审批官（02 §3.3，BA-BR-19）
+            review, debate = await self._cross_review(case, action, amount)
             appr = await self.core.create_approval_request(
                 case_id,
                 action,
@@ -208,7 +217,36 @@ class DispositionService:
                 reason=(
                     f"risk_score={score} 高风险处置需人工审批（BA-BR-02，SC-02）"
                     f"[AG-01 互审:{review.source}/{review.verdict}] {review.summary}"
+                    f"[控辩:{debate.source}] 裁判倾向：{debate.adjudication}"
                 ),
+            )
+            # debate_json 落审批单（DA-INV-09 只增列；tg_web UPDATE approval_record
+            # 在权限矩阵内，与 _decide 同通道）
+            debate_payload = {
+                "source": debate.source,
+                "prosecution": debate.prosecution,
+                "defense": debate.defense,
+                "adjudication": debate.adjudication,
+                "verdict": debate.verdict,
+                "summary": debate.summary,
+            }
+            await self.pool.execute(
+                "UPDATE approval_record SET debate_json=$2 WHERE approval_id=$1",
+                appr["approval_id"],
+                json.dumps(debate_payload, ensure_ascii=False),
+            )
+            # E-REVIEW-DEBATE 领域事件（docs/14 §2，OpenAPI SseEvent 枚举逐字同步）
+            await self.pub.publish(
+                case_id,
+                "E-REVIEW-DEBATE",
+                {
+                    "approval_id": appr["approval_id"],
+                    "source": debate.source,
+                    "adjudication": debate.adjudication,
+                    "verdict": debate.verdict,
+                },
+                ACTOR_DISP,
+                trace_id,
             )
             await self.core.record_case_evidence(
                 case_id,
@@ -222,13 +260,23 @@ class DispositionService:
                     ),
                     "source_ref": "AA-AG-01:cross-review",
                     "confidence": 0.6,
+                }, {
+                    "claim": (
+                        f"控辩互审[{debate.source}]：控方「{'；'.join(debate.prosecution[:2])}」"
+                        f"vs 辩方「{'；'.join(debate.defense[:2])}」→ 裁判倾向："
+                        f"{debate.adjudication}；最终裁决仍由审批官作出"
+                        f"（BA-BR-19，SC-16，US-E10）"
+                    ),
+                    "source_ref": "AA-AG-01:debate",
+                    "confidence": 0.6,
                 }],
             )
             await self._audit(
                 case_id,
                 "disposition.reviewed",
                 f"AG-01 互审[{review.source}] verdict={review.verdict}：{review.summary}"
-                f"（R-47 Agent 互审，建议性结论无决策权）",
+                f"；控辩[{debate.source}]裁判倾向={debate.adjudication}"
+                f"（R-47/C1，建议性结论无决策权）",
                 trace_id,
             )
             if status == "INVESTIGATING":
@@ -355,21 +403,25 @@ class DispositionService:
         return out["status"]
 
     async def _cross_review(self, case, action: str, amount: float | None):
-        """R-47 互审封装：读案件证据链（tg_web 只读）→ AG-01 合规审查。
+        """R-47 互审 + C1 控辩封装（US-E10）：读案件证据链（tg_web 只读）→
+        AG-01 合规审查（ReviewVerdict）与控辩辩论（DebateRecord）双跑。
 
-        LLM 优先（可用时），不可用/失败降级规则版（planner.review_disposition
-        内建）；互审异常不影响建单主流程的确定性前提由降级保底保证。
+        LLM 优先（可用时），不可用/失败降级规则版（planner 内建）；互审/控辩
+        异常不影响建单主流程的确定性前提由降级保底保证。
         """
         evidence = await self.pool.fetch(
             "SELECT claim, source_ref, confidence FROM case_evidence"
             " WHERE case_id=$1 ORDER BY ts",
             case["case_id"],
         )
-        return await planner_mod.review_disposition(
-            action, amount, case["risk_score"],
-            [dict(e) for e in evidence],
-            client=self.llm_client,
+        ev = [dict(e) for e in evidence]
+        review = await planner_mod.review_disposition(
+            action, amount, case["risk_score"], ev, client=self.llm_client,
         )
+        debate = await planner_mod.debate_disposition(
+            action, amount, case["risk_score"], ev, client=self.llm_client,
+        )
+        return review, debate
 
     async def approve(self, approval_id: str, approver: str, opinion: str = "") -> dict:
         """批准闭环（API-W-09 编排）：回填决策 → ApprovalApproved → 自动执行处置"""
@@ -577,3 +629,82 @@ async def scan_pending_escalations(
             ACTOR_ESCALATION,
         )
     return [dict(r) for r in rows]
+
+
+async def follow_outcomes(pool, pub, core=None,
+                          t7_days: int = OUTCOME_T7_DAYS,
+                          t30_days: int = OUTCOME_T30_DAYS) -> list[dict[str, Any]]:
+    """C2 处置效果长窗回填（BA-BR-19 同源长窗观测，US-E12，SC 评估口径）：
+
+      1) 已处置案件登记 outcome 行（disposed_at 取最新 executed 凭证时间）；
+      2) 到窗回填：同主体新立案 → recidivism；同主体客诉信号 → appealed；
+         否则 clean（T+7/T+30 双窗独立回填，只增不改语义：到窗后不再回退）；
+      3) 每次回填发 E-OUTCOME-FOLLOW 事件 + 审计留痕；
+      4) 再犯命中 → 经 AA-MCP-05 提 rule_proposal 规则收紧提案（pending，
+         生效须策略管理员人审，DA-INV-08/BA-BR-21，E2 规则进化真实发生器）。
+    """
+    # 1) 登记：DISPOSED/VERIFIED/ARCHIVED 案件尚无 outcome 行时补登（幂等）
+    await pool.execute(
+        """INSERT INTO disposition_outcome (case_id, disposed_at)
+           SELECT rc.case_id, MAX(dr.ts) FROM risk_case rc
+           JOIN disposition_record dr ON dr.case_id = rc.case_id
+           WHERE rc.status IN ('DISPOSED','VERIFIED','ARCHIVED')
+             AND dr.status = 'executed'
+             AND NOT EXISTS (SELECT 1 FROM disposition_outcome o
+                             WHERE o.case_id = rc.case_id)
+           GROUP BY rc.case_id
+           ON CONFLICT (case_id) DO NOTHING""")
+
+    updated: list[dict[str, Any]] = []
+    for col, days in (("t7_label", t7_days), ("t30_label", t30_days)):
+        rows = await pool.fetch(
+            f"""SELECT o.case_id, o.disposed_at, rc.subject_ref
+                FROM disposition_outcome o
+                JOIN risk_case rc ON rc.case_id = o.case_id
+                WHERE o.{col} IS NULL
+                  AND o.disposed_at <= now() - make_interval(days=>$1)""",
+            days)
+        for r in rows:
+            recur = await pool.fetchval(
+                """SELECT COUNT(*) FROM risk_case
+                   WHERE subject_ref=$1 AND created_at > $2
+                     AND case_id <> $3""",
+                r["subject_ref"], r["disposed_at"], r["case_id"])
+            appeal = await pool.fetchval(
+                """SELECT COUNT(*) FROM risk_signal rs
+                   JOIN risk_case rc2 ON rc2.case_id = rs.case_id
+                   WHERE rc2.subject_ref=$1 AND rs.source='complaint'
+                     AND rs.ts > $2""",
+                r["subject_ref"], r["disposed_at"])
+            label = "recidivism" if recur else ("appealed" if appeal else "clean")
+            extra = ""
+            if col == "t7_label":
+                extra = f", recidivism_flag={str(bool(recur)).lower()}"
+                extra += f", appealed_flag={str(bool(appeal)).lower()}"
+            await pool.execute(
+                f"""UPDATE disposition_outcome SET {col}=$2{extra}, followed_at=now()
+                    WHERE case_id=$1""",
+                r["case_id"], label)
+            await pool.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis)
+                   VALUES ($1, $2, 'outcome.follow', $3, $4)""",
+                uuid.uuid4().hex, ACTOR_OUTCOME, r["case_id"],
+                f"{col}={label}（T+{days} 长窗回填，C2）"[:300])
+            await pub.publish(
+                r["case_id"], "E-OUTCOME-FOLLOW",
+                {"case_id": r["case_id"], "window": f"T+{days}",
+                 "label": label}, ACTOR_OUTCOME)
+            updated.append({"case_id": r["case_id"], "window": f"T+{days}",
+                            "label": label})
+            # E2 规则进化：再犯命中 → rule_proposal 提案（pending，人审后方可生效）
+            if label == "recidivism" and core is not None:
+                try:
+                    await core.submit_kb_application(
+                        r["case_id"], "rule_proposal",
+                        f"处置后再犯：{r['subject_ref'][:16]}… 规则收紧提案",
+                        f"案件 {r['case_id']} 处置后 T+{days} 天内同主体再犯"
+                        f" {recur} 次，建议策略管理员评估收紧该手法阈值/"
+                        f"处置档位（BA-BR-21，发布须人审）")
+                except Exception:  # noqa: BLE001 —— 提案失败不阻断回填主链路
+                    logger.exception("rule_proposal 提案失败：case=%s", r["case_id"])
+    return updated

@@ -8,13 +8,25 @@
 审计延伸（BA-BR-09）：写操作（POST/PUT/DELETE）落 audit_log action=api.request、
 target=api，操作者取 X-Operator 头（人机边界，02 §3.3），异常吞掉不阻断请求；
 鉴权失败的写请求补 api.denied 拒绝留痕（R-37）。
+
+角色边界强制（A0：03 §6 权限矩阵的 API 层落地）：X-Operator 不再仅作审计
+标识，而是端点级 RBAC 的一等执法对象——按路径前缀白名单×角色集合强制拦截，
+越权一律 403 并留痕 api.forbidden。规则：
+  * /cases/*/review：仅风控审批官；/approvals*/decide、/config*：审批官或策略管理员；
+    /kb/applications/*/publish|reject：仅策略管理员（对齐 02-roles.sql tg_web 授权面）；
+  * 已知人类角色越权人工环节写路径 → 403 E-FORBIDDEN-ROLE；
+    agent: 自声明穿透至端点 human_only 守卫 → 409 E-HUMAN-ONLY（语义分层）；
+  * 未识别角色（无合法前缀/未编码角色名）放行并留痕 api.unknown_actor，
+    兼容既有 MCP/CI 调用方，收敛节奏与 R-37 一致。
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import secrets
 import uuid
+from urllib.parse import unquote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -24,6 +36,27 @@ from .api.common import operator_from_header
 logger = logging.getLogger("tradeguard.guards")
 WRITE_METHODS = ("POST", "PUT", "DELETE", "PATCH")
 EXEMPT_PATHS = ("/api/health",)   # R-37：SSE 纳入鉴权（门户 nginx 注入令牌），仅探活豁免
+
+# ---- 端点级角色门控（A0：03 §6 权限矩阵 × 01 §6 角色旅程的 API 层落地）----
+KNOWN_ACTOR_PREFIXES = ("human:", "agent:", "system:")
+# 前缀 → 允许角色集合（中文角色名与 web-portal role.js 同源；审批官兼系统阈值
+# 配置权，与 02-roles.sql tg_web 的 sys_config UPDATE 授权对齐）
+PATH_ROLE_RULES = (
+    (re.compile(r"^/api/cases/[^/]+/review$"),
+     {"风控审批官"}),
+    (re.compile(r"^/api/kb/applications/[^/]+/(publish|reject)$"),
+     {"风控策略管理员"}),
+    (re.compile(r"^/api/approvals/[^/]+/decide$"),
+     {"风控审批官", "风控策略管理员"}),
+    (re.compile(r"^/api/config"),
+     {"风控策略管理员", "风控审批官"}),
+)
+# 人工环节写路径：已识别人类角色越权直接 403；agent: 自声明不在此拦截，
+# 穿透至端点 human_only 守卫返回 409 E-HUMAN-ONLY（语义分层：403=角色无权，
+# 409=业务门拒绝，与 07-case-actor-gate 行为对齐）
+HUMAN_ONLY_WRITE = re.compile(r"^/api/(cases/[^/]+/review"
+                              r"|approvals/[^/]+/decide"
+                              r"|kb/applications/[^/]+/(publish|reject))$")
 
 
 async def _audit(request: Request, action: str, basis: str, actor: str = "api:anonymous"):
@@ -37,6 +70,21 @@ async def _audit(request: Request, action: str, basis: str, actor: str = "api:an
             uuid.uuid4().hex, actor[:40], action, basis[:300])  # basis varchar(300) 防截断 500
     except Exception:  # noqa: BLE001 —— 审计失败不阻断业务请求
         logger.exception("API 审计落库失败：%s", action)
+
+
+def _actor_role(actor: str):
+    """X-Operator 解码 → (is_known, role)：兼容两种前端契约形态——
+    编码纯角色名（axios 拦截器默认，common.py 解码时补 human: 前缀）与
+    显式 human:<角色>；其余一律视为未知"""
+    try:
+        decoded = unquote(actor)
+    except Exception:  # noqa: BLE001 —— 解码异常按未知角色处理
+        return False, None
+    if decoded.startswith("human:"):
+        decoded = decoded[len("human:"):]
+    if decoded in {"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"}:
+        return True, decoded
+    return False, None
 
 
 async def _guard_middleware(request: Request, call_next):
@@ -64,6 +112,38 @@ async def _guard_middleware(request: Request, call_next):
                 status_code=401,
                 content={"detail": {"code": "E-UNAUTHORIZED",
                                     "message": "缺少或非法 Bearer 凭证（US-E7-01）"}})
+    # 3. 端点级角色门控（A0）：白名单路径 × 角色集合强制拦截，越权 403 留痕
+    actor_raw = request.headers.get("X-Operator", "")
+    is_known, actor_role = _actor_role(actor_raw)
+    actor_decoded = unquote(actor_raw)
+    matched_allow = None
+    for pattern, allowed in PATH_ROLE_RULES:
+        if pattern.match(path):
+            matched_allow = allowed
+            break
+    if matched_allow is not None and is_known and actor_role not in matched_allow:
+        await _audit(request, "api.forbidden",
+                     f"{request.method} {path} actor={actor_raw} "
+                     f"需角色={sorted(matched_allow)}", f"human:{actor_role}")
+        return JSONResponse(
+            status_code=403,
+            content={"detail": {"code": "E-FORBIDDEN-ROLE",
+                                "message": f"角色「{actor_role}」无权访问该端点（03 §6 权限矩阵）"}})
+    if (is_known and actor_decoded.startswith("human:")
+            and HUMAN_ONLY_WRITE.match(path) and request.method in WRITE_METHODS
+            and (matched_allow is None or actor_role not in matched_allow)):
+        # 已知人类角色越权人工环节：403 快速失败（agent: 穿透至端点 409）
+        await _audit(request, "api.forbidden",
+                     f"{request.method} {path} actor={actor_raw} 人工环节角色越权",
+                     f"human:{actor_role}")
+        return JSONResponse(
+            status_code=403,
+            content={"detail": {"code": "E-FORBIDDEN-ROLE",
+                                "message": f"角色「{actor_role}」无权执行人工环节操作（03 §6 权限矩阵）"}})
+    if matched_allow is not None and not is_known:
+        # 未识别调用方放行 + 留痕（兼容 MCP/CI，收敛节奏与 R-37 一致）
+        await _audit(request, "api.unknown_actor",
+                     f"{request.method} {path} actor={actor_raw or '(空)'}", "api:anonymous")
     response = await call_next(request)
     # 2. 写操作审计（读操作不落痕，降低审计噪音）
     if (request.method in WRITE_METHODS and path.startswith("/api/")

@@ -4,10 +4,10 @@
     <div class="page-head">
       <div>
         <div class="page-title">案件工作台</div>
-        <div class="page-desc">风险案件全生命周期跟踪：立案 → 信号聚合 → 调查取证 → 审批处置 → 核验归档。选择案件查看证据链与关联图谱，并按流程推进处置。</div>
+        <div class="page-desc">值班员专属工作台：立案 → 信号聚合 → 调查取证 → 提请处置。选择案件查看证据链与关联图谱，并按流程推进；复核与审批由审批官在「复核审批工作台」处理。</div>
       </div>
       <div class="page-actions">
-        <!-- API-W-01 立案：severity 三档对应三类处置路径（06 §2 SC-01/02/10） -->
+        <!-- API-W-01 立案：severity 三档对应三类处置路径（06 §2 SC-01/02/10）；工作台专属值班员 -->
         <el-dropdown trigger="click" @command="triggerDemo">
           <el-button type="primary">新建演示案件<el-icon class="el-icon--right"><arrow-down /></el-icon></el-button>
           <template #dropdown>
@@ -22,13 +22,9 @@
       </div>
     </div>
     <div class="page-body">
-      <el-tabs v-model="tab" @tab-change="onTab">
-        <el-tab-pane label="全部案件" name="all" />
-        <el-tab-pane label="人工复核队列" name="review" />
-      </el-tabs>
       <el-row align="middle" class="toolbar">
         <el-space>
-          <el-select v-if="tab === 'all'" v-model="status" placeholder="全部状态" clearable
+          <el-select v-model="status" placeholder="全部状态" clearable
             style="width:200px" @change="reload">
             <el-option v-for="s in statuses" :key="s" :value="s" :label="STATUS_META[s].label" />
           </el-select>
@@ -41,7 +37,7 @@
         </el-space>
       </el-row>
     <el-table :data="rows" v-loading="loading" stripe
-      :empty-text="tab === 'review' ? '当前没有需要人工复核的案件。审批驳回、处置失败或处置撤销的案件会进入此队列' : '暂无案件。点击右上角「新建演示案件」生成一笔案件'">
+      empty-text="暂无案件。点击右上角「新建演示案件」生成一笔案件">
       <el-table-column prop="case_id" label="案件编号" width="210" />
       <el-table-column prop="subject_ref" label="涉事主体" show-overflow-tooltip />
       <el-table-column prop="risk_score" label="风险评分" width="100" sortable>
@@ -70,10 +66,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="立案时间" width="180" show-overflow-tooltip />
-      <el-table-column label="操作" :width="tab === 'review' ? 150 : 80" fixed="right">
+      <el-table-column label="操作" width="80" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-          <el-button v-if="tab === 'review'" link type="warning" @click="openReview(row)">复核</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -205,44 +200,9 @@
           <!-- API-W-23（SC-02）：调查完成后人工提请处置，高风险经 E-DISP-AUTH 门控建单转审批 -->
           <el-button v-if="canSubmitDisposition" type="primary" :loading="disp.submitting"
             @click="openDisposition">提请处置审批</el-button>
-          <el-button v-if="detail.info.status === 'MANUAL_REVIEW'" type="warning"
-            @click="detailVisible = false">前往复核队列处理</el-button>
-          <el-button v-if="detail.info.status === 'PENDING_APPROVAL'" type="warning"
-            @click="detailVisible = false">前往审批门户决策</el-button>
         </el-space>
       </div>
     </el-drawer>
-
-    <!-- 人工复核弹窗（API-W-07，SC-10）：三种结论均明示后果 -->
-    <el-dialog v-model="reviewVisible" :title="`人工复核 · ${review.caseId}`" width="520px">
-      <el-form label-width="70px">
-        <el-form-item label="复核结论">
-          <el-radio-group v-model="review.conclusion" class="review-radios">
-            <el-radio value="release">
-              排除归档
-              <span class="hint">认定为误报，案件结案归档</span>
-            </el-radio>
-            <el-radio value="block">
-              确认处置
-              <span class="hint">确认欺诈，创建审批单执行管控</span>
-            </el-radio>
-            <el-radio value="escalate">
-              升级审批
-              <span class="hint">证据不足或金额重大，升级人工审批</span>
-            </el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="复核意见">
-          <el-input v-model="review.opinion" type="textarea" :rows="3"
-            placeholder="请填写复核依据，例如：经核实交易为本人操作，设备与常用地址一致（不少于 5 个字符）"
-            maxlength="500" show-word-limit />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="reviewVisible = false">取消</el-button>
-        <el-button type="primary" :loading="review.submitting" @click="submitReview">提交复核</el-button>
-      </template>
-    </el-dialog>
 
     <!-- 处置提交弹窗（API-W-23，SC-02）：调查完成后提请处置，高风险经门控建审批单 -->
     <el-dialog v-model="dispVisible" :title="`提请处置 · ${disp.caseId}`" width="520px">
@@ -285,14 +245,13 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { getCases, postAlert, getCase, getSignals, getEvidence, getGraph, getAuditTrail,
-  postReview, aggregateCase, investigateCase, submitDisposition, verifyCase, getDispositions,
+  aggregateCase, investigateCase, submitDisposition, verifyCase, getDispositions,
   getDemoSubjects, openEventStream } from '../api'
 import { STAGES, STATUS_META, NEXT_STEP, SEVERITY_META, EDGE_LABELS, INFO_LABELS,
   DISP_STATUS_META, statusLabel, statusMeta, routeLabel, actionLabel, auditActionLabel,
   friendlyError } from '../labels'
 
 const statuses = Object.keys(STATUS_META)
-const tab = ref('all')
 const rows = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -320,7 +279,7 @@ async function load() {
   loading.value = true
   try {
     const { data } = await getCases({   // API-W-02 分页契约 {total, items}
-      status: tab.value === 'review' ? 'MANUAL_REVIEW' : (status.value || undefined),
+      status: status.value || undefined,
       risk_min: riskMin.value ?? undefined,
       page: page.value, size: size.value,
     })
@@ -329,7 +288,6 @@ async function load() {
   } catch (e) { ElMessage.error(friendlyError(e, '查询失败')) } finally { loading.value = false }
 }
 function reload() { page.value = 1; load() }
-function onTab() { reload() }
 
 // ---- 新建演示案件（API-W-01，severity 三档三类路径） ----
 async function triggerDemo(severity = 'high') {
@@ -447,26 +405,6 @@ async function submitDispositionAction() {
     dispVisible.value = false
     await refreshDetail()
   } catch (e) { ElMessage.error(friendlyError(e, '处置提交失败')) } finally { disp.submitting = false }
-}
-
-// ---- 人工复核 ----
-const reviewVisible = ref(false)
-const review = reactive({ caseId: '', conclusion: 'release', opinion: '', submitting: false })
-
-function openReview(row) {
-  Object.assign(review, { caseId: row.case_id, conclusion: 'release', opinion: '', submitting: false })
-  reviewVisible.value = true
-}
-
-async function submitReview() {
-  if (review.opinion.trim().length < 5) { ElMessage.warning('请填写不少于 5 个字符的复核依据'); return }
-  review.submitting = true
-  try {
-    await postReview(review.caseId, { conclusion: review.conclusion, opinion: review.opinion.trim() })
-    ElMessage.success('复核结论已提交，案件已按结论流转')
-    reviewVisible.value = false
-    load()
-  } catch (e) { ElMessage.error(friendlyError(e, '复核失败')) } finally { review.submitting = false }
 }
 
 // ---- 实时更新：SSE 事件驱动列表刷新（防抖合并，避免事件风暴下频繁请求） ----

@@ -53,6 +53,7 @@ export const decideApproval = (approvalId, body) => http.post(`/approvals/${appr
 
 // ---- audit ----
 export const getAuditTrail = (caseId) => http.get(`/audit/${caseId}`)                  // API-W-10（SC-08）
+export const getAuditPrecheck = (caseId) => http.get(`/audit/${caseId}/precheck`)      // D1 专家清单预检（US-E10，只读）
 
 // ---- knowledge base ----
 export const getKbApplications = (status = 'pending') => http.get('/kb/applications', { params: { status } }) // API-W-11

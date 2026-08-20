@@ -142,6 +142,13 @@ class CoreClient(McpToolClient):
         """API-M-04：处置结果回查（AA-SK-04 核验依据）"""
         return await self.call_tool("query_disposition_result", exec_id=exec_id)
 
+    async def query_related_graph(self, account_hash: str, hops: int = 2) -> dict:
+        """API-M-02：关联图谱 + topology_stats 拓扑线索（B1，仅研判不裁决，
+        DA-INV-07，US-E9）；返回 {"edges": [...], "topology_stats": {...}}"""
+        return await self.call_tool(
+            "query_related_graph", account_hash=account_hash, hops=hops
+        )
+
     async def query_audit_trail(self, case_id: str) -> list:
         """API-M-06：审计链回放（只读，SC-08）"""
         # mcp-core 返回 json.dumps([...]) 数组 → json.loads 得 list（call_tool 注解为 dict，此处 cast）
