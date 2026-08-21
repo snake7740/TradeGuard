@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .coverage
 .venv/
+.venv-*/
 venv/
 *.egg-info/
 

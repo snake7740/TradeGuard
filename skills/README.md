@@ -49,3 +49,23 @@
 1. 每个技能先跑**确定性规则内核**（可单测、可回放），LLM 仅做推理增强层——无 Key 时闭环不断；
 2. 技能 I/O 契约与 openapi components.schemas 同源，杜绝两套数据结构漂移；
 3. 技能调用全部携带事由（reason）与 trace_id，落审计（BA-BR-09/10）。
+
+## 安装与发布（生态 install 消费，维度3闭合项）
+
+技能包不止留在仓库内——第三方生态可一条命令安装消费（新智基座维度3
+「能被 install 消费」闭合）：
+
+```bash
+# 发布方（仓库维护者）：生成/刷新发布清单（包清单+版本+sha256，入库）
+python scripts/skill_install.py manifest
+
+# 消费方（第三方 Agent 平台）：clone 后一条命令安装，逐包 sha256 + 零漂移校验
+python scripts/skill_install.py install                # 默认装到 ~/.tradeguard-skills
+python scripts/skill_install.py install --target D:/x  # 指定目标目录
+python scripts/skill_install.py verify                 # 安装后完整性复核
+```
+
+- `RELEASE-MANIFEST.json`：发布索引元数据（包清单/版本/sha256/测试数/发布 commit），
+  即 registry 的清单层；发布通道 = git 仓库 + 清单，公共 registry 上架为后续运营动作；
+- 安装回执 `INSTALL-RECEIPT.json`：装了什么版本、sha、源自哪个发布 commit，可审计；
+- 坏包拒装不阻断：sha256 不符或 frontmatter 漂移即拒装并留痕（同运行时注册表纪律）。

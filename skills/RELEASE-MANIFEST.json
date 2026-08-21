@@ -1,0 +1,48 @@
+{
+  "registry": "tradeguard-skills",
+  "generated_at": "2026-08-21 23:09:25",
+  "release_commit": "d04a640",
+  "install_command": "python scripts/skill_install.py install",
+  "packs": [
+    {
+      "name": "AA-SK-01-signal-aggregation",
+      "version": "1.5.0",
+      "file": "AA-SK-01-signal-aggregation.md",
+      "sha256": "4a1b9445d97d8fc72eac826447c367a2c6c0ffefa799ee7f43526e3cd9ff9d12",
+      "test_cases": 22,
+      "agent": "AA-AG-02"
+    },
+    {
+      "name": "AA-SK-02-fraud-investigation",
+      "version": "1.5.0",
+      "file": "AA-SK-02-fraud-investigation.md",
+      "sha256": "10b5f5c35b5f8502514850c8fed3dca41e1d8d005aa13ff09051d35b422435e3",
+      "test_cases": 27,
+      "agent": "AA-AG-03"
+    },
+    {
+      "name": "AA-SK-03-disposition-execution",
+      "version": "1.5.0",
+      "file": "AA-SK-03-disposition-execution.md",
+      "sha256": "314bbc4be5403e7776ae474f37b24748b3c595e940b4eb2e108329478ea7d5c2",
+      "test_cases": 23,
+      "agent": "AA-AG-04"
+    },
+    {
+      "name": "AA-SK-04-compliance-audit",
+      "version": "1.5.0",
+      "file": "AA-SK-04-compliance-audit.md",
+      "sha256": "d8db2db6f378e9b91961752f14c22eb676b7d444253ee400e3350499702e15df",
+      "test_cases": 6,
+      "agent": "AA-AG-05"
+    },
+    {
+      "name": "AA-SK-05-knowledge-sedimentation",
+      "version": "1.5.0",
+      "file": "AA-SK-05-knowledge-sedimentation.md",
+      "sha256": "1eb14056d7178b363bcb45065a46fad997c6bb58cf159e5d95519de059c5c77d",
+      "test_cases": 3,
+      "agent": "AA-AG-05"
+    }
+  ]
+}
