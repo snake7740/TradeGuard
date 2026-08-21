@@ -62,6 +62,15 @@ $$;
 
 GRANT EXECUTE ON FUNCTION fn_related_graph(char(64), int) TO tg_web, tg_app;
 
+-- 物化边表（阶段3 R-43）：v_graph_edge 视图递归遍历反复重算 452 万边超时，
+-- 物化 + src/dst 索引后图遍历可用（实测 60s→0.17s）。快照需 REFRESH。
+-- 顺序约束：必须在 fn_fraud_ring 之前建——SQL 函数体默认 check_function_bodies，
+-- 函数引用不存在的表会直接报错（CI 从零建库线上实证，2026-08-21）。
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_graph_edge AS SELECT * FROM v_graph_edge;
+CREATE INDEX IF NOT EXISTS idx_mv_edge_src ON mv_graph_edge (src_node);
+CREATE INDEX IF NOT EXISTS idx_mv_edge_dst ON mv_graph_edge (dst_node);
+GRANT SELECT ON mv_graph_edge TO tg_web, tg_app;
+
 -- 团伙发现（阶段3，R-43）：有限深度 BFS 扩展团伙邻域（默认 3 跳，比 2 跳更广）。
 -- 性能：v_graph_edge 是视图（SAME_PAYEE 边 payee_hash 无索引致笛卡尔 452 万边），
 -- 递归实时重算超时；故用物化表 mv_graph_edge + src/dst 索引（实测 60s→0.17s）。
@@ -83,10 +92,3 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION fn_fraud_ring(char(64), int) TO tg_web, tg_app;
-
--- 物化边表（阶段3 R-43）：v_graph_edge 视图递归遍历反复重算 452 万边超时，
--- 物化 + src/dst 索引后图遍历可用（实测 60s→0.17s）。快照需 REFRESH。
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_graph_edge AS SELECT * FROM v_graph_edge;
-CREATE INDEX IF NOT EXISTS idx_mv_edge_src ON mv_graph_edge (src_node);
-CREATE INDEX IF NOT EXISTS idx_mv_edge_dst ON mv_graph_edge (dst_node);
-GRANT SELECT ON mv_graph_edge TO tg_web, tg_app;

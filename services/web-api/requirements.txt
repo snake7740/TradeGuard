@@ -1,3 +1,8 @@
+# find-links 内置指令：rocketmq wheel vendored 于 wheels/（相对本文件目录解析）。
+# 原在 CI pip-audit 命令行传 --find-links，pip-audit 2.10 argparse 与 -r 互斥
+# （报 project_path 冲突，线上实证），移入此处（pip 全局选项语法，pip-audit 内部
+# pip 解析链路同样生效；docker build 的 pip install -r 也自动复用，行为不变）。
+--find-links ./wheels
 fastapi==0.141.1
 # R-37: uvicorn 0.34.3 official security line; mcp>=1.23.0 fixes CVE-2025-66416 (DNS rebinding);
 # pydantic aligned with mcp 1.29.0 lower bound (>=2.11.0).

@@ -33,10 +33,11 @@ jobs:
                  -lll
       - name: pip-audit（依赖 CVE 审计，四服务逐个全量，含传递依赖树）
         run: |
-          # 逐 requirements 单独调用：新版 pip-audit 不支持多 -r 混排
-          # （报 project_path 与 -r 互斥，线上 5 连红实证，修复后回写）
+          # 逐 requirements 单独调用：新版 pip-audit 不支持多 -r 混排；
+          # 且 pip-audit 2.10 的 --find-links 与 -r 互斥（argparse 报 project_path
+          # 冲突，线上实证），find-links 指令移入 requirements 文件首行（pip 支持）。
           pip install pip-audit
-          pip-audit -r services/web-api/requirements.txt --find-links services/web-api/wheels
+          pip-audit -r services/web-api/requirements.txt
           pip-audit -r services/mcp-core/requirements.txt
           pip-audit -r services/mcp-external-mock/requirements.txt
           pip-audit -r services/data-generator/requirements.txt
