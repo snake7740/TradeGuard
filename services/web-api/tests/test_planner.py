@@ -48,16 +48,19 @@ def test_rule_plan_velocity_selects_credit_complaint():
     plan = P.rule_plan(_sig_velocity(), set())
     srcs = {q.source for q in plan.queries}
     assert srcs == {"credit", "complaint"}          # 跑分特征：流水核验 + 否认线索
-    assert {s["source"] for s in plan.skipped} == {"sentiment"}
+    assert {s["source"] for s in plan.skipped} == {"sentiment", "enterprise", "stat"}
     assert all(s["reason"] for s in plan.skipped)    # 豁免必须给理由（审计回放）
     assert plan.hypotheses[0]["pattern"] == "跑分"
 
 
 def test_rule_plan_no_features_queries_all_conservatively():
     plan = P.rule_plan([{"source": "tx", "type": "normal"}], set())
-    assert {q.source for q in plan.queries} == {"credit", "sentiment", "complaint"}
+    assert {q.source for q in plan.queries} == {
+        "credit", "sentiment", "complaint", "enterprise", "stat"}  # 五源（含 stat 建议线）
     assert plan.skipped == []                        # 无特征不豁免任何源
     assert plan.hypotheses[0]["pattern"] == "待定"
+    stat_q = next(q for q in plan.queries if q.source == "stat")
+    assert stat_q.priority == 2 and stat_q.reason    # 建议线低优先 + 事由留痕
 
 
 def test_rule_plan_same_device_edge():
@@ -92,7 +95,7 @@ def test_make_plan_llm_empty_queries_falls_back_to_all_sources():
     raw = json.dumps({"queries": [], "skipped": [], "hypotheses": []})
     import asyncio
     plan = asyncio.run(P.make_plan([], set(), client=StubLlm(raw)))
-    assert {q.source for q in plan.queries} == {"credit", "sentiment", "complaint"}
+    assert {q.source for q in plan.queries} == {"credit", "sentiment", "complaint", "enterprise"}
 
 
 def test_make_plan_llm_failure_degrades_to_rule():
@@ -129,6 +132,17 @@ class FlakyExternal:
     async def query_complaints(self, subject_id, query_reason):
         return {"source": "complaint-mock", "items": [], "degraded": False}
 
+    async def query_enterprise(self, subject_id, query_reason):
+        return {"source": "enterprise-mock", "reg_status": "active",
+                "abnormal_ops_count": 0, "admin_penalty_12m": 0,
+                "judicial_risk_count": 0, "related_entity_count": 1,
+                "risk_flag": "low", "query_reason": query_reason, "degraded": False}
+
+    async def query_stat_outliers(self, values, query_reason, algo="iforest"):
+        # 模拟本地无 pyod/numpy：与工具端 E-TOOL-UNAVAILABLE 降级信封同构
+        return {"code": "E-TOOL-UNAVAILABLE",
+                "message": "pyod/numpy 未安装（optional extras）"}
+
 
 def test_execute_plan_single_source_degrades_without_blocking():
     plan = P.rule_plan(_sig_velocity(), set())       # credit + complaint
@@ -144,6 +158,71 @@ def test_execute_plan_none_external_marks_all_unexecuted():
     import asyncio
     findings = asyncio.run(P.execute_plan(plan, None, "s01"))
     assert findings and all(f["degraded"] for f in findings)
+
+
+def test_execute_plan_dispatches_enterprise_source():
+    """无特征保守全查计划含 enterprise，execute_plan 分派至 query_enterprise
+    且五维载荷完整入 summary（API-M-16，US-E15）"""
+    plan = P.rule_plan([], set())                    # 无特征 → 四源全查 + stat 建议线
+    assert {q.source for q in plan.queries} == {
+        "credit", "sentiment", "complaint", "enterprise", "stat"}
+    import asyncio
+    findings = asyncio.run(P.execute_plan(plan, FlakyExternal(), "s01"))
+    ent = next(f for f in findings if f["source"] == "enterprise")
+    assert ent["ok"] is True and ent["degraded"] is False
+    for dim in ("reg_status", "abnormal_ops_count", "admin_penalty_12m",
+                "judicial_risk_count", "related_entity_count", "risk_flag"):
+        assert dim in ent["summary"]
+
+
+# ---------- stat 建议源（BA-BR-25，US-E16，API-M-17~19） ----------
+
+def test_execute_plan_stat_skips_on_insufficient_samples():
+    """金额序列样本 < STAT_MIN_POINTS → stat 项跳过留痕不阻断，其余源正常"""
+    plan = P.rule_plan([], set())
+    import asyncio
+    findings = asyncio.run(P.execute_plan(plan, FlakyExternal(), "s01",
+                                          amounts=[100.0, 200.0]))
+    by_src = {f["source"]: f for f in findings}
+    assert by_src["stat"]["ok"] is False and by_src["stat"]["degraded"] is True
+    assert "样本不足" in by_src["stat"]["summary"]
+    assert by_src["complaint"]["ok"] is True       # 不阻断其余并行分支
+
+
+def test_execute_plan_stat_degrades_on_tool_unavailable():
+    """依赖缺失 E-TOOL-UNAVAILABLE → stat 记降级留痕（活栈本地无 pyod 同构分支）"""
+    plan = P.rule_plan([], set())
+    import asyncio
+    findings = asyncio.run(P.execute_plan(
+        plan, FlakyExternal(), "s01", amounts=[1.0, 2.0, 3.0, 4.0, 5.0]))
+    st = next(f for f in findings if f["source"] == "stat")
+    assert st["ok"] is False and st["degraded"] is True
+    assert "E-TOOL-UNAVAILABLE" in st["summary"]
+
+
+def test_execute_plan_stat_advisory_success():
+    """样本充足 + 通道可用 → advisory 载荷入 summary（仅参谋不裁决）"""
+    from conftest import FakeExternal
+    plan = P.rule_plan([], set())
+    import asyncio
+    findings = asyncio.run(P.execute_plan(
+        plan, FakeExternal(), "s01", amounts=[10.0] * 9 + [9999.0]))
+    st = next(f for f in findings if f["source"] == "stat")
+    assert st["ok"] is True and st["degraded"] is False
+    assert "advisory" in st["summary"] and "pyod-iforest" in st["summary"]
+
+
+def test_replan_excludes_stat_and_reflect_ignores_stat_gap():
+    """stat 降级/跳过：不进二轮补查（不空转）且不计反思缺口（建议线不阻断）"""
+    plan = P.rule_plan([], set())
+    findings = [{"source": q.source, "ok": True, "degraded": False}
+                for q in plan.queries if q.source != "stat"]
+    findings.append({"source": "stat", "ok": False, "degraded": True,
+                     "summary": "stat 源跳过：金额序列样本不足"})
+    follow = P.replan_from_gaps(plan, findings)
+    assert follow is None                            # 仅 stat 降级 → 无可行动源
+    r = P.rule_reflect(plan, findings, "跑分")
+    assert r.verdict == "sufficient"                 # stat 不计缺口
 
 
 # ---------- 反思：判定与降级 ----------

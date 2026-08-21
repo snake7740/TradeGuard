@@ -47,13 +47,16 @@ def _clean_kb_tables():
     """会话级清场：kb_document/kb_embedding 无 DELETE 授权（只增语义，
     02-roles.sql），跨轮污染由函数级 _clean_kb_per_test 兜底，此处 TRUNCATE
     保会话起点干净。同步清理演示剧本/历史轮次残留的 pending 审批工单：
-    SC-09 时效扫描是全表扫描，残留超期工单会被一并升级导致断言串扰。"""
+    SC-09 时效扫描是全表扫描，残留超期工单会被一并升级导致断言串扰；
+    processing_deadletter 同清（DLQ 测试残留驻车行跨轮累积会污染可见性清单）。"""
     import asyncio
 
     async def _truncate():
         conn = await asyncpg.connect(TG_SUPER_DSN)
         try:
-            await conn.execute("TRUNCATE kb_embedding, kb_document")
+            await conn.execute(
+                "TRUNCATE kb_embedding, kb_document, proposal_attribution,"
+                " processing_deadletter")
             await conn.execute("DELETE FROM approval_record WHERE decision='pending'")
         finally:
             await conn.close()
@@ -74,7 +77,8 @@ def _clean_kb_per_test():
     async def _truncate():
         conn = await asyncpg.connect(TG_SUPER_DSN)
         try:
-            await conn.execute("TRUNCATE kb_embedding, kb_document")
+            await conn.execute(
+                "TRUNCATE kb_embedding, kb_document, proposal_attribution")
         finally:
             await conn.close()
 
@@ -138,6 +142,23 @@ class FakeExternal:
                 "items": [{"type": "deny_transaction", "content": "持卡人否认该笔交易",
                            "channel": "phone"} for _ in range(self.complaint_items)],
                 "query_reason": query_reason, "degraded": False}
+
+    async def query_enterprise(self, subject_id, query_reason):
+        self._guard()
+        return {"source": "enterprise-mock", "subject_id": subject_id,
+                "reg_status": "active", "abnormal_ops_count": 0,
+                "admin_penalty_12m": 0, "judicial_risk_count": 0,
+                "related_entity_count": 1, "risk_flag": "low",
+                "query_reason": query_reason, "degraded": False}
+
+    async def query_stat_outliers(self, values, query_reason, algo="iforest"):
+        """stat 建议源替身（BA-BR-25）：与 pyod 工具成功信封同构（advisory=True）；
+        fail=True 同样模拟通道不可用"""
+        self._guard()
+        return {"source": f"pyod-{algo}", "n": len(values),
+                "query_reason": query_reason, "degraded": False,
+                "anomaly_indices": [], "scores": [0.1] * len(values),
+                "advisory": True}
 
 
 @pytest.fixture

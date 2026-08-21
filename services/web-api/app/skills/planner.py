@@ -25,7 +25,12 @@ from typing import Any
 
 logger = logging.getLogger("tradeguard.planner")
 
-SOURCE_WHITELIST = ("credit", "sentiment", "complaint")
+SOURCE_WHITELIST = ("credit", "sentiment", "complaint", "enterprise")  # enterprise：企业资质五维（API-M-16，US-E15）
+# 第五可选源 stat：金额序列统计离群检测（API-M-17~19 pyod 三算法，BA-BR-25，US-E16）。
+# 仅「无特征保守全查」路径纳入，不进 SOURCE_WHITELIST / LLM 提示词（LLM 只见四源），
+# 输出仅 advisory 参谋分不裁决（同 BR-16/BR-24 精神）。
+STAT_SOURCE = "stat"
+STAT_MIN_POINTS = 5  # 与 pyod 工具端 ≥5 样本门槛对齐（不足则跳过留痕不阻断）
 VELOCITY_1H_COUNT = 10  # 与 investigation.VELOCITY_1H_COUNT 同源（BA-BR-14）
 
 # B3 并行假设编排（BA-BR-18，docs/14 US-E9）：假设→首选深查源映射，
@@ -39,7 +44,7 @@ HYPOTHESIS_SOURCES = {
 
 @dataclass
 class SourceQuery:
-    """计划中的单条外部源查询（source 白名单三源）"""
+    """计划中的单条外部源查询（source 白名单四源 + stat 建议源 BA-BR-25）"""
 
     source: str
     reason: str
@@ -117,7 +122,9 @@ def rule_plan(signals: list[dict[str, Any]], edge_types: set[str]) -> Investigat
       高频小额（跑分特征）   → credit（信用/流水核验）+ complaint（否认交易线索）
       同设备关联（团伙特征） → complaint + sentiment（团伙舆情）
       单卡大额（盗卡特征）   → credit + complaint
-      无特征                 → 三源全查（不豁免任何源）
+      无特征                 → 四源全查 + stat 统计建议线（不豁免任何源；
+                               含企业资质 enterprise BA-BR-24 / 统计离群 stat BA-BR-25）
+    特征命中路径：stat 豁免留痕（保守全查专属建议线，特征驱动深查不纳入）。
     """
     f = _signal_features(signals, edge_types)
     queries: list[SourceQuery] = []
@@ -143,6 +150,9 @@ def rule_plan(signals: list[dict[str, Any]], edge_types: set[str]) -> Investigat
         wanted |= {"credit", "complaint"}
     if not wanted:
         wanted = set(SOURCE_WHITELIST)  # 无特征 → 保守全查
+        conservative = True
+    else:
+        conservative = False
 
     for src in SOURCE_WHITELIST:
         if src in wanted:
@@ -154,6 +164,15 @@ def rule_plan(signals: list[dict[str, Any]], edge_types: set[str]) -> Investigat
             skipped.append({"source": src,
                             "reason": f"当前信号特征与 {src} 源无因果，计划豁免"
                                       f"（特征：{[k for k, v in f.items() if v is True]}）"})
+    if conservative:
+        queries.append(SourceQuery(
+            source=STAT_SOURCE, priority=2,
+            reason="AA-AG-01 规划：无特征保守全查追加金额序列统计离群检测"
+                   "建议线（API-M-17~19，仅 advisory 参谋不裁决，BA-BR-25）"))
+    else:
+        skipped.append({"source": STAT_SOURCE,
+                        "reason": "统计建议线仅无特征保守全查路径纳入，特征驱动"
+                                  "深查不启用（BA-BR-25，US-E16）"})
     top = hypotheses[0]["pattern"] if hypotheses else "待定"
     return InvestigationPlan(
         source="rule",
@@ -169,7 +188,7 @@ def rule_plan(signals: list[dict[str, Any]], edge_types: set[str]) -> Investigat
 # ---------------------------------------------------------------- LLM 版规划
 
 _PLAN_PROMPT = """你是交易风控调查规划员（AG-01）。根据案件信号特征规划调查动作。
-可选外部源（白名单）：credit=征信/流水核验、sentiment=舆情、complaint=客诉否认线索。
+可选外部源（白名单）：credit=征信/流水核验、sentiment=舆情、complaint=客诉否认线索、enterprise=企业资质五维（工商/经营异常/行政处罚/司法/关联）。
 约束：每个非白名单 source 丢弃；至少规划一个源；豁免任何源必须给理由（审计要回放）。
 
 信号特征：{features}
@@ -179,7 +198,7 @@ _PLAN_PROMPT = """你是交易风控调查规划员（AG-01）。根据案件信
 
 只返回 JSON：
 {{"hypotheses":[{{"pattern":"手法","priority":1,"rationale":"依据"}}],
-  "queries":[{{"source":"credit|sentiment|complaint","reason":"查询事由","priority":1}}],
+  "queries":[{{"source":"credit|sentiment|complaint|enterprise","reason":"查询事由","priority":1}}],
   "kb_queries":["检索词"],
   "skipped":[{{"source":"源","reason":"豁免理由"}}],
   "rationale":"整体规划理由"}}"""
@@ -242,23 +261,38 @@ async def make_plan(signals: list[dict[str, Any]], edge_types: set[str],
 
 # ---------------------------------------------------------------- 计划执行
 
-async def execute_plan(plan: InvestigationPlan, external, subject: str) -> list[dict[str, Any]]:
+async def execute_plan(plan: InvestigationPlan, external, subject: str,
+                       amounts: list[float] | None = None) -> list[dict[str, Any]]:
     """按计划并行执行外部源查询（B3 asyncio.gather，US-E9）；单源失败记录
     degraded 不阻断其余分支（与 AG-02 降级同构，14 §1.4）。结果按 priority
     序稳定输出（并行不改结果顺序，反思/证据链可回放）。
 
     external 为 None（旧装配/测试未注入）时返回显式未执行标记，反思按 gaps 记录。
+
+    amounts：主体近 7 日交易金额序列（调查侧经 API-M-01 流水回查取得，时序正序），
+    仅供 stat 源（BA-BR-25）；为 None/样本不足 STAT_MIN_POINTS → stat 项跳过留痕
+    不阻断（degraded 标记不计反思缺口，建议线不触发二轮补查）。
     """
     if external is None:
         return [{"source": q.source, "ok": False, "degraded": True,
                  "summary": "external 通道未装配，计划查询未执行"} for q in plan.queries]
     method = {"credit": external.query_credit_report,
               "sentiment": external.query_sentiment,
-              "complaint": external.query_complaints}
+              "complaint": external.query_complaints,
+              "enterprise": external.query_enterprise}
 
     async def _one(q: SourceQuery) -> dict[str, Any]:
         try:
-            payload = await method[q.source](subject, q.reason)
+            if q.source == STAT_SOURCE:
+                if not amounts or len(amounts) < STAT_MIN_POINTS:
+                    return {"source": STAT_SOURCE, "ok": False, "degraded": True,
+                            "summary": f"stat 源跳过：金额序列样本不足"
+                                       f"（{len(amounts or [])} < {STAT_MIN_POINTS}，"
+                                       f"BA-BR-25 留痕不阻断）"}
+                payload = await external.query_stat_outliers(
+                    amounts, q.reason)
+            else:
+                payload = await method[q.source](subject, q.reason)
             if isinstance(payload, str):  # mock 通道偶发 json 字符串
                 payload = json.loads(payload)
             degraded = bool(payload.get("degraded")) or bool(payload.get("code"))
@@ -273,17 +307,52 @@ async def execute_plan(plan: InvestigationPlan, external, subject: str) -> list[
     return list(await asyncio.gather(*(_one(q) for q in ordered)))
 
 
+# ---------------------------------------------------------------- 双轮有界环（LoopEngine L2）
+
+MAX_REFLECT_ROUNDS = 2  # plan-reflect 环上限：有界确定性，不自由循环
+
+
+def replan_from_gaps(plan: InvestigationPlan,
+                     findings: list[dict[str, Any]]) -> InvestigationPlan | None:
+    """二轮补查计划（反思 verdict=gaps 时的环内再规划，确定性规则版）。
+
+    可行动源 = 原计划源中「执行降级/失败」或「未出现在结果中」者；
+    「假设未定性」类缺口不可自动行动（定性权归人工，02 §3.3），不触发环。
+    无可行动源返回 None（环在首轮自然终止，不空转）。"""
+    planned = {q.source for q in plan.queries}
+    failed = {f["source"] for f in findings
+              if not f.get("ok") or f.get("degraded")}
+    missing = planned - {f["source"] for f in findings}
+    # stat 建议源不二轮空转（advisory 参谋线，首轮降级/跳过即终态，BA-BR-25）
+    actionable = sorted(((failed | missing) & planned) - {STAT_SOURCE})
+    if not actionable:
+        return None
+    return InvestigationPlan(
+        source="rule+loop-r2",
+        hypotheses=plan.hypotheses,
+        queries=[SourceQuery(
+            source=s, priority=1,
+            reason=f"反思缺口二轮补查：{s} 源首轮降级或未覆盖（LoopEngine 有界环）")
+            for s in actionable],
+        rationale=f"双轮环二轮：针对首轮反思缺口补查 {'/'.join(actionable)}",
+    )
+
+
 # ---------------------------------------------------------------- 反思（规则/LLM）
 
 def rule_reflect(plan: InvestigationPlan, findings: list[dict[str, Any]],
                  hypothesis_pattern: str) -> Reflection:
-    """确定性反思下限：计划项全部成功且假设非待定 → sufficient；否则列缺口"""
+    """确定性反思下限：计划项全部成功且假设非待定 → sufficient；否则列缺口。
+    stat 建议源不计缺口（advisory 线降级/跳过不影响充分性判定，BA-BR-25）"""
     gaps: list[str] = []
-    degraded = [f["source"] for f in findings if f.get("degraded")]
+    degraded = [f["source"] for f in findings
+                if f.get("degraded") and f["source"] != STAT_SOURCE]
     if degraded:
         gaps.append(f"计划源降级：{','.join(degraded)}")
-    executed = {f["source"] for f in findings if not f.get("degraded")}
-    missing = [q.source for q in plan.queries if q.source not in executed]
+    executed = {f["source"] for f in findings
+                if not f.get("degraded") or f["source"] == STAT_SOURCE}
+    missing = [q.source for q in plan.queries
+               if q.source not in executed and q.source != STAT_SOURCE]
     if missing:
         gaps.append(f"计划源未覆盖：{','.join(missing)}")
     if hypothesis_pattern == "待定":

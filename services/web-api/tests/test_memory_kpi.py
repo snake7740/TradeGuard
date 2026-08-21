@@ -31,7 +31,7 @@ class NoKey:
 
 
 class FlatExternal:
-    """三源平返还（A/B 同源外部输入，无干扰信号）"""
+    """四源平返还（A/B 同源外部输入，无干扰信号）"""
 
     async def query_credit_report(self, subject_id, query_reason):
         return {"source": "credit-mock", "degraded": False}
@@ -41,6 +41,12 @@ class FlatExternal:
 
     async def query_complaints(self, subject_id, query_reason):
         return {"source": "complaint-mock", "items": [], "degraded": False}
+
+    async def query_enterprise(self, subject_id, query_reason):
+        return {"source": "enterprise-mock", "reg_status": "active",
+                "abnormal_ops_count": 0, "admin_penalty_12m": 0,
+                "judicial_risk_count": 0, "related_entity_count": 1,
+                "risk_flag": "low", "query_reason": query_reason, "degraded": False}
 
 
 def _svc(pool, repo, pub):

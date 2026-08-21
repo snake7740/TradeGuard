@@ -41,7 +41,7 @@ class McpToolClient:
 
 
 class ExternalSourcesClient(McpToolClient):
-    """AA-MCP-02：三外部源查询（query_reason 必填，BA-BR-10）"""
+    """AA-MCP-02：四外部源查询 + stat 统计建议线（query_reason 必填，BA-BR-10/25）"""
 
     async def query_credit_report(self, subject_id: str, query_reason: str) -> dict:
         return await self.call_tool(
@@ -56,6 +56,22 @@ class ExternalSourcesClient(McpToolClient):
     async def query_complaints(self, subject_id: str, query_reason: str) -> dict:
         return await self.call_tool(
             "query_complaint", subject_id=subject_id, query_reason=query_reason
+        )
+
+    async def query_enterprise(self, subject_id: str, query_reason: str) -> dict:
+        """API-M-16：企业资质五维（双轨：厂商 Key 在则真实，失败/无 Key 降级 mock；
+        仅线索不裁决 BA-BR-24，US-E15）"""
+        return await self.call_tool(
+            "query_enterprise", subject_id=subject_id, query_reason=query_reason
+        )
+
+    async def query_stat_outliers(self, values: list[float], query_reason: str,
+                                   algo: str = "iforest") -> dict:
+        """API-M-17~19：金额序列统计离群检测（pyod 三算法 iforest/lof/ecod，
+        US-E16）。仅 advisory 参谋分不裁决（BA-BR-25）；依赖缺失返
+        E-TOOL-UNAVAILABLE、样本 <5 返 E-BAD-INPUT，调用方按降级留痕不阻断"""
+        return await self.call_tool(
+            f"pyod_{algo}", values=values, query_reason=query_reason
         )
 
 
@@ -177,6 +193,17 @@ class CoreClient(McpToolClient):
             stage=stage,
             summary=summary,
         )
+
+    async def query_transactions(self, account_hash: str, hours: int = 24,
+                                 limit: int = 100) -> list[dict]:
+        """API-M-01：主体流水回查（只读）。mcp-core 返回 json.dumps(list[dict])
+        字符串（amount 为 str）→ call_tool 已解析；此处容错 str/dict 两形态"""
+        rows = await self.call_tool(
+            "query_transactions", account_hash=account_hash, hours=hours, limit=limit
+        )
+        if isinstance(rows, str):
+            rows = json.loads(rows)
+        return cast(list, rows)
 
 
 async def remember(

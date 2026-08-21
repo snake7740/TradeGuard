@@ -1,6 +1,6 @@
 # 存储端设计（PolarDB-PG 兼容层 / pgvector）
 
-> **这是什么 / 给谁看**：数据库结构（12 业务表 + 治理表）与幂等迁移脚本——业务/向量/审计一体存储。
+> **这是什么 / 给谁看**：数据库结构（17 表：DA-T-01~17，含 2 张 LoopEngine 环设施表）与幂等迁移脚本——业务/向量/审计一体存储。
 > 面向 **DBA / 后端开发者**。零基础请先读[根 README](../README.md)，再读 [docs/08 数据字典](../docs/08-数据模型与数据字典.md)。
 > 脚本容器首启按文件名序自动执行；运行库变更经幂等迁移（`docker exec psql -f`）。
 
@@ -17,6 +17,9 @@
 | 05-approval-extension.sql | Sprint 3-4（E5 处置审批回滚）DA-T-07 扩展：approval_record 增列 requested_action / requested_amount（E-DISP-AUTH 建单携带处置请求上下文，批准后 AA-SK-03 据此执行，SC-02）+ escalated_at（BA-BR-13 审批时效升级标记，SC-09 超时扫描器写入）；幂等可重跑（IF NOT EXISTS） |
 | 06-closedloop-fix.sql | 闭环修复轮（v1.4.4）：状态白名单补对（DISPOSING→MANUAL_REVIEW）+ sys_config 活键补播（br-05/br-08/br-14 系列）+ 2027 年月分区（BA-BR-12）；幂等可重跑，内容已双写 01/04（新卷一致），运行卷经 `docker exec psql -f` 手工收敛 |
 | 07-case-actor-gate.sql | 闭环修复轮（v1.4.4，工作流 E）：risk_case 状态变更人类把关触发器 trg_case_actor_gate（检查序：E-ACTOR-REQUIRED → 白名单 E-BAD-TRANSITION → 五对 human-only E-HUMAN-ONLY-DB）；依赖应用层 repositories.transition 事务内 set_config('tg.actor') 就位后启用，独立成文避免中间态拦截；幂等可重跑 |
+| 08-enhancements.sql | 增强路线图（docs/14 US-E8~E12）：DA-T-14 account_baseline（A1 自适应基线）+ topology_stats 预计算（B1 图拓扑）+ approval_record debate_json（C1 控辩）+ kb_document effectiveness/cite 列（E1 代谢）+ disposition_outcome 回填列（C2）；幂等可重跑 |
+| 09-loop-engine.sql | LoopEngine 环设施（L1/L3）：processing_deadletter 驻车表（DA-T-16，累计重试上限后失败归宿）+ kb_document.source_case_id（提案溯源）+ proposal_attribution 规则提案效果归因表（DA-T-17，慢环可度量）；tg_web 读写 / tg_app 只读 |
+| 10-case-source.sql | 案件来源类型落库：risk_case 增列 source_type（默认 'UNKNOWN' 兼容存量），EventWorker 轮询/委托扫描确定性排除 TEST 源——合成案件归测试显式驱动，消除共享库下自动环与测试迁移的竞态；幂等可重跑 |
 
 ## 设计思路
 

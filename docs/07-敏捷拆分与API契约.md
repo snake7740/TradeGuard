@@ -153,7 +153,9 @@
 
 > **Sprint 15 补充记录二（2026-08-17 晚，可观测面板外部组件入口点击级实测，R-46 续）**：对 /observe「外部组件入口」做浏览器点击穿透实测（两轮 browser_use + 缓存击穿复测），验证外链与系统的真实关联及角色关系。**关联实证**：AgentScope Studio Traces 含 AA-SK-02/03 技能 span 与 case_id 元信息（OTLP 链路真实）；Higress /api/health status=UP 四组件正常；Higress 控制台呈 /init 初始化引导（环境实况）；**Nacos 控制台发现 BUG-07（D 类中）**——外链 :8848/nacos 双重失效（v3 控制台在容器 8080 独立端口、/nacos 为 v2 已移除路径、容器 8080 未发布宿主且宿主 8080 被占），探测标签"可达"与实际不可用不符；修复：compose nacos 增发布 `127.0.0.1:8850:8080`、Observability.vue 外链改 `http://localhost:8850/`、start_all COMPOSE_PORTS 补 8850、CLAUDE.md 端口实况同步；复测 PASS（href=8850、进入 v3 控制台 /next/#/register 初始化密码页）。**角色关系**：/observe 唯一 `roles:[]` 全角色可见（4/4 实测），各角色专属菜单正确；运维观测对四业务角色开放属设计取舍（04 §10 定位）。误报澄清 2 条入库（浏览器缓存旧 chunk 同型、两控制台"首次初始化"属环境实况）。
 
-依赖提示：E4 依赖 E3 的信号结构；E5 依赖 E2 的 DDL；E7-02/03 依赖 E3/E5 产生的真实事件数据。
+依赖提示：E4 依赖 E3 的信号结构；E5 依赖 E2 的 DDL；E7-02/03 依赖 E3/E5 产生的真实事件数据。增强路线 US-E8~E13（docs/14 §5）与主线解耦并行，不改动上述 Epic 依赖链。
+
+> **Sprint 执行记录（2026-08-20~21，US-E13 LoopEngine 环设施，docs/14 v1.3）**：四 Story 全完成（E13-01~04），全量回归 **30 文件 312 例全绿**（基线 310 + SC-19/20 矩阵 2 例）。三层环落地：L1 失败归宿（`app/core/loop_engine.py` + DA-T-16 驻车表 + E-WORKER-DLQ 第 26 事件 + API-W-25/26 双重人工门：守卫层角色白名单 403 + 端点 human_only 409）；L2 双轮有界环（planner.replan_from_gaps，MAX_REFLECT_ROUNDS=2，rounds 留痕）；L3 慢环归因（DA-T-17 proposal_attribution，attribute_rule_proposals 幂等只增）。配套：db/init/09-loop-engine.sql + 10-case-source.sql（risk_case.source_type 落库，自动环排除 TEST 源消除共享库竞态）；test_loop_engine.py 14 例（DLQ 生命周期/驻车排除/双轮补查/慢环归因/双重门契约）+ test_scenario_matrix SC-19/20；SC 矩阵自此覆盖 SC-01~20，BA 规则 BA-BR-22 环治理入 01 §5。纪律实证：驻车不改案件状态（状态机仍是迁移权威）、复位仅 human:*、环记录只增不删。
 
 ---
 
@@ -187,6 +189,11 @@
 | API-W-20 | `/api/observability/traces` | GET | 技能 span 追溯（可观测取证） | US-E7-04 |
 | API-W-21 | `/api/demo/subjects` | GET | 演示触发候选主体（无在办案件的账户，limit 1-50；severity 过滤：high→名单主体/low→干净主体，R-46） | US-E7-05 |
 | API-W-22 | `/api/cases/{case_id}/dispositions` | GET | 处置凭证列表（receipt 反序列化，核验/审计取证） | US-E6-01/02 |
+| API-W-25 | `/api/deadletter` | GET | LoopEngine DLQ 驻车清单（失败归宿可见性，parked_only 缺省 true） | US-E13/SC-19 |
+| API-W-26 | `/api/deadletter/{case_id}/retry` | POST | DLQ 人工复位放行（双重门控：角色白名单 + human_only，环不得自清） | US-E13/SC-19 |
+| API-W-27 | `/api/kb/ask` | POST | B 端知识问答（仅引用已发布知识，doc_id 引用对齐；未命中声明无先例；人工角色门 + kb.ask 留痕） | US-E14/SC-22 |
+
+> **增强路线执行记录**：US-E13 LoopEngine 环设施（2026-08-20~21，docs/14 v1.3）：DA-T-16/17 两表 + EventWorker 有限重试驻车 + 双轮有界环 + 慢环归因，API-W-25/26 双重人工门，SC-19/20 绿。US-E14 RAG 深化（2026-08-21，docs/14 v1.4）：复盘升级结构化案例分析（verification._retrospective 四段）+ API-W-27 B 端问答 × AA-AG-06 知识助手 soul，SC-21/22 绿。
 
 ### 5.2 MCP 工具契约（API-M-x，Schema 见 openapi.yaml `x-mcp-tool`）
 
@@ -207,8 +214,12 @@
 | API-M-13 | `apply_risk_bonus` | AA-MCP-01 | 写（tg_app，BA-BR-06 关联网络加分） | 是（同案同 basis 仅生效一次，context_json 打标） |
 | API-M-14 | `record_agent_memory` | AA-MCP-01 | 写（tg_app，DA-T-12 阶段执行摘要） | 是（只增） |
 | API-M-15 | `query_case_signals` | AA-MCP-01 | 只读（信号聚合回查） | 是 |
+| API-M-16 | `query_enterprise` | AA-MCP-02 | 只读（企业资质五维；双轨：ENTERPRISE_VENDOR_KEY 在则真实厂商开放平台，失败/无 Key 降级 mock；仅线索不裁决 BA-BR-24，US-E15） | 是 |
+| API-M-17 | `pyod_iforest` | AA-MCP-02 | 只读（金额序列隔离森林离群检测；仅 advisory 参谋分不裁决 BA-BR-25；pyod/numpy 未装即 E-TOOL-UNAVAILABLE 白名单拒绝，主链无感，US-E16） | 是 |
+| API-M-18 | `pyod_lof` | AA-MCP-02 | 只读（局部离群因子：小额高频簇识别；约束同 API-M-17，US-E16） | 是 |
+| API-M-19 | `pyod_ecod` | AA-MCP-02 | 只读（经验累积分布：大额单笔尾部异常；约束同 API-M-17，US-E16） | 是 |
 
-在码工具全集 = 上表 15 项（mcp-core 12 + mcp-external-mock 3），与 `services/mcp-core/server.py`、`services/mcp-external-mock/server.py` 的 `@mcp.tool()` 逐项对齐（Sprint 8 核账，零未编号工具）。
+在码工具全集 = 上表 19 项（mcp-core 12 + mcp-external-mock 7），与 `services/mcp-core/server.py`、`services/mcp-external-mock/server.py` 的 `@mcp.tool()` 逐项对齐（Sprint 8 核账 + US-E16 pyod 三工具补编号，零未编号工具）。
 
 **契约纪律**：任何接口/工具变更必须先改 openapi.yaml 再改代码（与 03 §9.4 领域事件纪律同级）；错误码统一见 [08 §6](./08-数据模型与数据字典.md#6-错误码表)。
 
@@ -218,4 +229,5 @@
 
 - Story 验收标准 → SC 场景（06 §2）→ 测试层（06 §3），形成"需求→场景→测试"单链；
 - API Schema 字段 ↔ 数据字典（08 §3）字段一一对应，变更双向同步；
-- Epic 完成状态纳入 [05 追溯矩阵](./05-追溯矩阵与整体评审报告.md) 复审范围。
+- Epic 完成状态纳入 [05 追溯矩阵](./05-追溯矩阵与整体评审报告.md) 复审范围；
+- 增强路线排期（US-E8~E14）以 [14 §5](./14-增强路线图多层分拆-4A到敏捷排期.md#5-敏捷排期us-e8e14先-p0-后-p1p2) 为权威，与本文档 Epic 链解耦并行。

@@ -142,7 +142,7 @@ class VerificationService:
                 out["version"],
                 basis="结案归档（BA-BP-04）",
             )
-            kb = await self._retrospective(case_id, rec)  # AA-SK-05 复盘入库申请
+            kb = await self._retrospective(case_id, rec, case)  # AA-SK-05 复盘入库申请
             return {
                 "case_id": case_id,
                 "consistency_check": True,
@@ -230,22 +230,37 @@ class VerificationService:
             "rollback_refused": rb_code,
         }
 
-    async def _retrospective(self, case_id: str, rec) -> dict:
-        """AA-SK-05 复盘摘要与入库申请（US-E6-03）：汇总信号/证据/处置/核验四段，
+    async def _retrospective(self, case_id: str, rec, case) -> dict:
+        """AA-SK-05 结构化案例分析与入库申请（US-E14-01 语料升级）：
+        案件概况/手法指纹/处置结论/复用提示四段，信号类型分布为检索锚点
+        （主型 + “手法特征”与 AA-SK-02 检索词对齐，B 端问答与后续调查可命中）；
         提交 pending 申请单（发布须人工，DA-INV-06，SC-05）。"""
-        sig_cnt = await self.pool.fetchval(
-            "SELECT count(*) FROM risk_signal WHERE case_id=$1", case_id
+        sig_rows = await self.pool.fetch(
+            """SELECT type, count(*) AS n FROM risk_signal
+               WHERE case_id=$1 GROUP BY type ORDER BY n DESC, type""",
+            case_id,
         )
         ev_cnt = await self.pool.fetchval(
             "SELECT count(*) FROM case_evidence WHERE case_id=$1", case_id
         )
+        primary = sig_rows[0]["type"] if sig_rows else "unknown"
+        dist = "、".join(f"{r['type']}×{r['n']}" for r in sig_rows) or "无信号"
+        # source_type 不在 cases.get 投影面（_case_row），直查补充（US-E13 新增列）
+        src_type = await self.pool.fetchval(
+            "SELECT source_type FROM risk_case WHERE case_id=$1", case_id
+        ) or "unknown"
         content = (
-            f"案件 {case_id} 复盘摘要：信号 {sig_cnt} 条、证据 {ev_cnt} 条；"
-            f"处置 action={rec['action']}（exec_id={rec['exec_id']}）核验一致后归档。"
-            f"手法特征候选：{rec['action']} 场景信号指纹见 DA-T-04。"
+            f"【案件概况】{case_id}：风险分 {case['risk_score']}，"
+            f"来源 {src_type}，信号 {len(sig_rows)} 类、"
+            f"证据 {ev_cnt} 条。\n"
+            f"【手法指纹】信号分布：{dist}；主型：{primary}。\n"
+            f"【处置结论】action={rec['action']}（exec_id={rec['exec_id']}）"
+            f"核验一致后归档（BA-BR-08 时效内）。\n"
+            f"【复用提示】同类手法可以 “{primary} 手法特征” 检索本条；"
+            f"信号指纹明细见 DA-T-04。"
         )
         return await self.core.submit_kb_application(
-            case_id, "case", f"案件复盘 {case_id}", content
+            case_id, "case", f"案件复盘 {case_id}：{primary} 手法特征", content
         )
 
     async def _audit(self, case_id: str, action: str, basis: str, trace_id: str):

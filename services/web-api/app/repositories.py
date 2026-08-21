@@ -88,12 +88,14 @@ class CaseRepository:
         trace_id = uuid.uuid4().hex
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
-                """INSERT INTO risk_case (case_id, subject_ref, status, risk_score, trace_id)
-                   VALUES ($1, $2, 'REGISTERED', $3, $4)""",
+                """INSERT INTO risk_case
+                       (case_id, subject_ref, status, risk_score, trace_id, source_type)
+                   VALUES ($1, $2, 'REGISTERED', $3, $4, $5)""",
                 case_id,
                 subject_ref,
                 risk_score,
                 trace_id,
+                source_type,
             )
             await conn.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)

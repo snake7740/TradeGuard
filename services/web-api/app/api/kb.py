@@ -1,13 +1,18 @@
-"""知识库审批路由（API-W-11~13，SC-05，DA-INV-06 发布仅人工）"""
+"""知识库审批路由（API-W-11~13，SC-05，DA-INV-06 发布仅人工）+ B 端问答（API-W-27，BA-BR-23）"""
 import uuid
+from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..schemas import KbPublishIn
-from ..skills.knowledge import publish_and_index
+from ..schemas import KbAskIn, KbPublishIn
+from ..skills.knowledge import ask_kb, publish_and_index
 from .common import operator_from_header
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
+
+# AA-AG-06 知识助手的 B 端服务面（SC-22）：问答仅对已识别人类角色开放，
+# 问答记录可追责到人（BA-BR-23）；agent:/未识别调用方一律 403
+ASK_ALLOWED_ROLES = {"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"}
 
 
 def _operator(request: Request, body: KbPublishIn) -> str:
@@ -21,6 +26,22 @@ def _operator(request: Request, body: KbPublishIn) -> str:
 async def list_applications(request: Request, status: str = "pending"):
     """API-W-11：入库申请列表（AA-SK-05 产出，status=pending）"""
     return {"items": await request.app.state.kb.applications(status)}
+
+
+@router.post("/ask")
+async def ask(request: Request, body: KbAskIn):
+    """API-W-27：B 端知识问答（US-E14-02，SC-22，AA-AG-06 知识助手服务面）
+    仅引用已发布知识（DA-KB-01 检索），未命中显式声明无先例（BA-BR-23）；
+    端点级人工角色门：agent:/未识别调用方 403（问答可追责到人）"""
+    try:
+        actor = unquote(request.headers.get("X-Operator", ""))
+    except Exception:  # noqa: BLE001 —— 解码异常按未识别处理
+        actor = ""
+    role = actor[len("human:"):] if actor.startswith("human:") else actor
+    if role not in ASK_ALLOWED_ROLES:
+        raise HTTPException(403, detail={"code": "E-FORBIDDEN-ROLE",
+                                         "message": "知识问答仅对人工角色开放（BA-BR-23，问答可追责到人）"})
+    return await ask_kb(request.app.state.pool, body.question, f"human:{role}")
 
 
 @router.post("/applications/{doc_id}/publish")

@@ -57,6 +57,11 @@ class KbPublishIn(BaseModel):
     comment: str = Field("", max_length=300)
 
 
+class KbAskIn(BaseModel):
+    """API-W-27 B 端知识问答（BA-BR-23：仅引用已发布知识，不虚构）"""
+    question: str = Field(..., min_length=2, max_length=200)
+
+
 class TransactionEvent(BaseModel):
     """上游交易系统 → 风控 的标准交易事件契约（阶段 0，R-39，行业 L1 实时决策输入）
 

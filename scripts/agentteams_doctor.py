@@ -19,7 +19,7 @@
 4. R-37 复审收口：校验 Worker 控制台口（8088）仅回环发布，非 127.0.0.1:(18090+N)
    即快照重建容器收口（防止局域网暴露无鉴权控制台）；
 5. 逐 Worker 注入 mcporter 配置（tg-core=mcp-core:8101，tg-external=mcp-external-mock:8102，
-   均为 streamable-http 端点），`mcporter list` 校验 12+3 工具在场；
+   均为 streamable-http 端点），`mcporter list` 校验 12+7 工具在场；
 6. 汇总打印体检结果。
 
 用法：python scripts/agentteams_doctor.py [--skip-mcp]
@@ -38,10 +38,10 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-WORKERS = ["aa-ag-02", "aa-ag-03", "aa-ag-04", "aa-ag-05"]
+WORKERS = ["aa-ag-02", "aa-ag-03", "aa-ag-04", "aa-ag-05", "aa-ag-06"]
 NET = "tradeguard_tradeguard-net"
 # R-37 复审收口：Worker CoPaw 控制台（容器内 8088）必须仅以回环固定位发布
-# （aa-ag-0N → 127.0.0.1:(18090+N)，即 18092~18095）。此前为 0.0.0.0:动态端口，
+# （aa-ag-0N → 127.0.0.1:(18090+N)，即 18092~18096）。此前为 0.0.0.0:动态端口，
 # 等效局域网可达的无鉴权控制台——发现非回环绑定即重建容器收口（见
 # ensure_console_loopback；auth 令牌存命名卷不随重建丢失，mcporter 由本脚本重注）。
 WORKER_CONSOLE_BASE = 18090
@@ -104,7 +104,7 @@ def wake_workers():
         out = agt("get", "workers")
         rows = {l.split()[0]: l for l in out.splitlines()[1:] if l.split()}
         if all("Running" in rows.get(w, "") for w in WORKERS):
-            print("[doctor] 4 个 Worker 全部 Running")
+            print("[doctor] 5 个 Worker 全部 Running")
             return True
         time.sleep(2)
     print("[doctor] 仍有 Worker 未 Running：")
@@ -232,7 +232,7 @@ def main():
     print(agt("get", "managers"))
     print(agt("get", "workers"))
     if mcp_ok and not args.skip_mcp:
-        print("RESULT: OK —— Manager/Worker 全 Running，MCP 工具桥（tg-core 12 + tg-external 3）已注入")
+        print("RESULT: OK —— Manager/Worker 全 Running，MCP 工具桥（tg-core 12 + tg-external 7）已注入")
         return 0
     if args.skip_mcp:
         print("RESULT: OK（未注入 MCP，--skip-mcp）")

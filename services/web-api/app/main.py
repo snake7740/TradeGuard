@@ -27,6 +27,7 @@ from .api import (
     audit,
     cases,
     config,
+    deadletter,
     demo,
     events_stream,
     health,
@@ -47,7 +48,11 @@ from .skills.disposition import (
     scan_pending_escalations,
 )
 from .skills.investigation import InvestigationService
-from .skills.knowledge import KB_DECAY_DAYS, kb_metabolism
+from .skills.knowledge import (
+    KB_DECAY_DAYS,
+    attribute_rule_proposals,
+    kb_metabolism,
+)
 from .skills.mcp_adapters import CoreClient, ExternalSourcesClient
 from .skills.verification import (
     VERIFICATION_MINUTES,
@@ -135,6 +140,7 @@ async def lifespan(app: FastAPI):
             flight=app.state.flight,
             investigation=app.state.investigation,
             disposition=app.state.disposition,
+            pub=app.state.publisher,  # LoopEngine：DLQ 驻车告知事件通道
         )
         await app.state.event_worker.start()
     # AA-SK-04 核验审计确定性内核（US-E6-01/02）：一致归档/不一致反向处置
@@ -180,6 +186,8 @@ async def lifespan(app: FastAPI):
                     app.state.pool, app.state.publisher, decay_days=KB_DECAY_DAYS)
                 await follow_outcomes(
                     app.state.pool, app.state.publisher, core=core)
+                # LoopEngine 慢环：rule_proposal 发布后效果归因（KPI-08 载体）
+                await attribute_rule_proposals(app.state.pool)
             except Exception:  # noqa: BLE001 —— 后台巡检不中断服务
                 logger.exception("E1 知识代谢/C2 outcome 回填任务异常，等待下轮")
             await asyncio.sleep(KB_METABOLISM_INTERVAL)
@@ -248,6 +256,7 @@ def create_app() -> FastAPI:
         approvals,
         audit,
         kb,
+        deadletter,
         events_stream,
         config,
         observability,

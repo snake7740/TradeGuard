@@ -101,8 +101,9 @@ async def test_follow_outcomes_recidivism_flag(pool, app_pool):
     case_id = await _disposed_case(pool, app_pool, subject, disposed_days_ago=40)
     # 同主体处置后再立案（created_at=now > disposed_at）→ recidivism
     await pool.execute(
-        """INSERT INTO risk_case (case_id, subject_ref, status, risk_score, trace_id)
-           VALUES ($1, $2, 'REGISTERED', 50, $3)""",
+        """INSERT INTO risk_case
+               (case_id, subject_ref, status, risk_score, trace_id, source_type)
+           VALUES ($1, $2, 'REGISTERED', 50, $3, 'TEST')""",
         f"CASE-RC-{uuid.uuid4().hex[:6]}", subject, uuid.uuid4().hex)
     updated = await follow_outcomes(pool, pub)
     hit = [u for u in updated if u["case_id"] == case_id]

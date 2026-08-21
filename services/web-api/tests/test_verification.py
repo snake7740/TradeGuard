@@ -58,6 +58,25 @@ async def test_verification_passed_chain(pool, disposition, verification):
     assert kb and kb["status"] == "pending"                    # US-E6-03 复盘入库申请（人工门控前置）
 
 
+async def test_verification_retrospective_structured(pool, disposition, verification):
+    """US-E14-01 语料升级：复盘产结构化案例分析四段（案件概况/手法指纹/
+    处置结论/复用提示）；无信号时指纹段降级声明而非空缺（SC-21 语料面单测，
+    检索复用 E2E 见 test_scenario_matrix SC-21）"""
+    svc, repo, pub = verification
+    case_id, exec_id = await _disposed_case(pool, disposition[0])
+
+    out = await svc.verify(case_id, exec_id)
+
+    doc = await pool.fetchrow(
+        "SELECT title, content FROM kb_document WHERE doc_id=$1",
+        out["kb_application"])
+    for section in ("【案件概况】", "【手法指纹】", "【处置结论】", "【复用提示】"):
+        assert section in doc["content"]
+    assert "风险分 82" in doc["content"] and "来源 TEST" in doc["content"]
+    assert "无信号" in doc["content"]                          # 本链未录信号：降级声明
+    assert f"action=freeze（exec_id={exec_id}）" in doc["content"]
+
+
 # ---------- 核验不一致 → 反向处置 + P0 升级 ----------
 
 async def test_verification_failed_rollback_and_p0(pool, app_pool, disposition, verification):

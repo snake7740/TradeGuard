@@ -31,8 +31,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import uuid
+
+from .loop_engine import DEFAULT_POLICY, deadletter_record
 
 logger = logging.getLogger("tradeguard.event_worker")
+
+ACTOR_WORKER_AUDIT = "system:event-worker"   # DLQ 驻车留痕 actor（环设施层）
 
 POLL_INTERVAL = float(os.getenv("TG_EVENT_WORKER_INTERVAL", "2"))   # 轮询周期（秒）
 POLL_WINDOW_MIN = int(os.getenv("TG_EVENT_WORKER_WINDOW", "10"))   # 增量窗口（分钟）
@@ -68,13 +73,14 @@ class EventWorker:
     """
 
     def __init__(self, pool, aggregation, flight: SingleFlight,
-                 investigation=None, disposition=None) -> None:
+                 investigation=None, disposition=None, pub=None) -> None:
         self._pool = pool
         self._agg = aggregation
         self._flight = flight
         self._inv = investigation
         self._disp = disposition
-        self._task: asyncio.Task | None = None
+        self._pub = pub  # DLQ 驻车告警事件通道（LoopEngine 可见性，可缺省）
+        self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         if self._task is None:
@@ -108,11 +114,31 @@ class EventWorker:
                 last_delegate = now
                 await self._delegate_sweep()
 
+    async def _park_notice(self, case_id: str, error: Exception,
+                           attempts: int) -> None:
+        """驻车告知（审计 + 告警事件，best-effort 不阻断 worker 环）"""
+        try:
+            await self._pool.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis)
+                   VALUES ($1, $2, 'worker.deadletter', $3, $4)""",
+                uuid.uuid4().hex, ACTOR_WORKER_AUDIT, case_id,
+                f"聚合环累计失败 {attempts} 次达 DLQ 上限，驻车待人工复位"
+                f"（{type(error).__name__}）"[:300])
+            if self._pub is not None:
+                await self._pub.publish(
+                    case_id, "E-WORKER-DLQ",
+                    {"case_id": case_id, "stage": "aggregation",
+                     "attempts": attempts, "error": type(error).__name__},
+                    ACTOR_WORKER_AUDIT)
+        except Exception:  # noqa: BLE001 —— 告知失败不影响驻车事实
+            logger.exception("DLQ 驻车告知失败：%s", case_id)
+
     async def _delegate_sweep(self) -> None:
         try:
             rows = await self._pool.fetch(
                 "SELECT case_id FROM risk_case "
                 "WHERE status='INVESTIGATING' "
+                "AND source_type <> 'TEST' "
                 "AND updated_at < now() - make_interval(secs=>$1) "
                 "ORDER BY updated_at LIMIT $2", DELEGATE_AFTER, DELEGATE_BATCH)
         except Exception:  # noqa: BLE001 —— DB 抖动不断 worker 循环
@@ -155,16 +181,23 @@ class EventWorker:
                 logger.exception("EventWorker 委托 %s 失败，留待下轮扫描", case_id)
 
     async def _sweep(self, window_minutes: int | None) -> None:
+        # LoopEngine DLQ：驻车案件（重试累计达上限）排除在轮询候选外，
+        # 不再无限重试；人工经 /api/deadletter/{case_id}/retry 复位后恢复候选。
+        parked_excl = (" AND NOT EXISTS (SELECT 1 FROM processing_deadletter d"
+                       " WHERE d.case_id=risk_case.case_id AND d.parked)")
+        # TEST 源排除（10-case-source.sql）：合成案件归测试显式驱动，
+        # 生产自动环不消费，消除共享库下轮询与测试迁移的竞态。
+        test_excl = " AND source_type <> 'TEST'"
         try:
             if window_minutes is None:
                 rows = await self._pool.fetch(
-                    "SELECT case_id FROM risk_case WHERE status='REGISTERED' "
-                    "ORDER BY created_at")
+                    "SELECT case_id FROM risk_case WHERE status='REGISTERED'"
+                    f"{test_excl}{parked_excl} ORDER BY created_at")
             else:
                 rows = await self._pool.fetch(
                     "SELECT case_id FROM risk_case WHERE status='REGISTERED' "
-                    "AND created_at >= now() - make_interval(mins=>$1) "
-                    "ORDER BY created_at", window_minutes)
+                    "AND created_at >= now() - make_interval(mins=>$1)"
+                    f"{test_excl}{parked_excl} ORDER BY created_at", window_minutes)
         except Exception:  # noqa: BLE001 —— DB 抖动不断 worker 循环
             logger.exception("EventWorker 轮询查询失败，等待下轮")
             return
@@ -194,8 +227,19 @@ class EventWorker:
                                        case_id, attempt + 1, MAX_RETRIES, delay, type(e).__name__)
                         await asyncio.sleep(delay)
                     else:
-                        logger.exception("EventWorker %s 重试耗尽（%s 次），转人工通道",
-                                         case_id, MAX_RETRIES)
+                        # LoopEngine DLQ 默认策略：重试耗尽不再只留日志——
+                        # 累计失败入 processing_deadletter，达上限（default 9）
+                        # 驻车停扫 + 审计留痕 + E-WORKER-DLQ 告警事件；人工经
+                        # /api/deadletter/{case_id}/retry 复位后恢复候选。
+                        dlq = await deadletter_record(
+                            self._pool, case_id, "aggregation", e, MAX_RETRIES)
+                        logger.exception(
+                            "EventWorker %s 重试耗尽（%s 次），DLQ 累计 %s/%s%s",
+                            case_id, MAX_RETRIES, dlq["attempts"],
+                            DEFAULT_POLICY.dead_letter_cap,
+                            "，已驻车转人工（/api/deadletter）" if dlq["parked"] else "")
+                        if dlq["parked_now"]:
+                            await self._park_notice(case_id, e, dlq["attempts"])
 
 
 def worker_enabled() -> bool:

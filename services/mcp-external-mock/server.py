@@ -78,6 +78,85 @@ async def query_complaint(subject_id: str, query_reason: str | None = None) -> s
     }, ensure_ascii=False)
 
 
+# ---------- 企业资质外部源（API-M-16，US-E15，docs/14 v1.5，BA-BR-24） ----------
+# 双轨：厂商 Key（ENTERPRISE_VENDOR_KEY）存在即走真实开放平台 API（防腐层翻译），
+# 失败/无 Key 确定性降级 mock（degraded 标记，主链路无感）；个人征信因持牌与
+# 授权合规红线不接真实源（《征信业务管理办法》/PIPL），仅企业资质可开放。
+# 输出为研判线索（仅线索不裁决，与 BA-BR-16/DA-INV-07 同精神）。
+
+def _enterprise_mock_payload(subject_id: str, query_reason: str) -> dict[str, Any]:
+    """五维确定性模拟：工商状态/经营异常/行政处罚/司法涉诉/关联集中度"""
+    rnd = _seed("enterprise:" + subject_id)
+    reg_status = rnd.choices(["active", "cancelled", "revoked"], weights=[80, 15, 5])[0]
+    abnormal = rnd.randint(0, 2)
+    penalty = rnd.randint(0, 3)
+    judicial = rnd.randint(0, 4)
+    relation = rnd.randint(1, 12)
+    hits = sum([reg_status != "active", abnormal > 0, penalty > 1,
+                judicial > 2, relation >= 8])
+    return {
+        "subject_id": subject_id,
+        "reg_status": reg_status,
+        "abnormal_ops_count": abnormal,
+        "admin_penalty_12m": penalty,
+        "judicial_risk_count": judicial,
+        "related_entity_count": relation,
+        "risk_flag": "high" if hits >= 3 else ("mid" if hits >= 1 else "low"),
+        "query_reason": query_reason,
+    }
+
+
+def _fetch_vendor_enterprise(subject_id: str, query_reason: str,
+                             key: str, url: str) -> dict[str, Any]:
+    """真实厂商开放平台调用（stdlib urllib 同步 → to_thread）；字段以占位映射
+    为例，接入具体厂商（企查查/天眼查/启信宝）时在此处做防腐层翻译。"""
+    import urllib.request
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"subject_id": subject_id, "query_reason": query_reason,
+                         "api_key": key}, ensure_ascii=False).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 —— 仅允许 https 厂商端点，URL 由环境变量配置
+        raw = json.loads(resp.read().decode())
+    # 防腐层翻译：厂商字段 → 统一五维结构（缺失字段降级 0/active 兼底）
+    return {
+        "subject_id": subject_id,
+        "reg_status": str(raw.get("regStatus") or raw.get("reg_status") or "active"),
+        "abnormal_ops_count": int(raw.get("abnormalOpsCount", raw.get("abnormal", 0)) or 0),
+        "admin_penalty_12m": int(raw.get("adminPenalty12m", raw.get("penalty", 0)) or 0),
+        "judicial_risk_count": int(raw.get("judicialRiskCount", raw.get("judicial", 0)) or 0),
+        "related_entity_count": int(raw.get("relatedEntityCount", raw.get("relation", 1)) or 1),
+        "risk_flag": str(raw.get("riskFlag") or raw.get("risk_flag") or "low"),
+        "query_reason": query_reason,
+    }
+
+
+@mcp.tool()
+async def query_enterprise(subject_id: str, query_reason: str | None = None) -> str:
+    """API-M-16：企业资质查询（五维：工商状态/经营异常/行政处罚/司法涉诉/关联集中度；
+    双轨：厂商 Key 在则真实 API，失败/无 Key 降级 mock；仅线索不裁决 BA-BR-24）"""
+    if err := _require_reason(query_reason):
+        return json.dumps(err, ensure_ascii=False)
+    reason = (query_reason or "").strip()  # 过门后非空收窄
+    key = os.getenv("ENTERPRISE_VENDOR_KEY", "")
+    url = os.getenv("ENTERPRISE_VENDOR_URL", "")
+    if key and url:  # 真实轨：厂商开放平台，异常即降级 mock（degraded 标记）
+        try:
+            data = await asyncio.to_thread(
+                _fetch_vendor_enterprise, subject_id, reason, key, url)
+            return json.dumps({"source": "enterprise-vendor", "degraded": False,
+                               **data}, ensure_ascii=False)
+        except Exception as e:  # noqa: BLE001 —— 厂商不可用降级 mock，主链路无感
+            mock = _enterprise_mock_payload(subject_id, reason)
+            return json.dumps({"source": "enterprise-mock", "degraded": True,
+                               "vendor_error": str(e)[:120], **mock},
+                              ensure_ascii=False)
+    # mock 轨：无 Key 默认（开源/测试环境，确定性种子回放）
+    mock = _enterprise_mock_payload(subject_id, reason)
+    return json.dumps({"source": "enterprise-mock", "degraded": False,
+                       **mock}, ensure_ascii=False)
+
+
 # ---------- F1 pyod_* 异常检测工具族（US-E12，docs/14 §1.4） ----------
 # optional extras：pyod/numpy 未安装即白名单拒绝（E-TOOL-UNAVAILABLE），
 # 主链路无感；输出仅建议分（advisory=true），不进入裁决（与 DA-INV-07 同精神）

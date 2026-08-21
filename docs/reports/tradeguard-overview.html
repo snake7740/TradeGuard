@@ -488,9 +488,9 @@
         </div>
         <div class="meta">
           覆盖风控决策完整闭环 ｜ 5 Agent 黄金岗位协同（AgentTeams）｜ 5 Skill
-          自包含技能包 ｜ 文档体系 docs/00~12<br />
-          自动化测试 296 例全绿（29 文件实链路）｜ 五维度终评 89/100 ｜
-          三个典型业务场景 + SC-01~18 BDD 矩阵 ｜ 展示日期 2026-08-19<br />
+          自包含技能包 ｜ 文档体系 docs/00~14<br />
+          自动化测试 322 例全绿（30 文件实链路）｜ 五维度终评 89/100 ｜
+          三个典型业务场景 + SC-01~24 BDD 矩阵 ｜ 展示日期 2026-08-19<br />
           <b style="color: #e8c98a"
             >本材料所有结论均来自真实运行，而非仅停留在方案推演。</b
           >
@@ -512,21 +512,21 @@
           <div class="card">
             <h4>二、业务设计<span class="toc-chip">P6–P10</span></h4>
             <p>
-              业务能力地图（七项能力）→ 核心业务对象（15 表）→ 端到端流程与风险分级
-              → 业务规则（完整 21 条）→ 角色与人机边界
+              业务能力地图（七项能力）→ 核心业务对象（17 表）→ 端到端流程与风险分级
+              → 业务规则（完整 24 条）→ 角色与人机边界
             </p>
           </div>
           <div class="card">
             <h4>三、架构与落地<span class="toc-chip">P11–P17</span></h4>
             <p>
-              多 Agent 协同 → 能力层（5 Skill + 15 MCP 工具）→ LLM
+              多 Agent 协同 → 能力层（5 Skill + 16 MCP 工具）→ LLM
               增强与确定性降级 → 技术栈 → 部署拓扑 → 数据流 → 状态机
             </p>
           </div>
           <div class="card">
             <h4>四、质量与验证<span class="toc-chip">P18–P21</span></h4>
             <p>
-              BDD·DDD·TDD 验证体系（SC-01~18 追溯矩阵）→ 质量保障（296 例 +
+              BDD·DDD·TDD 验证体系（SC-01~24 追溯矩阵）→ 质量保障（322 例 +
               五道 CI 门禁）→ 运行效果与六维 KPI → 五维度终评（66 → 89）
             </p>
           </div>
@@ -702,7 +702,7 @@
         <div class="card" style="margin-top: 14px">
           <h4>可验证性承诺</h4>
           <p>
-            设计不停留在纸面：296 例自动化测试（真实数据库 + 双 MCP 实链路）、SC-01~18
+            设计不停留在纸面：322 例自动化测试（真实数据库 + 双 MCP 实链路）、SC-01~24
             BDD 场景矩阵、ULB
             公开数据集 284,807 笔回放、六维 KPI 周期落盘——第四部分逐项给出证据。
           </p>
@@ -937,12 +937,12 @@
         </div>
       </section>
 
-      <!-- ============ P09 二(4/5) 业务规则（完整 21 条） ============ -->
+      <!-- ============ P09 二(4/5) 业务规则（完整 24 条） ============ -->
       <section class="slide">
         <div class="kicker">二、业务设计 · 4/5</div>
-        <h2 class="title">业务规则：完整 21 条（BA-BR-01 ~ BA-BR-21）</h2>
+        <h2 class="title">业务规则：完整 25 条（BA-BR-01 ~ BA-BR-25）</h2>
         <div class="subtitle">
-          每条规则末列标注守护它的 BDD 场景或不变量（追溯矩阵见 P18）——21 条规则无一条悬空；7 条经 Nacos 动态可调，变化无需改代码；BR-15~21 为增强路线图（docs/14）扩展
+          每条规则末列标注守护它的 BDD 场景或不变量（追溯矩阵见 P18）——24 条规则无一条悬空；7 条经 Nacos 动态可调，变化无需改代码；BR-15~24 为增强路线图（docs/14）扩展
         </div>
         <table class="compact">
           <tr>
@@ -1076,6 +1076,30 @@
             <td>规则提案（rule_proposal）经策略管理员审核方可生效</td>
             <td>DB 触发器 + 人工门</td>
             <td>SC-17 · INV-08</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-22</b></td>
+            <td>LoopEngine 环治理：失败归宿驻车 DLQ 不静默丢弃；复位仅限 human:*；环记录只增不删；自动环不消费 TEST 源</td>
+            <td>硬编码强制</td>
+            <td>SC-19/20 · INV-05~09 延伸</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-23</b></td>
+            <td>B 端知识问答治理：回答仅可引用已发布知识（doc_id 引用对齐），未命中须声明“无先例”不得虚构；问答仅对已识别人类角色开放且 kb.ask 留痕可追责；归档复盘产结构化案例分析供检索复用</td>
+            <td>端点引用守护 + 人工角色门</td>
+            <td>SC-21/22 · INV-06 延伸</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-24</b></td>
+            <td>企业资质外部源五维治理（API-M-16）：双轨集成——有厂商凭据走真实源（防腐层字段翻译），缺失/失败降级 mock 且 degraded 留痕；输出仅线索不裁决（不驱动评分与处置）；个人征信持牌红线保留 mock</td>
+            <td>硬编码强制（双轨降级）</td>
+            <td>SC-23 · BR-10 · INV-07 精神</td>
+          </tr>
+          <tr>
+            <td><b>BA-BR-25</b></td>
+            <td>统计异常检测建议线治理（API-M-17~19）：金额序列统计离群检测作为调查第五可选源 stat，仅无特征保守全查路径纳入；输出仅 advisory 参谋分不裁决；依赖缺失/样本不足自动跳过留痕不阻断主链</td>
+            <td>硬编码强制（三重门禁降级）</td>
+            <td>SC-24 · BR-10 · BR-16/24 精神</td>
           </tr>
         </table>
         <div class="foot">
@@ -1262,7 +1286,7 @@
       <!-- ============ P12 三(2/7) 能力层 ============ -->
       <section class="slide">
         <div class="kicker">三、架构与落地 · 2/7</div>
-        <h2 class="title">能力层：5 个 Skill 包 + 2 个 MCP（15 工具）</h2>
+        <h2 class="title">能力层：5 个 Skill 包 + 2 个 MCP（19 工具）</h2>
         <div class="subtitle">
           承接上页岗位分工：每个 Skill 承载一项 BA-CAP 能力（能力→岗位→技能三层对齐）；Skill
           是能力的自包含抽象（SKILL.md frontmatter 12 键），MCP 是 Agent 读写数据的唯一通道
@@ -1317,10 +1341,9 @@
             </p>
           </div>
           <div class="card">
-            <h4>外部数据 MCP · 3 工具（AA-MCP-02）</h4>
+            <h4>外部数据 MCP · 7 工具（AA-MCP-02）</h4>
             <p>
-              征信 / 舆情 /
-              投诉三类外部源，确定性模拟（同一主体结果一致），生产替换真实源只改这一层。
+              征信 / 舆情 / 投诉 / 企业资质四类契约源 + pyod 统计离群三算法（iforest/lof/ecod，BA-BR-25 仅参谋不裁决）；确定性模拟（同一主体结果一致）；企业资质双轨（有厂商凭据走真实源，降级 mock 留痕，BA-BR-24），生产替换真实源只改这一层。
             </p>
           </div>
           <div class="card">
@@ -1340,7 +1363,7 @@
           </div>
         </div>
         <div class="foot">
-          <span>15 个工具均有契约编号，与 OpenAPI 同源；调度协议见 skills/SKILL-DISPATCH.md</span
+          <span>16 个工具均有契约编号，与 OpenAPI 同源；调度协议见 skills/SKILL-DISPATCH.md</span
           ><span>12</span>
         </div>
       </section>
@@ -1433,7 +1456,7 @@
           <tr>
             <td><b>PostgreSQL（pgvector）</b></td>
             <td>业务 / 向量 / 审计一体存储</td>
-            <td>15 表 + 向量索引 + 触发器双守护</td>
+            <td>17 表 + 向量索引 + 触发器双守护</td>
           </tr>
           <tr>
             <td><b>Higress</b></td>
@@ -1670,12 +1693,12 @@
         <div class="kicker">四、质量与验证 · 1/4</div>
         <h2 class="title">BDD · DDD · TDD：规格、设计与测试互锁</h2>
         <div class="subtitle">
-          承接前三部分：21 条规则（P09）、15 表与 9 条不变量（P07/P17）、5 Skill（P12）如何互锁？追溯矩阵是粘合剂——每条规则有场景守护，每个场景有测试承载
+          承接前三部分：24 条规则（P09）、17 表与 9 条不变量（P07/P17）、5 Skill（P12）如何互锁？追溯矩阵是粘合剂——每条规则有场景守护，每个场景有测试承载
         </div>
         <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px">
           <table class="compact">
             <tr>
-              <th>BDD 场景（SC-01~18）</th>
+              <th>BDD 场景（SC-01~24）</th>
               <th>BA 规则</th>
               <th>DA 不变量</th>
               <th>测试层</th>
@@ -1698,22 +1721,27 @@
             <tr><td><b>SC-16</b> 控辩辩论裁决</td><td>BR-19</td><td>INV-09</td><td>集成+场景</td></tr>
             <tr><td><b>SC-17</b> 结果核验与沉淀闭环</td><td>BR-20/21</td><td>INV-06/08</td><td>集成+场景</td></tr>
             <tr><td><b>SC-18</b> 角色门控（菜单×API）</td><td>03 §6 × BR-09</td><td>—（A0）</td><td>契约（流程 E）</td></tr>
+                        <tr><td><b>SC-19</b> DLQ 驻车与复位人工门</td><td>BR-22</td><td>INV-06/08 延伸</td><td>集成+场景</td></tr>
+                        <tr><td><b>SC-20</b> 双轮有界环与慢环归因</td><td>BR-22</td><td>INV-05/09 延伸</td><td>集成+场景</td></tr>
+                        <tr><td><b>SC-21</b> 复盘案例分析可检索复用（语料面）</td><td>BR-23</td><td>INV-06 延伸</td><td>单元+场景</td></tr>
+                        <tr><td><b>SC-22</b> B 端问答引用守护与人工角色门（消费面）</td><td>BR-23</td><td>—</td><td>契约+场景</td></tr>
+                        <tr><td><b>SC-23</b> 企业资质外部源五维扩维（双轨集成）</td><td>BR-24/BR-10</td><td>—（仅线索不裁决）</td><td>单元+场景（活栈 MCP）</td></tr>
           </table>
           <div>
             <div class="card" style="margin-bottom: 10px">
               <h4>DDD：设计依据</h4>
               <p>
                 5 聚合根（RiskCase / EvidenceChain / Disposition / Approval /
-                KbDocument，跨聚合只以 ID 引用）+ 25 个领域事件（立案 1 +
-                状态迁移 18 + 计时 2 + 领域扩展 4，与 OpenAPI SseEvent 逐字一致）+ 9
+                KbDocument，跨聚合只以 ID 引用）+ 26 个领域事件（立案 1 +
+                状态迁移 18 + 计时 2 + 领域扩展 4 + 环设施 1，与 OpenAPI SseEvent 逐字一致）+ 9
                 条不变量 DA-INV-01~09 作为代码与测试的一致性契约（docs/03 §9）。
               </p>
             </div>
             <div class="card" style="margin-bottom: 10px">
               <h4>BDD：行为规格</h4>
               <p>
-                18 个场景以 Given-When-Then
-                写成可执行验收标准——设计期即行为规格，实现期即验收线（SC-01~18
+                24 个场景以 Given-When-Then
+                写成可执行验收标准——设计期即行为规格，实现期即验收线（SC-01~24
                 全绿）；左表每行可回溯到规则与不变量，无悬空场景。
               </p>
             </div>
@@ -1722,7 +1750,7 @@
               <p>
                 先测后码（红-绿-重构）：单元（降噪/评分/velocity/状态机/幂等）→
                 契约（MCP Schema/错误码/降级）→ 集成（活栈事件/权限矩阵/RAG）→
-                场景 E2E（SC-01~18 真实链路）→ 评估（KPI 落盘可复现，P20）。
+                场景 E2E（SC-01~24 真实链路）→ 评估（KPI 落盘可复现，P20）。
               </p>
             </div>
           </div>
@@ -1730,8 +1758,9 @@
         <div class="card" style="margin-top: 12px">
           <h4>完备性声明（docs/06 §4）与「演示即测试复现」</h4>
           <p>
-            21 条规则中 BR-06 由评分单元测试、BR-05 由专项三分支测试（test_br05_high_freq.py）承载、BR-12
-            为运维策略不在测试范围，其余全部由左表场景守护；9 条不变量 100%
+            24 条规则中 BR-06 由评分单元测试、BR-05 由专项三分支测试（test_br05_high_freq.py）承载、BR-12
+            为运维策略不在测试范围、BR-22 环治理由 test_loop_engine 14 例 + SC-19/20
+            承载、BR-23 问答治理由 SC-21/22 + 结构化复盘单测承载、BR-24 企业资质治理由 SC-23 + 分派单测承载，其余全部由左表场景守护；9 条不变量 100%
             有测试映射。演示剧本 D1~D3 与场景矩阵同源（同一契约与断言），第五部分三场景即本表
             SC-01 / SC-02+08 / SC-03+07 的真人操作回放。
           </p>
@@ -1750,8 +1779,8 @@
         </div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px">
           <div class="card" style="text-align: center">
-            <div class="num">296</div>
-            <p>自动化测试全绿<br />（29 文件 · PG + 双 MCP 实链路）</p>
+            <div class="num">322</div>
+            <p>自动化测试全绿<br />（30 文件 · PG + 双 MCP 实链路）</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">5/5</div>
@@ -1774,7 +1803,7 @@
           <tr>
             <td><b>全量实链路回归</b></td>
             <td>
-              29 文件 296 例：PG16/pgvector :5433 + 双 MCP :8101/:8102
+              30 文件 322 例：PG16/pgvector :5433 + 双 MCP :8101/:8102
               真实服务 + RocketMQ 降级矩阵；宿主 Docker
               当夜随机崩溃 4 次，以文件粒度断点续跑 + 崩溃自动恢复的分批监督脚本跑完全绿（工程韧性实证）
             </td>
@@ -1914,7 +1943,7 @@
             <td>25%</td>
             <td>16</td>
             <td><b>22</b></td>
-            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~18 BDD 矩阵</td>
+            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~22 BDD 矩阵</td>
           </tr>
           <tr>
             <td><b>2 协同能力</b></td>
@@ -1935,7 +1964,7 @@
             <td>20%</td>
             <td>16</td>
             <td><b>18</b></td>
-            <td>296 例全绿（实链路）；CI 五道门禁 + 实质缺陷修复；R-37 安全纵深；压测 + 备份演练</td>
+            <td>315 例全绿（实链路）；CI 五道门禁 + 实质缺陷修复；R-37 安全纵深；压测 + 备份演练</td>
           </tr>
           <tr>
             <td><b>5 开源开放</b></td>
@@ -2168,16 +2197,16 @@
         <div class="subtitle">「下载即完整启动、结论即真实运行」是本方案的可信基线</div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px">
           <div class="card" style="text-align: center">
-            <div class="num">296</div>
-            <p>自动化测试全绿<br />（29 文件实链路）</p>
+            <div class="num">322</div>
+            <p>自动化测试全绿<br />（30 文件实链路）</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">89/100</div>
             <p>五维度终评<br />（66 → 89，证据可复现）</p>
           </div>
           <div class="card" style="text-align: center">
-            <div class="num">3 + 18</div>
-            <p>三个典型演示场景<br />+ SC-01~18 BDD 矩阵全绿</p>
+            <div class="num">3 + 24</div>
+            <p>三个典型演示场景<br />+ SC-01~24 BDD 矩阵全绿</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">284,807</div>

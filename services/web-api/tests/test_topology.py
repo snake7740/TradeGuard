@@ -108,6 +108,12 @@ class _PartialExternal:
     async def query_complaints(self, subject, reason):
         return {"source": "complaint-mock", "items": [], "degraded": False}
 
+    async def query_enterprise(self, subject, reason):
+        return {"source": "enterprise-mock", "reg_status": "active",
+                "abnormal_ops_count": 0, "admin_penalty_12m": 0,
+                "judicial_risk_count": 0, "related_entity_count": 1,
+                "risk_flag": "low", "query_reason": reason, "degraded": False}
+
 
 async def test_execute_plan_parallel_and_partial_degrade():
     plan = InvestigationPlan(source="rule", queries=[

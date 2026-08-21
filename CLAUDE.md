@@ -2,14 +2,14 @@
 
 TradeGuard · 交易风控中枢：AI 多 Agent 金融风控系统，五阶段闭环
 「信号聚合 → 根因定位 → 处置执行 → 核验审计 → 知识沉淀」。
-设计文档体系 v1.4.11（docs/00~09），代码已全量落地（Sprint 1-13，十六轮评审留痕）。
+设计文档体系 v1.5.2（docs/00~14，含 docs/14 v1.6 增强路线 US-E16），代码已全量落地（Sprint 1-13 + 增强批次，十六轮评审留痕）。
 
 ## 目录结构
 
 ```
-services/web-api/          FastAPI 后端（API-W-01~22）：app/ 核心域 + skills/ 四内核 + tests/（169 例）
+services/web-api/          FastAPI 后端（API-W-01~27）：app/ 核心域 + skills/ 四内核 + tests/（322 例，2026-08-21 全量回归实证）
 services/mcp-core/         业务库 MCP（:8101，API-M 12 工具，处置执行唯一通道）
-services/mcp-external-mock/ 外部源模拟 MCP（:8102，征信/舆情/投诉，确定性播种）
+services/mcp-external-mock/ 外部源模拟 MCP（:8102，征信/舆情/投诉/企业资质四契约源 + pyod 统计离群三算法（iforest/lof/ecod），共 7 工具，确定性播种；企业资质双轨：有厂商凭据走真实源，降级 mock）
 services/data-generator/   合成数据（PaySim 式分布，爆发簇近 1h 可触发 velocity）
 web-portal/                Vue3 + Element Plus 前端门户
 docs/                      00 总则 / 01 BA / 02 AA / 03 DA / 04 TA / 05 追溯评审 /
@@ -27,7 +27,7 @@ scripts/                   start_all / demo_playbook / kpi_report / nacos_regist
 ```bash
 .venv/Scripts/python scripts/start_all.py               # 一键启动+数据通路自证（首选）：.env 凭证自举→拉起全栈→真实探活→数据就位（空库先读 db/export）→端到端取证核心 19 项，全绿 exit 0
 docker compose up -d --build          # 起全栈（postgres/rocketmq/nacos/higress/studio/mcp×2/web×2）
-.venv/Scripts/python -m pytest services/web-api/tests   # 全量回归（169 例，约 6 分钟；需先起栈）
+.venv/Scripts/python -m pytest services/web-api/tests   # 全量回归（30 文件 322 例，约 40 分钟；需先起栈）
 .venv/Scripts/python scripts/demo_playbook.py           # 演示=测试复现，D1~D3 三个场景，目标 3/3
 .venv/Scripts/python scripts/kpi_report.py              # KPI 报告重生成（全量/演示范围分列判定）
 cd web-portal && npm run build                          # 前端构建
@@ -44,7 +44,8 @@ docker compose exec postgres psql -U postgres -d tradeguard
 - **状态机**：`app/core/state_machine.py` 纯函数，12 态（`CaseState`，不是 CaseStatus）/
   18 事件 / 21 迁移。改迁移必须同步：state_machine + db/init 白名单 + 03 §9.2 + openapi 事件枚举 + 08 数据字典。
 - **事件闭环**：扁平信封 `{case_id, trace_id, occurred_at, event, actor, payload}`。
-  进程内总线必达 + RocketMQ 尽力而为；EventWorker DB 轮询主力（2s，仅 REGISTERED，单飞锁，失败不重试）。
+  进程内总线必达 + RocketMQ 尽力而为；EventWorker DB 轮询主力（2s，仅 REGISTERED 且非 TEST 源，单飞锁，
+  失败有限重试，耗尽驻车 DLQ：processing_deadletter + E-WORKER-DLQ，人工经 /api/deadletter 复位，LoopEngine BA-BR-22）。
   `TG_EVENT_WORKER` 代码缺省 OFF、compose 显式 on——**测试环境绝不能开**（会抢跑用例造成 flake）。
 - **双守护**：应用层状态机 + DB 触发器。写路径 `repositories.transition` 事务内
   `set_config('tg.actor', ...)` → `trg_case_actor_gate` 按 actor 前缀拦截（human:* 才许五对人类迁移）。
@@ -59,8 +60,8 @@ docker compose exec postgres psql -U postgres -d tradeguard
 - **阈值热更新（SC-06）**：聚合/处置阈值从 `config.snapshot()` 读（Nacos 5s 快照 + sys_config 镜像），
   纯函数用关键字缺省参（缺省=原常量）保证单测兼容。PUT 写回顺序：键白名单/值域 →
   键存在性闸门（未播种键先 400，不污染 Nacos 权威源）→ Nacos → DB → reload。
-- **契约先行**：先改 docs/openapi/*.yaml → schemas.py → 路由。接口编号 API-W-01~22 / API-M-01~15，
-  mcp-core 在码 12 工具 + external 3 工具，零未编号工具（新增工具必须回写 07 §5 编号）。
+- **契约先行**：先改 docs/openapi/*.yaml → schemas.py → 路由。接口编号 API-W-01~27 / API-M-01~19，
+  mcp-core 在码 12 工具 + external 7 工具（契约 4 + pyod 3），零未编号工具（新增工具必须回写 07 §5 编号）。
 - **安全基线（R-37）**：`.env`（gitignore）为唯一凭据源——仓库只提交 CHANGE_ME 模板
   （.env.example / secrets/*.example），start_all 缺失时自动生成随机强凭据；compose `${VAR:?}`
   fail-fast 拒绝缺凭据启动。web-api 全量 `/api` 过 TG_API_TOKEN bearer 守卫（app/api_guards.py，
@@ -82,7 +83,7 @@ docker compose exec postgres psql -U postgres -d tradeguard
 - **AgentTeams 独立部署栈（非 compose）**：controller/manager/4 worker 跑在 Docker Desktop 的
   agentteams-net，经 `docker network connect` 接 tradeguard-net 才能解析 mcp-core。Docker Desktop
   重启后 controller 可能 Exited(127) 不自愈、worker 停 Sleeping、丢组网与容器层 mcporter 配置——
-  一律跑 `scripts/agentteams_doctor.py` 幂等体检恢复（拉起→唤醒→组网→控制台回环守护→注入 MCP 桥→校验 12+3 工具）。
+  一律跑 `scripts/agentteams_doctor.py` 幂等体检恢复（拉起→唤醒→组网→控制台回环守护→注入 MCP 桥→校验 12+7 工具）。
   端口：controller 18001/18080/18088、manager 18888、dashboard 13000、worker 控制台 18092~18095
   （aa-ag-0N→18090+N，宿主回环；doctor 发现非回环发布自动重建收口，R-37）。
 - **Windows Docker Desktop 宿主端口监听者是引擎进程本身**：发布端口由 `com.docker.backend.exe`

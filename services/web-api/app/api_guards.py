@@ -50,6 +50,10 @@ PATH_ROLE_RULES = (
      {"风控审批官", "风控策略管理员"}),
     (re.compile(r"^/api/config"),
      {"风控策略管理员", "风控审批官"}),
+    # LoopEngine DLQ 复位为人工门（环不得自清失败归宿）：值班员运维主导，
+    # 策略管理员兼环治理；agent: 穿透至端点 human_only 守卫 409 E-HUMAN-ONLY
+    (re.compile(r"^/api/deadletter/[^/]+/retry$"),
+     {"风控值班员", "风控策略管理员"}),
 )
 # 人工环节写路径：已识别人类角色越权直接 403；agent: 自声明不在此拦截，
 # 穿透至端点 human_only 守卫返回 409 E-HUMAN-ONLY（语义分层：403=角色无权，

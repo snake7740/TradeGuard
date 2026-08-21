@@ -143,6 +143,40 @@ async def search_kb(pool, query: str, top_k: int = 5, embedder=None) -> list[dic
     return hits
 
 
+async def ask_kb(pool, question: str, actor: str, top_k: int = 3) -> dict[str, Any]:
+    """B 端知识问答内核（API-W-27，US-E14-02，BA-BR-23）：
+    DA-KB-01 检索复用——命中即逐条引用 published 条目（doc_id/相似度/标题），
+    回答全部由检索结果组装（构造性防幻觉，不虚构引用）；未命中显式声明
+    “无先例”；问答交互落 audit_log action=kb.ask（问题 + 命中态可追责）。"""
+    hits = await search_kb(pool, question, top_k=top_k)
+    if hits:
+        refs = "；".join(f"《{h['title']}》({h['doc_id']})" for h in hits)
+        answer = (
+            f"命中 {len(hits)} 条已发布知识（引用详见 citations）：{refs}。"
+            f"以上内容均来自已发布知识条目，未虚构引用（BA-BR-23）。"
+        )
+    else:
+        answer = (
+            f"无先例：知识库未检索到与「{question[:40]}」相关的已发布知识"
+            f"（相似度均低于阈值 {SIMILARITY_MIN}），按 BA-BR-23 不虚构引用。"
+        )
+    await pool.execute(
+        """INSERT INTO audit_log (log_id, actor, action, target, basis)
+           VALUES ($1, $2, 'kb.ask', 'kb', $3)""",
+        uuid.uuid4().hex, actor[:40],
+        f"B 端问答 question={question[:120]} grounded={bool(hits)}"[:300])
+    return {
+        "question": question,
+        "grounded": bool(hits),
+        "citations": [
+            {"doc_id": h["doc_id"], "title": h["title"],
+             "similarity": round(h["similarity"], 3)}
+            for h in hits
+        ],
+        "answer": answer,
+    }
+
+
 async def mark_kb_feedback(pool, doc_ids: list[str]) -> None:
     """E1 命中正确性反哺：KB 引用成功升级定性（R-48 反哺路径）时记 hit_correct，
     best-effort 不阻断调查主链路（US-E11）"""
@@ -191,3 +225,53 @@ async def kb_metabolism(pool, pub, decay_days: int = KB_DECAY_DAYS) -> dict[str,
             KB_DECAY_ACTOR)
     return {"decayed": len(decayed),
             "doc_ids": [r["doc_id"] for r in decayed]}
+
+
+ATTRIBUTION_ACTOR = "system:rule-attribution"
+
+
+async def attribute_rule_proposals(pool, pub=None) -> dict[str, Any]:
+    """慢环显式化（LoopEngine L3，KPI-08 载体）：rule_proposal 效果归因。
+
+    对已 published 且带 source_case_id 的规则提案，观测「提案发布后源案件
+    主体是否再犯」（同 subject_ref 新立案）→ 写 proposal_attribution
+    （只增，ON CONFLICT DO NOTHING）+ 审计留痕；使规则进化环可度量，
+    提案是否真实有效不再靠感觉（发布仍须人审，DA-INV-08 不变）。
+    """
+    rows = await pool.fetch(
+        """SELECT d.doc_id, d.source_case_id,
+                  COALESCE(d.reviewed_at, d.ts) AS published_at,
+                  rc.subject_ref
+           FROM kb_document d
+           JOIN risk_case rc ON rc.case_id = d.source_case_id
+           WHERE d.category='rule_proposal' AND d.status='published'
+             AND d.source_case_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM proposal_attribution a
+                             WHERE a.doc_id = d.doc_id)""")
+    checked = recurred = 0
+    for r in rows:
+        recur = bool(await pool.fetchval(
+            """SELECT EXISTS (SELECT 1 FROM risk_case
+                              WHERE subject_ref=$1 AND created_at > $2
+                                AND case_id <> $3)""",
+            r["subject_ref"], r["published_at"], r["source_case_id"]))
+        res = await pool.execute(
+            """INSERT INTO proposal_attribution
+                   (doc_id, source_case_id, subject_ref, published_at,
+                    recurred_after, checked_at)
+               VALUES ($1, $2, $3, $4, $5, now())
+               ON CONFLICT (doc_id) DO NOTHING""",
+            r["doc_id"], r["source_case_id"], r["subject_ref"],
+            r["published_at"], recur)
+        if res != "INSERT 0 1":
+            continue
+        checked += 1
+        recurred += int(recur)
+        await pool.execute(
+            """INSERT INTO audit_log (log_id, actor, action, target, basis)
+               VALUES ($1, $2, 'kb.attribution', $3, $4)""",
+            uuid.uuid4().hex, ATTRIBUTION_ACTOR, r["doc_id"],
+            f"rule_proposal 效果归因：source_case={r['source_case_id']}，"
+            f"发布后主体{'再犯' if recur else '未再犯'}（LoopEngine 慢环）"[:300])
+    return {"checked": checked, "recurred": recurred,
+            "doc_ids": [r["doc_id"] for r in rows[:20]]}

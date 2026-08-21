@@ -486,9 +486,10 @@ async def submit_kb_application(case_id: str, category: str, title: str, content
     conn = await _conn()
     try:
         await conn.execute(
-            """INSERT INTO kb_document (doc_id, category, title, content, status, applicant)
-               VALUES ($1, $2, $3, $4, 'pending', 'AA-AG-05')""",
-            doc_id, category, title, content)
+            """INSERT INTO kb_document
+                   (doc_id, category, title, content, status, applicant, source_case_id)
+               VALUES ($1, $2, $3, $4, 'pending', 'AA-AG-05', $5)""",
+            doc_id, category, title, content, case_id)
         await conn.execute(
             """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                VALUES ($1, 'AA-AG-05', 'kb.apply', $2, $3, $4)""",

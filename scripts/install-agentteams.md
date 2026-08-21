@@ -19,8 +19,8 @@ export AGENTTEAMS_REGISTRY=higress-registry.cn-hangzhou.cr.aliyuncs.com
 bash agentteams-install.sh manager
 ```
 
-1. 安装完成后进入 Manager 控制台（Element Web，默认网关端口 18080 / 控制台 18001），按 docs/02 §3 Identity 清单创建 5 个 Worker：
-   - AA-AG-01 主控调度 / AA-AG-02 信号聚合 / AA-AG-03 欺诈调查 / AA-AG-04 处置执行 / AA-AG-05 审计复盘；
+1. 安装完成后进入 Manager 控制台（Element Web，默认网关端口 18080 / 控制台 18001），按 docs/02 §3 Identity 清单创建 6 个 Worker：
+   - AA-AG-01 主控调度 / AA-AG-02 信号聚合 / AA-AG-03 欺诈调查 / AA-AG-04 处置执行 / AA-AG-05 审计复盘 / AA-AG-06 知识助手（B 端问答，API-W-27）；
    - 身份 Prompt 写入：职能边界、可用 Skill（AA-SK-01~05）、安全约束（只读边界/审批门控）；
 2. 凭据安全（Key 安全供给，仓库零明文）：
    - 录入：`powershell -ExecutionPolicy Bypass -File scripts/set-dashscope-key.ps1`（SecureString 不回显，写入 gitignore 的 `secrets/dashscope.env`）；

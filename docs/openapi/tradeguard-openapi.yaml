@@ -461,6 +461,76 @@ paths:
                         status: { type: string, enum: [ok, warn, fail] }
                         basis: { type: string }
 
+  /api/deadletter:
+    get:
+      tags: [LoopEngine]
+      operationId: listDeadletter
+      summary: DLQ 死信清单（API-W-25，LoopEngine 失败归宿可见性入口，只读）
+      description: |
+        processing_deadletter（DA-T-16）清单，默认仅驻车行（parked_only=true），
+        按最近失败时间倒序限 100 条；环的失败不再只留日志（E-WORKER-DLQ 同源）。
+      parameters:
+        - name: parked_only
+          in: query
+          required: false
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: DLQ 清单
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [case_id, stage, attempts, parked]
+                      properties:
+                        case_id: { type: string }
+                        stage: { type: string, description: 失败阶段（如 aggregation） }
+                        error_class: { type: string }
+                        error_msg: { type: string }
+                        attempts: { type: integer, description: 累计重试次数 }
+                        parked: { type: boolean, description: 驻车中（停扫） }
+                        first_failed_at: { type: string, format: date-time }
+                        last_failed_at: { type: string, format: date-time }
+                        resolved_by: { type: string, nullable: true, description: 复位人（human:*） }
+                        resolved_at: { type: string, format: date-time, nullable: true }
+
+  /api/deadletter/{case_id}/retry:
+    post:
+      tags: [LoopEngine]
+      operationId: retryDeadletter
+      summary: DLQ 人工复位放行（API-W-26，人工门；复位后案件重入轮询候选）
+      description: |
+        解除驻车、清零累计 attempts，resolved_by/resolved_at 落复位人与时间
+        （环记录只增，复位不删行）；案件重新被 EventWorker 轮询捞起。
+        调用者须为人类角色（X-Operator，缺省 human:risk_oncall）；
+        DLQ 无该案件记录时 404 E-NOT-FOUND。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+        - name: X-Operator
+          in: header
+          required: false
+          schema: { type: string }
+          description: 复位人（encodeURIComponent 编码，缺省 human:risk_oncall）
+      responses:
+        '200':
+          description: 复位完成
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, case_id]
+                properties:
+                  ok: { type: boolean }
+                  case_id: { type: string }
+        '404':
+          description: DLQ 无该案件记录（E-NOT-FOUND）
+
   /api/kb/applications:
     get:
       tags: [知识库后台]
@@ -474,6 +544,46 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/KbDocument' }
+
+  /api/kb/ask:
+    post:
+      tags: [知识库后台]
+      operationId: askKb
+      summary: B 端知识问答（API-W-27，US-E14/SC-22，BA-BR-23）
+      description: |
+        仅引用已发布知识（DA-KB-01 检索 Top-k + 相似度阈值），回答由检索结果
+        组装（构造性防幻觉）；未命中 grounded=false 且声明无先例。仅对已识别
+        人工角色开放（agent:/未识别 403 E-FORBIDDEN-ROLE），问答留痕 kb.ask。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, minLength: 2, maxLength: 200 }
+      responses:
+        '200':
+          description: 带引用回答
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  question: { type: string }
+                  grounded: { type: boolean }
+                  citations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        doc_id: { type: string }
+                        title: { type: string }
+                        similarity: { type: number }
+                  answer: { type: string }
+        '403':
+          description: 非人工角色拒绝（E-FORBIDDEN-ROLE）
 
   /api/kb/applications/{doc_id}/publish:
     post:
@@ -1020,6 +1130,8 @@ components:
         ApprovalEscalated/VerificationOverdue 为后台巡检事件，不驱动状态迁移。
         E-INV-HYPOTHESIS/E-REVIEW-DEBATE/E-KB-DECAY/E-OUTCOME-FOLLOW 为 docs/14
         增强事件（B3/C1/E1/C2）：均为留痕/观测类，不驱动状态迁移。
+        E-WORKER-DLQ 为 LoopEngine 环设施事件：聚合环重试累计达 DLQ 上限驻车
+        时发出（可见性入口 /api/deadletter），不驱动状态迁移。
       properties:
         event:
           type: string
@@ -1030,7 +1142,8 @@ components:
                  RollbackToReview, VerificationPassed, VerificationFailed,
                  VerificationOverdue, RollbackExecuted, RollbackEscalated,
                  ReviewConfirmed, ReviewDismissed, CaseArchived,
-                 E-INV-HYPOTHESIS, E-REVIEW-DEBATE, E-KB-DECAY, E-OUTCOME-FOLLOW]
+                 E-INV-HYPOTHESIS, E-REVIEW-DEBATE, E-KB-DECAY, E-OUTCOME-FOLLOW,
+                 E-WORKER-DLQ]
         case_id: { $ref: '#/components/schemas/CaseId' }
         trace_id: { type: string, description: 案件 trace_id 透传（缺省回落新 uuid） }
         actor: { type: string, description: 触发者（agent:AA-AG-0x 或 human:*） }
@@ -1202,6 +1315,45 @@ components:
       properties:
         subject_id: { type: string }
         query_reason: { type: string }
+    McpQueryEnterpriseReq:
+      x-mcp-tool: query_enterprise
+      x-mcp-server: AA-MCP-02
+      description: API-M-16（US-E15，docs/14 v1.5）：企业资质五维查询（双轨：ENTERPRISE_VENDOR_KEY 在则真实厂商开放平台，失败/无 Key 降级 mock；仅线索不裁决 BA-BR-24）
+      type: object
+      required: [subject_id, query_reason]
+      properties:
+        subject_id: { type: string, description: 主体标识（企业统一信用代码或账户主体引用） }
+        query_reason: { type: string, description: BA-BR-10 必填 }
+    McpQueryEnterpriseResp:
+      type: object
+      properties:
+        source: { type: string, example: enterprise-mock, description: enterprise-vendor=真实厂商轨；enterprise-mock=模拟/降级轨 }
+        degraded: { type: boolean, description: 厂商失败降级 mock 时为 true }
+        reg_status: { type: string, example: active, description: 工商登记状态（active/cancelled/revoked） }
+        abnormal_ops_count: { type: integer, description: 经营异常名录列入次数 }
+        admin_penalty_12m: { type: integer, description: 近 12 月行政处罚次数 }
+        judicial_risk_count: { type: integer, description: 司法涉诉/失信被执行条目数 }
+        related_entity_count: { type: integer, description: 同法人/关联主体集中度 }
+        risk_flag: { type: string, enum: [low, mid, high], description: 合成风险标记（仅线索不裁决，BA-BR-24） }
+    McpQueryStatReq:
+      x-mcp-tool: "pyod_iforest | pyod_lof | pyod_ecod"
+      x-mcp-server: AA-MCP-02
+      description: API-M-17~19（US-E16，docs/14 v1.6）：金额序列统计离群检测三工具同构请求（仅 advisory 参谋分不裁决 BA-BR-25；pyod/numpy 未装即 E-TOOL-UNAVAILABLE 白名单拒绝，主链无感）
+      type: object
+      required: [values, query_reason]
+      properties:
+        values: { type: array, items: { type: number }, minItems: 5, description: 金额序列（≥5 样本点，否则 E-BAD-INPUT） }
+        query_reason: { type: string, description: BA-BR-10 必填 }
+        contamination: { type: number, default: 0.1, description: 预期异常比例（钳位 0.01~0.5） }
+    McpQueryStatResp:
+      type: object
+      properties:
+        source: { type: string, example: pyod-iforest, description: "pyod-{algo} 检测器标识" }
+        n: { type: integer, description: 样本数 }
+        degraded: { type: boolean, description: 成功时 false；不可用/异常时以 code 错误信封返回 }
+        anomaly_indices: { type: array, items: { type: integer }, description: 异常点索引（仅建议，不入裁决） }
+        scores: { type: array, items: { type: number }, description: decision_score（4 位小数） }
+        advisory: { type: boolean, enum: [true], description: 建议线标识（BA-BR-25 不裁决） }
     TraceSpan:
       description: 技能执行 span（API-W-20，US-E7-04）；语义对齐 OpenTelemetry，trace_id=case_id
       type: object

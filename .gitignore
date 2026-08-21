@@ -34,3 +34,9 @@ db/dataset/*.csv
 *.log
 logs/
 **/logs/
+
+# 全量回归看门狗批跑的断点/临时产物（脚本本体 pytest_full*.ps1 保留入库）
+services/web-api/pf*_done.txt
+services/web-api/pf*_out.tmp
+services/web-api/pf*_err.tmp
+services/web-api/pytest_files_done.txt

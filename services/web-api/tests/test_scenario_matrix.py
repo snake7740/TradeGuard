@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""场景矩阵：SC-01~SC-17 紧凑 E2E（验收出口"场景全绿"的单一取证文件）
+"""场景矩阵：SC-01~SC-23 紧凑 E2E（验收出口"场景全绿"的单一取证文件）
 
 每个 SC 一条测试，聚焦 06 §2 Gherkin 的 Then 核心断言（细分支由专题测试文件
 test_pipeline / test_disposition / test_verification / test_knowledge 承载）。
@@ -8,7 +8,16 @@ SC-08 增加技能执行 span 回放断言（US-E7-04 可观测并入留痕完�
 docs/14 增强（US-E8~E12）：SC-12~17 六场景——自适应基线双轨（BR-15）/拓扑
 研判不裁决（BR-16·INV-07）/时序回路（BR-17）/并行假设豁免留痕（BR-18）/
 控辩互审（BR-19·INV-09）/知识代谢人审门（BR-20·INV-06/08）。
+LoopEngine 环设施（US-E13，docs/14 v1.3）：SC-19/20 两场景——DLQ 失败归宿
+驻车与复位人工门（BR-22）/双轮有界环不空转与慢环归因可度量（BR-22）。
+RAG 深化（US-E14，docs/14 v1.4）：SC-21/22 两场景——归档复盘产结构化
+案例分析且可检索复用（BR-23 语料面）/B 端知识问答引用守护与人工角色门
+（BR-23 消费面，API-W-27 × AA-AG-06）。
+企业资质外部源（US-E15，docs/14 v1.5）：SC-23 单场景——无特征案件保守
+全查纳入 enterprise 五维（BA-BR-24 仅线索不裁决，API-M-16 双轨，BA-BR-10
+查询事由门），走活栈 AA-MCP-02 真实链路。
 """
+import urllib.parse
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -20,7 +29,7 @@ from app.core.state_machine import CaseEvent
 from app.core.tracing import recent_spans
 from app.skills.disposition import scan_pending_escalations
 from app.skills.knowledge import publish_and_index, search_kb
-from conftest import FakeExternal
+from conftest import FakeExternal, MCP_EXTERNAL_URL
 
 
 async def _subject() -> str:
@@ -369,6 +378,12 @@ class _FailingDeepExternal:
     async def query_complaints(self, subject_id, query_reason):
         raise RuntimeError("mock：complaint 深查失败")
 
+    async def query_enterprise(self, subject_id, query_reason):
+        return {"source": "enterprise-mock", "reg_status": "active",
+                "abnormal_ops_count": 0, "admin_penalty_12m": 0,
+                "judicial_risk_count": 0, "related_entity_count": 1,
+                "risk_flag": "low", "query_reason": query_reason, "degraded": False}
+
 
 async def test_matrix_sc15_parallel_hypothesis_trace(investigation):
     """Given 高风险案 ≥2 假设（跑分+盗卡）；When 调查完成；Then E-INV-HYPOTHESIS
@@ -454,3 +469,238 @@ async def test_matrix_sc17_kb_metabolism_human_gate(pool, verification):
         await publish_and_index(pool, app2["doc_id"], "agent:AA-AG-05")
     assert await pool.fetchval(
         "SELECT status FROM kb_document WHERE doc_id=$1", app2["doc_id"]) == "pending"
+
+
+# ---------- SC-19/20 LoopEngine 环设施（BA-BR-22，US-E13） ----------
+
+@pytest.fixture(scope="module")
+def api_client():
+    """全链 TestClient（同 test_loop_engine 装配法）：SC-19 复位人工门走真实 HTTP 守卫"""
+    import os
+    from fastapi.testclient import TestClient
+    from conftest import PG_DSN
+    os.environ["PG_DSN"] = PG_DSN
+    os.environ.pop("TG_API_TOKEN", None)
+    from app.main import create_app
+    with TestClient(create_app()) as c:
+        yield c
+
+
+async def test_matrix_sc19_dlq_park_and_human_gate(pool, case_repo, api_client):
+    """Given 环重试耗尽；When 累计达上限；Then 驻车停扫（轮询排除细分支见
+    test_loop_engine）；When agent/越权角色复位；Then 409/403 拒绝；
+    When 值班员复位；Then 清零放行且 resolved_by=human:*（只增不删）"""
+    from app.core.loop_engine import deadletter_record
+    repo, _ = case_repo
+    cid = (await repo.register(await _subject(), risk_score=50,
+                               source_type="DEMO"))["case_id"]
+    d = await deadletter_record(pool, cid, "aggregation", RuntimeError("SC-19"), 9)
+    assert d["parked"] is True                                   # 失败归宿驻车而非静默丢弃
+
+    r = api_client.post(f"/api/deadletter/{cid}/retry",
+                        headers={"X-Operator": "agent:AA-AG-04"})
+    assert r.status_code == 409                                  # 环不得自清失败归宿
+    assert r.json()["detail"]["code"] == "E-HUMAN-ONLY"
+    r = api_client.post(f"/api/deadletter/{cid}/retry",
+                        headers={"X-Operator": urllib.parse.quote("合规审计员")})
+    assert r.status_code == 403                                  # 角色门：越权拒绝
+    r = api_client.post(f"/api/deadletter/{cid}/retry",
+                        headers={"X-Operator": urllib.parse.quote("风控值班员")})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    row = await pool.fetchrow(
+        "SELECT attempts, parked, resolved_by FROM processing_deadletter"
+        " WHERE case_id=$1", cid)
+    assert row["attempts"] == 0 and row["parked"] is False
+    assert row["resolved_by"].startswith("human:")               # 复位留痕人工身份
+
+
+async def test_matrix_sc20_bounded_loop_and_slow_attribution(pool, case_repo,
+                                                             investigation):
+    """Given 全部调查源首轮成功；When 调查；Then 环一轮终止不空转（rounds 留痕，
+    双轮补查细分支见 test_loop_engine）；Given 规则提案人审发布；When 同主体
+    再犯；Then 慢环归因 recurred_after=True（效果可度量）"""
+    from app.skills.knowledge import attribute_rule_proposals
+    svc, repo, _ = investigation
+
+    class _NoLlm:
+        available = False  # 隔离外呼非确定性（同 test_loop_engine/_NoLlm）
+    svc.llm_client = _NoLlm()
+    case_id = await _investigating_case(repo, 60)
+    await svc.core.record_case_signals(case_id, 60, [{
+        "source": "tx", "type": "velocity_anomaly", "confidence": 0.8,
+        "raw_ref": f"{case_id}:tx", "query_reason": "SC-20",
+        "velocity_json": {"velocity_1h": {"count": 12, "amount": 900.0},
+                          "velocity_24h": {"count": 18, "amount": 1500.0}}}])
+    out = await svc.run(case_id)
+    assert len(out["plan"]["rounds"]) == 1                       # 有界：无缺口不空转二轮
+    assert out["plan"]["reflection"]["verdict"] == "sufficient"
+
+    subject = await _subject()
+    src = (await repo.register(subject, risk_score=60,
+                               source_type="TEST"))["case_id"]
+    await repo.register(subject, risk_score=60, source_type="TEST")  # 同主体再犯
+    app = await svc.core.submit_kb_application(
+        src, "rule_proposal", f"SC-20 提案-{uuid.uuid4().hex[:6]}",
+        "场景矩阵：规则提案慢环归因样本")
+    if isinstance(app, str):
+        app = json.loads(app)
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('tg.actor', 'human:test', true)")
+        await conn.execute(
+            "UPDATE kb_document SET status='published', reviewer='human:test',"
+            " reviewed_at=now() - interval '1 day' WHERE doc_id=$1", app["doc_id"])
+    res = await attribute_rule_proposals(pool)
+    assert res["checked"] >= 1 and res["recurred"] >= 1
+    assert await pool.fetchval(
+        "SELECT recurred_after FROM proposal_attribution WHERE doc_id=$1",
+        app["doc_id"]) is True                                   # 发布后再犯可度量
+
+
+# ---------- SC-21/22 RAG 深化：案例分析语料 × B 端问答（BA-BR-23，US-E14） ----------
+
+async def test_matrix_sc21_structured_retrospective_retrievable(
+        aggregation, app_pool, pool, disposition, verification):
+    """Given 案件全链归档；When 复盘申请产出；Then 结构化案例分析四段齐备
+    （信号指纹为主型×分布）；When 人审发布；Then 以主型手法特征检索即命中
+    该复盘（语料可检索复用，后续调查与 B 端问答同源受益）"""
+    agg_svc, repo, _ = aggregation
+    disp_svc = disposition[0]
+    ver_svc = verification[0]
+    subject = await _subject()
+    await _seed_tx(app_pool, subject, n=12, amount=50.0)      # velocity 簇（信号主型锚点）
+    reg = await repo.register(subject, risk_score=50, source_type="TEST")
+    case_id = reg["case_id"]
+    await agg_svc.run(case_id)
+    await _with_evidence(disp_svc, case_id)
+    gate = await disp_svc.submit(case_id, "freeze", None, f"{case_id}:freeze")
+    await disp_svc.approve(gate["approval_id"], "human:approver", "同意")
+    exec_id = (await pool.fetchrow(
+        "SELECT exec_id FROM disposition_record WHERE case_id=$1", case_id))["exec_id"]
+    out = await ver_svc.verify(case_id, exec_id)               # → ARCHIVED + 复盘申请
+
+    doc = await pool.fetchrow(
+        "SELECT title, content FROM kb_document WHERE doc_id=$1",
+        out["kb_application"])
+    for section in ("【案件概况】", "【手法指纹】", "【处置结论】", "【复用提示】"):
+        assert section in doc["content"]
+    # 主型确定性：复盘主型 == 库内信号类型按计数降序首位（分布段格式 类型×计数）
+    primary = await pool.fetchval(
+        "SELECT type FROM risk_signal WHERE case_id=$1"
+        " GROUP BY type ORDER BY count(*) DESC, type LIMIT 1", case_id)
+    assert f"{primary}×1" in doc["content"]                    # 信号类型分布（主型×计数）
+    assert f"{primary} 手法特征" in doc["title"]                # 标题携带检索锚点
+    await publish_and_index(pool, out["kb_application"], "human:风控策略管理员")
+    hits = await search_kb(pool, f"{primary} 手法特征")
+    assert hits and hits[0]["doc_id"] == out["kb_application"]  # 语料发布即可检索复用
+
+
+async def test_matrix_sc22_kb_ask_grounded_and_human_gate(pool, verification,
+                                                          api_client):
+    """Given 已发布知识；When 人工角色问同类问题；Then 回答带 doc_id 引用
+    （grounded）；When 问无关联问题；Then 显式声明无先例不虚构；
+    When agent 调用；Then 403（问答可追责到人）；且问答留痕 kb.ask"""
+    svc = verification[0]
+    pattern = f"SC-22 跨行清算垫资手法-{uuid.uuid4().hex[:6]}"
+    app = await svc.core.submit_kb_application(
+        f"CASE-MTX-{uuid.uuid4().hex[:8]}", "case", pattern,
+        f"复盘摘要：{pattern}，夜间高频小额转出后集中清算。")
+    await publish_and_index(pool, app["doc_id"], "human:风控策略管理员")
+
+    r = api_client.post("/api/kb/ask", json={"question": pattern},
+                        headers={"X-Operator": urllib.parse.quote("风控值班员")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["grounded"] is True
+    assert any(c["doc_id"] == app["doc_id"] for c in body["citations"])  # doc_id 引用
+    assert app["doc_id"] in body["answer"]
+
+    r = api_client.post("/api/kb/ask",
+                        json={"question": f"完全无关问题-{uuid.uuid4().hex[:12]}"},
+                        headers={"X-Operator": urllib.parse.quote("合规审计员")})
+    assert r.status_code == 200 and r.json()["grounded"] is False
+    assert "无先例" in r.json()["answer"]                       # 未命中显式声明，不虚构
+
+    r = api_client.post("/api/kb/ask", json={"question": pattern},
+                        headers={"X-Operator": "agent:AA-AG-04"})
+    assert r.status_code == 403                                 # 人工角色门（BA-BR-23）
+    assert r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_log WHERE action='kb.ask'") >= 2  # 问答留痕可追责
+
+
+# ---------- SC-23 企业资质外部源五维扩维（BA-BR-24，US-E15，API-M-16） ----------
+
+async def test_matrix_sc23_enterprise_external_source(pool, investigation):
+    """Given 无特征案件（保守全查）；When 调查执行；Then enterprise 源五维
+    齐备入 findings 与证据链（仅线索不裁决：评分不受 risk_flag 影响）；
+    且 query_reason 缺失拒绝 E-REASON-REQUIRED（BA-BR-10）；且同主体确定性
+    回放一致（双轨无厂商 Key 默认 mock 轨）"""
+    from app.skills.mcp_adapters import ExternalSourcesClient
+    svc, repo, _ = investigation
+
+    class _NoLlm:
+        available = False  # 隔离外呼非确定性（同 SC-20/_NoLlm）
+    svc.llm_client = _NoLlm()
+    svc.external = ExternalSourcesClient(MCP_EXTERNAL_URL)  # 活栈 AA-MCP-02 实链路
+
+    case_id = await _investigating_case(repo, 60)       # 不记信号 → 无特征保守全查路径
+    out = await svc.run(case_id)
+    queries = {q["source"] for q in out["plan"]["queries"]}
+    assert queries == {"credit", "sentiment", "complaint", "enterprise", "stat"}  # 五源全查（含 stat 建议线 BA-BR-25）
+    ent = next(f for f in out["plan"]["findings"] if f["source"] == "enterprise")
+    assert ent["ok"] is True
+    for dim in ("reg_status", "abnormal_ops_count", "admin_penalty_12m",
+                "judicial_risk_count", "related_entity_count", "risk_flag"):
+        assert dim in ent["summary"]                    # 五维 + 合成标记齐备留痕
+
+    subject = (await repo.get(case_id))["subject_ref"]
+    direct = await svc.external.query_enterprise(subject, "SC-23 五维取样")
+    assert direct["source"] == "enterprise-mock"        # 无厂商 Key → 默认 mock 轨
+    assert direct["degraded"] is False
+    assert direct["reg_status"] in ("active", "cancelled", "revoked")
+    assert direct["risk_flag"] in ("low", "mid", "high")
+    denied = await svc.external.query_enterprise(subject, "")
+    assert denied.get("code") == "E-REASON-REQUIRED"    # BA-BR-10 查询事由门
+    replay = await svc.external.query_enterprise(subject, "SC-23 五维取样")
+    assert replay == direct                             # 同主体确定性回放一致
+
+    ev = await pool.fetch(
+        "SELECT claim FROM case_evidence WHERE case_id=$1", case_id)
+    assert any("enterprise" in r["claim"] for r in ev)  # 企业源入证据链可审计
+    assert (await repo.get(case_id))["risk_score"] == 60  # 仅线索不裁决：不改评分
+
+
+# ---------- SC-24 统计异常检测建议线降级不阻断（BA-BR-25，US-E16，API-M-17~19） ----------
+
+async def test_matrix_sc24_stat_advisory_degrades_without_blocking(pool, investigation):
+    """Given 无特征案件（保守全查含 stat 建议线）；When 调查执行；Then stat 项
+    入计划并留痕（本地无 pyod → E-TOOL-UNAVAILABLE 降级；装了 pyod → advisory 成功），
+    两种结果之一均不阻断主链；且 advisory/降级均不改评分（仅参谋不裁决）"""
+    from app.skills.mcp_adapters import ExternalSourcesClient
+    svc, repo, _ = investigation
+
+    class _NoLlm:
+        available = False  # 隔离外呼非确定性（同 SC-23）
+    svc.llm_client = _NoLlm()
+    svc.external = ExternalSourcesClient(MCP_EXTERNAL_URL)  # 活栈 AA-MCP-02 实链路
+
+    case_id = await _investigating_case(repo, 58)
+    out = await svc.run(case_id)
+
+    queries = {q["source"] for q in out["plan"]["queries"]}
+    assert "stat" in queries                          # 保守全查路径纳入建议线
+    st = next(f for f in out["plan"]["findings"] if f["source"] == "stat")
+    if st["ok"]:                                      # 环境装了 pyod/numpy → 成功档
+        assert st["degraded"] is False
+        assert "advisory" in st["summary"]            # 仅参谋分留痕
+    else:                                             # 本地无 pyod → 降级档（活栈实况）
+        assert st["degraded"] is True
+        assert ("E-TOOL-UNAVAILABLE" in st["summary"]
+                or "样本不足" in st["summary"])        # 两种降级留痕之一，均不阻断
+    assert (await repo.get(case_id))["risk_score"] == 58  # 建议线不裁决：评分不变
+
+    # 事由门直验：无 query_reason 调 pyod 工具拒绝（BA-BR-10 同门）
+    denied = await svc.external.call_tool("pyod_iforest",
+                                          values=[1.0, 2.0, 3.0, 4.0, 5.0],
+                                          query_reason="")
+    assert denied.get("code") == "E-REASON-REQUIRED"

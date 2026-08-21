@@ -15,7 +15,9 @@ from app.skills.aggregation import AggregationStateError
 
 
 class FakePool:
-    """fetch 返回预设行；记录查询次数"""
+    """fetch 返回预设行；记录查询次数。fetchrow/execute 为 LoopEngine DLQ
+    占位（重试耗尽路径写 processing_deadletter，本文件用例不验证其内容，
+    专测见 tests/test_loop_engine.py）"""
 
     def __init__(self, case_ids):
         self.case_ids = list(case_ids)
@@ -24,6 +26,12 @@ class FakePool:
     async def fetch(self, query, *args):
         self.queries += 1
         return [{"case_id": c} for c in self.case_ids]
+
+    async def fetchrow(self, query, *args):
+        return {"attempts": args[4] if len(args) > 4 else 0, "parked": False}
+
+    async def execute(self, query, *args):
+        return "UPDATE 1"
 
 
 class FakeAggregation:

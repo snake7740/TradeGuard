@@ -29,6 +29,7 @@ BR06_BONUS = (
 VELOCITY_1H_COUNT = 10  # 跑分假设阈值（与 BA-BR-14 同源）
 LARGE_AMOUNT = 5000  # 盗卡假设阈值（单点大额，BA-BR-01 金额线同源）
 TOPO_TIMEOUT = 2.0  # 拓扑统计进程内计算超时上限（超时返回空统计，调查不阻断，14 §1.4）
+STAT_WINDOW_HOURS = 168  # stat 建议线取样窗：近 7 日金额序列（BA-BR-25，US-E16）
 
 
 # ---------- B1 图拓扑统计（BA-BR-16 / DA-INV-07，docs/14 US-E9；与 mcp-core 同源算法） ----------
@@ -101,8 +102,26 @@ class InvestigationStateError(Exception):
     code = "E-BAD-STATE"
 
 
+async def subject_amounts(core, subject_ref: str,
+                          hours: int = STAT_WINDOW_HOURS) -> list[float]:
+    """stat 建议线输入取样（BA-BR-25，US-E16）：主体近 7 日交易金额序列
+    （API-M-01 流水回查，时序正序供 pyod 序列检测）。失败/无流水返空 →
+    planner 按样本不足跳过留痕不阻断（建议线不影响主链）。"""
+    try:
+        rows = await core.query_transactions(subject_ref, hours=hours)
+    except Exception:  # noqa: BLE001 —— 取样失败不阻断调查主链
+        return []
+    out: list[float] = []
+    for r in rows:
+        try:
+            out.append(float(r.get("amount")))
+        except (TypeError, ValueError):
+            continue
+    return list(reversed(out))  # API-M-01 倒序返回 → 正序供序列检测
+
+
 def match_hypothesis(
-    signals: list[dict], graph_edge_types: set[str]
+    signals: list[dict[str, Any]], graph_edge_types: set[str]
 ) -> tuple[str, str]:
     """规则兜底假设匹配（AA-SK-02 步骤 1；KB 不可用时的确定性下限）
 
@@ -226,8 +245,11 @@ class InvestigationService:
                 kb_hints = ""
         plan = await planner_mod.make_plan(
             sigs, edge_types, kb_hints=kb_hints, client=self.llm_client)
+        # stat 建议线取样（BA-BR-25）：金额序列供 execute_plan 的 stat 分支；
+        # 仅无特征保守全查计划含 stat 项，取样失败/不足自动跳过留痕
+        amounts = await subject_amounts(self.core, case["subject_ref"])
         findings = await planner_mod.execute_plan(
-            plan, self.external, case["subject_ref"])
+            plan, self.external, case["subject_ref"], amounts=amounts)
         # B3 假设覆盖核算（BA-BR-18）：未深查假设留痕「为什么没查 X」，并入豁免留痕
         hyp_skipped = planner_mod.hypothesis_skipped(plan, findings)
         # ≥2 假设 → 并行分支已生成，发 E-INV-HYPOTHESIS 领域事件（docs/14 §2，
@@ -307,9 +329,28 @@ class InvestigationService:
             [n.ljust(64) for n in nodes],
         )
 
-        # 4b. AG-01 反思（R-47）：对比计划/执行/结论，缺口落证据链（可回放闭环）
+        # 4b. AG-01 反思（R-47）+ LoopEngine 双轮有界环：reflect → verdict=gaps
+        #     且存在可行动源 → 二轮补查 execute → 结果同源覆盖 merge → 再 reflect；
+        #     上限 2 轮（planner.MAX_REFLECT_ROUNDS），不可行动缺口不触发环，
+        #     终止条件与轮次留痕（rounds），审计可回放
         reflection = await planner_mod.reflect(
             plan, findings, pattern, client=self.llm_client)
+        rounds: list[dict[str, Any]] = [{"round": 1, "verdict": reflection.verdict,
+                                         "source": reflection.source}]
+        if reflection.verdict == "gaps":
+            follow = planner_mod.replan_from_gaps(plan, findings)
+            if follow is not None:
+                r2 = await planner_mod.execute_plan(
+                    follow, self.external, case["subject_ref"])
+                # merge：二轮结果覆盖同源首轮（降级/失败源重查），其余源保留
+                r2_by_src = {f["source"]: f for f in r2}
+                findings = ([f for f in findings if f["source"] not in r2_by_src]
+                            + r2)
+                reflection = await planner_mod.reflect(
+                    plan, findings, pattern, client=self.llm_client)
+                rounds.append({"round": 2, "verdict": reflection.verdict,
+                               "source": reflection.source,
+                               "replan": [q.source for q in follow.queries]})
 
         # 5. 证据固化（DA-T-05 只增，BA-BR-03，经 API-M-12 tg_app 写角色）
         plan_summary = (
@@ -348,6 +389,9 @@ class InvestigationService:
                         f"{plan_summary}；反思[{reflection.source}]{reflection.verdict}："
                         f"{reflection.summary}"
                         + (f"；缺口：{'；'.join(reflection.gaps)}" if reflection.gaps else "")
+                        + (f"（LoopEngine 双轮环，轮次 {len(rounds)}，"
+                           f"补查源 {'/'.join(rounds[-1].get('replan', []))}）"
+                           if len(rounds) > 1 else "")
                     ),
                     "source_ref": "AA-AG-01:plan-reflect",
                     "confidence": 0.7,
@@ -394,6 +438,7 @@ class InvestigationService:
                 "skipped": [*plan.skipped, *hyp_skipped],
                 "rationale": plan.rationale,
                 "findings": findings,
+                "rounds": rounds,
                 "reflection": {
                     "source": reflection.source,
                     "verdict": reflection.verdict,
