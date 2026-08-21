@@ -7,7 +7,7 @@ entrypoint: services/web-api/app/skills/verification.py
 depends-mcp: execute_disposition, record_case_evidence, submit_kb_application
 depends-tables: disposition_record, audit_log, case_evidence, kb_document, risk_case, risk_signal
 tests: services/web-api/tests/test_verification.py
-test-cases: 5
+test-cases: 6
 degradation-paths: 核验不一致反向处置+P0 升级, 反向处置被拒 ROLLBACK_ESCALATED 转人工不谎报 RollbackExecuted
 ---
 

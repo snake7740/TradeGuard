@@ -31,14 +31,15 @@ jobs:
           bandit -r services/web-api/app services/mcp-core/server.py \
                  services/mcp-external-mock/server.py services/data-generator/generate.py \
                  -lll
-      - name: pip-audit（依赖 CVE 审计，四服务全量，含传递依赖树）
+      - name: pip-audit（依赖 CVE 审计，四服务逐个全量，含传递依赖树）
         run: |
+          # 逐 requirements 单独调用：新版 pip-audit 不支持多 -r 混排
+          # （报 project_path 与 -r 互斥，线上 5 连红实证，修复后回写）
           pip install pip-audit
-          pip-audit -r services/web-api/requirements.txt \
-                    --find-links services/web-api/wheels \
-                    -r services/mcp-core/requirements.txt \
-                    -r services/mcp-external-mock/requirements.txt \
-                    -r services/data-generator/requirements.txt
+          pip-audit -r services/web-api/requirements.txt --find-links services/web-api/wheels
+          pip-audit -r services/mcp-core/requirements.txt
+          pip-audit -r services/mcp-external-mock/requirements.txt
+          pip-audit -r services/data-generator/requirements.txt
 
   unit-test:
     name: 全量测试（单元/契约/集成，PG + 双 MCP 实链路，R-44）
@@ -67,7 +68,7 @@ jobs:
                pytest 与本地全绿环境同版钉版——此前不在任何 requirements 中，
                Actions 线上会因缺解释器直接红）
         run: |
-          pip install pytest==9.1.1 \
+          pip install pytest==9.1.1 pytest-cov \
             -r services/web-api/requirements.txt \
                       --find-links services/web-api/wheels \
                       -r services/mcp-core/requirements.txt \
@@ -103,10 +104,11 @@ jobs:
           ROCKETMQ_NAMESRV: 127.0.0.1:19876
         run: |
           cd services/web-api
-          python -m pytest tests -q
-          # 注：不加 --cov——本地 Windows 曾把「-q 进度点缓冲不刷新 + 全量
-          # 251 例实跑 ~24 分钟」误判为 pytest-cov 死锁（-v 流式复跑 24 分钟
-          # 完整通过，死锁结论撤回，诚实记录）；覆盖率接入待 Linux 环境实测
+          python -m pytest tests -q --cov=app --cov-report=term --cov-fail-under=70
+          # 覆盖率门禁（新智基座维度4闭合项）：此前不加 --cov 是因本地 Windows
+          # 曾把「-q 进度点缓冲不刷新 + 全量 ~24 分钟」误判为 pytest-cov 死锁
+          # （-v 流式复跑完整通过，结论已撤回）；门禁只进 Linux CI，本地不强制，
+          # fail 线 70% 以本次线上实测基线为准（低于则此 job 红，诚实拦截）
       - name: MCP 服务日志（失败诊断用）
         if: failure()
         run: |

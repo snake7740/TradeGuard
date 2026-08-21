@@ -7,7 +7,7 @@ entrypoint: services/web-api/app/skills/investigation.py
 depends-mcp: query_related_graph, record_case_evidence, apply_risk_bonus, record_case_signals
 depends-tables: risk_signal, case_evidence, account, transaction, kb_document, kb_embedding
 tests: services/web-api/tests/test_investigation.py, services/web-api/tests/test_memory_kpi.py, services/web-api/tests/test_planner.py
-test-cases: 22
+test-cases: 27
 degradation-paths: KB 不可用仅规则假设并声明证据受限, LLM 规划/反思失败降级规则版, 图查询降级 1 跳
 depth-limit: 图扩展 2 跳上限（防组合爆炸）
 ---
