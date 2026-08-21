@@ -20,7 +20,7 @@ app/
 │                        #   transition 事务内 set_config('tg.actor') 供 DB actor 守卫
 ├─ api_guards.py         # bearer 鉴权（TG_API_TOKEN）+ 写操作审计 api.request（US-E7-01）
 ├─ core/                 # 核心域（零基础设施依赖，可直接单测，06 §3）
-│  ├─ state_machine.py   # 案件状态机：12 态 / 18 事件 / 21 条迁移路径（02 §7，DA-INV-01）
+│  ├─ state_machine.py   # 案件状态机：12 态 / 19 事件 / 22 条迁移路径（02 §7，DA-INV-01）
 │  ├─ events.py          # 事件发布端口/适配器：进程内总线（必达）+ RocketMQ（尽力而为）
 │  ├─ event_worker.py    # 闭环承接：DB 轮询主力 2s 扫 REGISTERED + case_id 单飞锁（TG_EVENT_WORKER 开关）
 │  ├─ config_service.py  # Nacos 阈值快照 5s 热加载 + sys_config 镜像（SC-06）

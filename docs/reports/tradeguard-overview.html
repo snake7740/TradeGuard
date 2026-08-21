@@ -1682,6 +1682,11 @@
             <td>MANUAL_REVIEW →（人确认）PENDING_APPROVAL ／（人排除）ARCHIVED</td>
             <td>SC-10 · 场景二尾段（P24）</td>
           </tr>
+          <tr>
+            <td><b>归档复位</b></td>
+            <td>ARCHIVED →（人工复位，事由必填）MANUAL_REVIEW</td>
+            <td>BA-BR-28 · SC-27（可治理自动关闭的补救通道，human_only）</td>
+          </tr>
         </table>
         <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 10px">
           <div class="card">
@@ -1694,7 +1699,7 @@
           <div class="card">
             <h4>规模与复用</h4>
             <p>
-              12 状态、18 个迁移事件、21 条迁移路径；进程内总线必达 +
+              12 状态、19 个迁移事件、22 条迁移路径（含归档复位 human_only 通道，BA-BR-28）；进程内总线必达 +
               RocketMQ 尽力而为 + DB 轮询兜底，不依赖单一中间件。device-guard
               第二场景复用同一骨架（零新建），5/5 测试绿。
             </p>
@@ -1716,7 +1721,7 @@
         <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px">
           <table class="compact">
             <tr>
-              <th>BDD 场景（SC-01~24）</th>
+              <th>BDD 场景（SC-01~27）</th>
               <th>BA 规则</th>
               <th>DA 不变量</th>
               <th>测试层</th>
@@ -1772,7 +1777,7 @@
               <p>
                 先测后码（红-绿-重构）：单元（降噪/评分/velocity/状态机/幂等）→
                 契约（MCP Schema/错误码/降级）→ 集成（活栈事件/权限矩阵/RAG）→
-                场景 E2E（SC-01~24 真实链路）→ 评估（KPI 落盘可复现，P20）。
+                场景 E2E（SC-01~27 真实链路）→ 评估（KPI 落盘可复现，P20）。
               </p>
             </div>
           </div>
@@ -1965,7 +1970,7 @@
             <td>25%</td>
             <td>16</td>
             <td><b>22</b></td>
-            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~24 BDD 矩阵</td>
+            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~27 BDD 矩阵</td>
           </tr>
           <tr>
             <td><b>2 协同能力</b></td>
@@ -2228,7 +2233,7 @@
           </div>
           <div class="card" style="text-align: center">
             <div class="num">3 + 24</div>
-            <p>三个典型演示场景<br />+ SC-01~24 BDD 矩阵全绿</p>
+            <p>三个典型演示场景<br />+ SC-01~27 BDD 矩阵全绿</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">284,807</div>

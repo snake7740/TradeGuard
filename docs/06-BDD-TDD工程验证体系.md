@@ -409,7 +409,7 @@ Scenario: SC-27 标准内关闭留痕可复算、超限转调查、复位人工�
 | --- | --- | --- | --- |
 | 单元测试 | 降噪合并算法、风险评分加权、velocity 频次统计（BA-BR-14）、状态机迁移（DA-INV-01）、幂等键判定（DA-INV-03）、证据链校验（DA-INV-04） | Pytest；纯函数优先，无外部依赖 | ≥60% 行覆盖（核心域模块） |
 | 契约测试 | AA-MCP-01/02 工具 Schema 校验、错误码表、重试与降级行为；领域事件 Schema（03 §9.2） | Pytest + JSON Schema 校验 | 每个 MCP 工具 ≥2 用例（成功/失败） |
-| 集成测试 | 事件发布-订阅端到端（进程内总线必达 + RocketMQ 尽力而为，03 §9.2）、PolarDB 权限矩阵（03 §6，DA-INV-05）、RAG 检索匹配与引用对齐 | docker compose 活栈测试环境（先起栈后 pytest） | 覆盖全部 26 事件名的发布侧语义（含 E-WORKER-DLQ 驻车告知） |
+| 集成测试 | 事件发布-订阅端到端（进程内总线必达 + RocketMQ 尽力而为，03 §9.2）、PolarDB 权限矩阵（03 §6，DA-INV-05）、RAG 检索匹配与引用对齐 | docker compose 活栈测试环境（先起栈后 pytest） | 覆盖全部 27 事件名的发布侧语义（含 E-WORKER-DLQ 驻车告知与 CaseReopened 归档复位） |
 | 场景测试（E2E） | SC-01～SC-27 全量，经 compose 活栈真实链路执行（Sprint 8 实现修订：pytest 场景矩阵 `tests/test_scenario_matrix.py` 承载断言，demo_playbook 以真实 HTTP + MCP 复现同源场景，未采用 Matrix 房断言） | pytest + 活栈 HTTP/MCP 探针 | SC-01~SC-27 全场景通过 + SC-18 角色门控为验收线 |
 | 评估测试 | BA-KPI-01~05 离线评估（响应时效/召回率/误报率/人工介入率/留痕完整率） | `scripts/kpi_report.py` 双范围（全量/演示）分列判定，落盘 docs/reports/ | 固化于仓库，可复现 |
 

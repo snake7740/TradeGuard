@@ -18,9 +18,9 @@
 | 层 | 组件 | 作用 |
 | --- | --- | --- |
 | 多 Agent 协同 | AgentTeams（Manager + 4 Worker） | 任务拆解 / 上下文传递 / 协同执行 |
-| 后端 | FastAPI（web-api） | 12 态状态机 + 5 Skill 内核，22 REST 路径 |
+| 后端 | FastAPI（web-api） | 12 态状态机 + 5 Skill 内核，32 REST 路径 |
 | 业务库 MCP | mcp-core（12 工具） | 处置执行唯一通道（审批把关 + 幂等） |
-| 外部源 MCP | mcp-external-mock（3 工具） | 征信 / 舆情 / 投诉（确定性模拟） |
+| 外部源 MCP | mcp-external-mock（7 工具） | 征信 / 舆情 / 投诉 / 企业资质四契约源 + pyod 统计离群三算法（确定性模拟） |
 | 前端 | Vue 3 + Element Plus | 5 页面 × 4 角色人机操作面 |
 | 存储 | PostgreSQL（pgvector） | 业务 / 向量 / 审计一体 |
 | 事件 | RocketMQ | 事件驱动闭环（尽力而为） |
@@ -109,7 +109,7 @@ Higress 路由重建 → AgentTeams 体检 → C1~C9 端到端取证，**全绿 
 | 入口 | 地址 | 说明 |
 | --- | --- | --- |
 | 风控门户 | <http://localhost:8300> | 顶栏切换 4 角色，完整演示五阶段闭环 |
-| OpenAPI 文档 | <http://localhost:8200/docs> | 24 个 REST 路径契约（含 /api/skills 技能注册表） |
+| OpenAPI 文档 | <http://localhost:8200/docs> | 32 个 REST 路径契约（含 /api/skills 技能注册表与案件治理 queue/reopen/narrative） |
 | 方案总览 | `docs/reports/tradeguard-overview.html` | 浏览器打开，含业务逻辑 + 操作流程 + 演示场景 |
 
 ### 5. 操作指引（启动后怎么用）
@@ -133,14 +133,14 @@ Higress 路由重建 → AgentTeams 体检 → C1~C9 端到端取证，**全绿 
 ```
 ├── docker-compose.yml          # 中间件编排（healthcheck 依赖顺序）
 ├── db/
-│   ├── init/                   # 01-schema 12 表 + 02-roles 权限矩阵 + 03 图退化 + 04 不变量 + 05~07 迁移
+│   ├── init/                   # 01-schema 12 表 + 02-roles 权限矩阵 + 03 图退化 + 04 不变量 + 05~11 迁移（11-case-governance 案件治理）
 │   ├── export/                 # 命名卷数据导出件（克隆即完整启动，密钥扫描闸门，R-37）
 │   └── backup.sh               # 备份/恢复
 ├── config/rocketmq/broker.conf
 ├── services/
 │   ├── web-api/                # FastAPI 后端（12 态状态机 + 5 Skill 内核）
 │   ├── mcp-core/               # AA-MCP-01 业务库 MCP（12 工具，处置执行唯一通道）
-│   ├── mcp-external-mock/      # AA-MCP-02 外部数据源模拟（3 工具）
+│   ├── mcp-external-mock/      # AA-MCP-02 外部数据源模拟（7 工具：四契约源 + pyod 三算法）
 │   └── data-generator/         # PaySim 式合成数据
 ├── web-portal/                 # Vue 3 + Element Plus 前端（5 页面 × 4 角色）
 ├── skills/                     # AA-SK-01~05 官方技能定义
