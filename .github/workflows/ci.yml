@@ -67,9 +67,11 @@ jobs:
       - name: 安装依赖（web-api 测试端 + 双 MCP 服务端，同版本钉版；
                rocketmq 轮子 vendored 于 services/web-api/wheels，见 wheels/README.md；
                pytest 与本地全绿环境同版钉版——此前不在任何 requirements 中，
-               Actions 线上会因缺解释器直接红）
+               Actions 线上会因缺解释器直接红；pytest-asyncio 1.4.0 是
+               pytest.ini asyncio_mode=auto 的执行者，缺失致 async 用例 fixture
+               链断裂（36 failed + 100 errors 线上实证，2026-08-21））
         run: |
-          pip install pytest==9.1.1 pytest-cov \
+          pip install pytest==9.1.1 pytest-cov pytest-asyncio==1.4.0 \
             -r services/web-api/requirements.txt \
                       --find-links services/web-api/wheels \
                       -r services/mcp-core/requirements.txt \
