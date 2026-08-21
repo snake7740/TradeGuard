@@ -22,11 +22,12 @@ def test_all_transitions_positive(t):
     assert next_state(t.source, t.event, actor) == t.target
 
 
-def test_transition_count_is_21():
+def test_transition_count_is_22():
     """与 02 §7 stateDiagram + BA-BP 展开逐条对账（防迁移表悄悄增删）
     18 条主路径 + 1 条 BA-CAP-05 低风险自动通道（SC-01）
-    + 2 条闭环修复（v1.4.4）：DISPOSING/ROLLBACK 失败兜底转人工（B1/B3）"""
-    assert len(TRANSITIONS) == 21
+    + 2 条闭环修复（v1.4.4）：DISPOSING/ROLLBACK 失败兜底转人工（B1/B3）
+    + 1 条 BA-BR-28 归档复位通道（SC-27，human_only）"""
+    assert len(TRANSITIONS) == 22
     assert len({t.source for t in TRANSITIONS}) >= 10
 
 
@@ -58,14 +59,14 @@ def test_human_only_guard_accepts_human(t):
     assert next_state(t.source, t.event, HUMAN) == t.target
 
 
-def test_human_only_transitions_are_6():
-    """对账：审批 2 + 调查中复核 2 + MANUAL_REVIEW 复核 2 = 6 条人类入口"""
-    assert sum(1 for t in TRANSITIONS if t.human_only) == 6
+def test_human_only_transitions_are_7():
+    """对账：审批 2 + 调查中复核 2 + MANUAL_REVIEW 复核 2 + 归档复位 1（BA-BR-28）= 7 条人类入口"""
+    assert sum(1 for t in TRANSITIONS if t.human_only) == 7
 
 
-def test_allowed_events_terminal_state_empty():
-    """ARCHIVED 为终态，无后续事件"""
-    assert allowed_events(CaseState.ARCHIVED) == []
+def test_allowed_events_archived_only_reopen():
+    """ARCHIVED 仅保留可治理复位通道（BA-BR-28，SC-27）：除 CaseReopened 外不得复活"""
+    assert allowed_events(CaseState.ARCHIVED) == [CaseEvent.CASE_REOPENED]
 
 
 def test_full_happy_path_chain():

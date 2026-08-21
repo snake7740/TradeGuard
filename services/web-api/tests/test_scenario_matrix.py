@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""场景矩阵：SC-01~SC-23 紧凑 E2E（验收出口"场景全绿"的单一取证文件）
+"""场景矩阵：SC-01~SC-27 紧凑 E2E（验收出口"场景全绿"的单一取证文件）
 
 每个 SC 一条测试，聚焦 06 §2 Gherkin 的 Then 核心断言（细分支由专题测试文件
 test_pipeline / test_disposition / test_verification / test_knowledge 承载）。
@@ -16,6 +16,10 @@ RAG 深化（US-E14，docs/14 v1.4）：SC-21/22 两场景——归档复盘产�
 企业资质外部源（US-E15，docs/14 v1.5）：SC-23 单场景——无特征案件保守
 全查纳入 enterprise 五维（BA-BR-24 仅线索不裁决，API-M-16 双轨，BA-BR-10
 查询事由门），走活栈 AA-MCP-02 真实链路。
+案件治理批次（US-E17~19，docs/14 v1.7，docs/09 v1.3 赛道对标三缺口）：
+SC-25 优先级队列风险分级派生与 aging 留痕（BR-26）/SC-26 叙事生成引用
+对齐防幻觉与人审门（BR-27，docs/13 D2 闭合）/SC-27 可治理自动关闭标准
+留痕与人工复位通道（BR-28）。
 """
 import urllib.parse
 import json
@@ -704,3 +708,126 @@ async def test_matrix_sc24_stat_advisory_degrades_without_blocking(pool, investi
                                           values=[1.0, 2.0, 3.0, 4.0, 5.0],
                                           query_reason="")
     assert denied.get("code") == "E-REASON-REQUIRED"
+
+
+# ---------- SC-25 优先级队列风险分级派生与 aging 留痕（BA-BR-26，US-E17，API-W-28） ----------
+
+async def test_matrix_sc25_priority_queue_risk_first(api_client, case_repo):
+    """Given 多案在办；When 取优先级队列；Then 高分案置顶且分级/aging 字段齐备，
+    归档案件不入队（队列按风险优先而非立案时序，主管看板主动管理）"""
+    repo, _ = case_repo
+    # 顶格分档（100/99）：共享库残留案件中 ≥99 分极少，自身案件稳入队首区
+    hi = await repo.register(await _subject(), risk_score=100, source_type="TEST")
+    lo = await repo.register(await _subject(), risk_score=99, source_type="TEST")
+    arc = await repo.register(await _subject(), risk_score=99, source_type="TEST")
+    # 立即推进出 REGISTERED：EventWorker 2s 轮询抢跑窗口免疫（同直插法理据）
+    for c in (hi, lo):
+        r = await repo.transition(c["case_id"], CaseEvent.AGGREGATION_STARTED,
+                                  "agent:AA-AG-02", 0)
+        await repo.transition(c["case_id"], CaseEvent.SIGNALS_AGGREGATED,
+                              "agent:AA-AG-02", r["version"])
+    r = await repo.transition(arc["case_id"], CaseEvent.AGGREGATION_STARTED,
+                              "agent:AA-AG-02", 0)
+    await repo.transition(arc["case_id"], CaseEvent.NOISE_DISMISSED,
+                          "agent:AA-AG-02", r["version"])
+
+    resp = api_client.get("/api/cases/queue?size=200")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["threshold_hours"] == 24              # br-26-aging-hours 种子缺省
+    ids = [c["case_id"] for c in body["items"]]
+    assert hi["case_id"] in ids and lo["case_id"] in ids
+    assert ids.index(hi["case_id"]) < ids.index(lo["case_id"])
+    assert arc["case_id"] not in ids
+    hi_row = next(c for c in body["items"] if c["case_id"] == hi["case_id"])
+    assert hi_row["priority_tier"] == "high"          # ≥70 复用 BA-BR-02 审批线
+    assert hi_row["aging_hours"] >= 0 and isinstance(hi_row["aging_breach"], bool)
+
+
+# ---------- SC-26 叙事生成引用对齐防幻觉（BA-BR-27，US-E18，API-W-30，docs/13 D2） ----------
+
+async def test_matrix_sc26_narrative_citation_alignment(pool, app_pool, api_client,
+                                                        aggregation):
+    """Given 案件含信号与证据；When 人工角色生成叙事；Then 五段 DRAFT 全引用对齐
+    且生成留痕；When agent 调用；Then 403（叙事可追责到人，同 BA-BR-23 模式）"""
+    svc, repo, _ = aggregation
+    case_id = await _investigating_case(repo, score=60)
+    sid = uuid.uuid4().hex
+    await app_pool.execute(  # risk_signal 写角色为 tg_app（DA-INV-05，02-roles.sql）
+        """INSERT INTO risk_signal (signal_id, case_id, source, type, confidence,
+                                    raw_ref, query_reason)
+           VALUES ($1, $2, 'tx', 'velocity_anomaly', 0.8, 'test', 'SC-26')""",
+        sid, case_id)
+    await svc.core.record_case_evidence(
+        case_id, [{"claim": "SC-26 叙事素材证据", "source_ref": "AA-AG-03:sc26",
+                   "confidence": 0.9}])
+
+    r = api_client.post(f"/api/cases/{case_id}/narrative",
+                        headers={"X-Operator": urllib.parse.quote("风控值班员")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "DRAFT" and body["track"] == "rule"
+    assert [s["heading"] for s in body["sections"]] == \
+        ["案件概况", "风险信号", "证据链", "处置记录", "审批记录"]
+    assert f"[SIG:{sid[:8]}]" in body["citations"]    # 引用自素材全集，无据论断不可构造
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_log WHERE target=$1 AND action='narrative.generated'",
+        case_id) >= 1                                 # 生成行为留痕可追责
+
+    r = api_client.post(f"/api/cases/{case_id}/narrative",
+                        headers={"X-Operator": "agent:AA-AG-04"})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+
+
+# ---------- SC-27 可治理自动关闭与人工复位（BA-BR-28，US-E19，API-W-29） ----------
+
+async def test_matrix_sc27_governed_auto_close_and_reopen(pool, api_client,
+                                                          aggregation, app_pool,
+                                                          case_repo):
+    """Given 零信号案件；When 金额在标准内聚合；Then 降噪归档且 case.auto_closed
+    留痕带标准引用；When 热配置收紧标准使金额超限；Then 转调查不自动关闭；
+    When 值班员复位；Then ARCHIVED→MANUAL_REVIEW；审批官越权 → 403，agent → 409
+    （403=角色无权/409=业务门拒，语义分层）"""
+    from conftest import FakeExternal
+    svc, repo, _ = aggregation
+    svc.external = FakeExternal(credit_band="low", complaint_items=0)
+
+    # 1) 标准内自动关闭：零信号 + 金额 800 < 5000（br-28 缺省标准）
+    subject = await _subject()
+    await _seed_tx(app_pool, subject, amount=800.0)
+    reg = await repo.register(subject, risk_score=20, source_type="TEST")
+    result = await svc.run(reg["case_id"])
+    assert result["route"] == "noise" and result["status"] == "ARCHIVED"
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_log WHERE target=$1 AND action='case.auto_closed'",
+        reg["case_id"]) == 1                          # 关闭留痕恰好一条
+    basis = await pool.fetchval(
+        "SELECT basis FROM audit_log WHERE target=$1 AND action='case.auto_closed'",
+        reg["case_id"])
+    assert "br-28-auto-close-max-amount" in basis     # 留痕带当时标准引用可复算
+
+    # 2) 热配置收紧（br-28=100）：同档金额 800 超限 → 转调查不自动关闭
+    svc.config = type("C", (), {"values": {"br-28-auto-close-max-amount": "100"}})()
+    subject2 = await _subject()
+    await _seed_tx(app_pool, subject2, amount=800.0)
+    reg2 = await repo.register(subject2, risk_score=20, source_type="TEST")
+    result2 = await svc.run(reg2["case_id"])
+    assert result2["route"] == "investigate" and result2["status"] == "INVESTIGATING"
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_log WHERE target=$1 AND action='case.auto_closed'",
+        reg2["case_id"]) == 0
+
+    # 3) 复位通道：值班员 → MANUAL_REVIEW；审批官 403；agent 409（语义分层）
+    body = {"basis": "SC-27 误关补救复位验证"}
+    r = api_client.post(f"/api/cases/{reg['case_id']}/reopen", json=body,
+                        headers={"X-Operator": urllib.parse.quote("风控审批官")})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "E-FORBIDDEN-ROLE"
+    r = api_client.post(f"/api/cases/{reg['case_id']}/reopen", json=body,
+                        headers={"X-Operator": "agent:AA-AG-02"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "E-HUMAN-ONLY"
+    r = api_client.post(f"/api/cases/{reg['case_id']}/reopen", json=body,
+                        headers={"X-Operator": urllib.parse.quote("风控值班员")})
+    assert r.status_code == 200 and r.json()["status"] == "MANUAL_REVIEW"
+    assert await pool.fetchval(
+        "SELECT count(*) FROM audit_log WHERE target=$1 "
+        "AND action='case.transition.CaseReopened'", reg["case_id"]) == 1

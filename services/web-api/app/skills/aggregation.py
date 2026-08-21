@@ -25,6 +25,7 @@ from typing import Any
 
 from ..core.state_machine import CaseEvent, status_zh
 from ..core.tracing import skill_span
+from .case_governance import AUTO_CLOSE_MAX_AMOUNT_DEFAULT, auto_close_eligible
 from .mcp_adapters import remember
 
 # ---------- 规则常量（可追溯：BA-BR-01/05/14，02 §4 AA-SK-01） ----------
@@ -486,6 +487,9 @@ class AggregationService:
                 "br-01-auto-amount-limit", AUTO_AMOUNT_MAX
             ),
             "black_flag": self._cfg_int("br-04-black-flag-score", BLACK_FLAG_SCORE),
+            # BA-BR-28 自动关闭金额上限（缺口#5 可治理自动关闭，策略管理员经配置通道修订）
+            "auto_close_max": self._cfg_int(
+                "br-28-auto-close-max-amount", AUTO_CLOSE_MAX_AMOUNT_DEFAULT),
         }
 
     async def run(self, case_id: str) -> dict:
@@ -701,13 +705,30 @@ class AggregationService:
             route = "investigate"
         if recommended_action and route == "noise":
             route = "investigate"  # 黑名单主体不得降噪归档，必须入人工通道（SC-04）
+        if route == "noise" and not auto_close_eligible(
+                len(signals), amount, th["auto_close_max"]):
+            route = "investigate"  # BA-BR-28：不满足自动关闭准入（金额超标准上限）转调查
         if route == "noise":
+            # BA-BR-28 可治理自动关闭：准入留痕带当时标准引用（signals/amount/config 源），
+            # 主管可复算每次关闭的裁决依据，复位通道见 API-W-29（SC-27）
+            await self.pool.execute(
+                """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
+                   VALUES ($1, $2, 'case.auto_closed', $3, $4,
+                           (SELECT trace_id FROM risk_case WHERE case_id=$5))""",
+                uuid.uuid4().hex,
+                self.ACTOR_AGG,
+                case_id,
+                f"signals=0 amount={amount:.2f}<{th['auto_close_max']} "
+                f"config=br-28-auto-close-max-amount（BA-BR-28 自动关闭准入标准）",
+                case_id,
+            )
             out = await self.cases.transition(
                 case_id,
                 CaseEvent.NOISE_DISMISSED,
                 self.ACTOR_AGG,
                 version,
-                basis="零信号降噪放行（AA-SK-01 步骤 6）",
+                basis=f"零信号降噪放行：amount={amount:.2f}<{th['auto_close_max']}"
+                      f"（BA-BR-28 自动关闭标准）",
             )
             return _done(self._result(
                     case_id, out["status"], route, score, velocity, signals, degraded

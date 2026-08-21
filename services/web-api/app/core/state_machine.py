@@ -49,6 +49,7 @@ class CaseEvent(str, Enum):
     ROLLBACK_ESCALATED = "RollbackEscalated"          # 反向处置未执行（被拒/失败）→直接升级转人工
     REVIEW_CONFIRMED = "ReviewConfirmed"              # 人工复核确认欺诈（SC-10，web-api 扩展）
     REVIEW_DISMISSED = "ReviewDismissed"              # 人工复核排除欺诈（SC-10，web-api 扩展）
+    CASE_REOPENED = "CaseReopened"                    # 归档复位（BA-BR-28 自动关闭人工复位通道，web-api 扩展）
     CASE_ARCHIVED = "CaseArchived"                    # 结案归档（BA-BP-04）
 
 
@@ -86,6 +87,9 @@ TRANSITIONS: tuple[Transition, ...] = (
     Transition(CaseState.ROLLBACK, CaseEvent.ROLLBACK_ESCALATED, CaseState.MANUAL_REVIEW),
     Transition(CaseState.MANUAL_REVIEW, CaseEvent.REVIEW_CONFIRMED, CaseState.PENDING_APPROVAL, human_only=True),
     Transition(CaseState.MANUAL_REVIEW, CaseEvent.REVIEW_DISMISSED, CaseState.ARCHIVED, human_only=True),
+    # BA-BR-28 自动关闭复位通道：归档案件人工复位转人工复核（标准修订/误关补救），
+    # 12 态零新增（ARCHIVED/MANUAL_REVIEW 均为既有态），白名单同步入 11-case-governance.sql
+    Transition(CaseState.ARCHIVED, CaseEvent.CASE_REOPENED, CaseState.MANUAL_REVIEW, human_only=True),
     Transition(CaseState.VERIFIED, CaseEvent.CASE_ARCHIVED, CaseState.ARCHIVED),
 )
 
@@ -115,7 +119,8 @@ _EVENT_ZH = {
     "DispositionSubmitted": "提交处置", "DispositionExecuted": "处置执行", "DispositionFailed": "处置失败转人工",
     "RollbackToReview": "退回人工复核", "VerificationPassed": "核验通过", "VerificationFailed": "核验不一致",
     "RollbackExecuted": "执行回滚", "RollbackEscalated": "回滚升级转人工",
-    "ReviewConfirmed": "复核确认", "ReviewDismissed": "复核排除", "CaseArchived": "结案归档",
+    "ReviewConfirmed": "复核确认", "ReviewDismissed": "复核排除",
+    "CaseReopened": "归档复位", "CaseArchived": "结案归档",
 }
 
 
@@ -137,6 +142,11 @@ def next_state(current: CaseState, event: CaseEvent, actor: str) -> CaseState:
             "E-HUMAN-ONLY",
             f"「{_EVENT_ZH.get(event.value, event.value)}」属于人工决策环节，"
             f"当前操作方（{actor}）无权执行，请切换相应人工角色操作")
+    return t.target
+
+
+def allowed_events(current: CaseState) -> list[CaseEvent]:
+    return [ev for (st, ev) in _INDEX if st == current]
     return t.target
 
 

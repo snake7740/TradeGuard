@@ -64,6 +64,17 @@ class CaseRepository:
         )
         return total, [_case_row(r) for r in rows]
 
+    async def queue(self, size: int = 50) -> list[dict]:
+        """API-W-28 案件优先级队列（BA-BR-26）：非归档案件按风险优先而非立案时序排布——
+        risk_score DESC + updated_at ASC（同档滞留最久置顶）；分级/aging 派生在端点层
+        （skills/case_governance 纯函数），仓储只负责队列取数"""
+        rows = await self._pool.fetch(
+            "SELECT * FROM risk_case WHERE status <> 'ARCHIVED' "
+            "ORDER BY risk_score DESC, updated_at ASC LIMIT $1",
+            size,
+        )
+        return [_case_row(r) for r in rows]
+
     async def get(self, case_id: str) -> dict | None:
         r = await self._pool.fetchrow(
             "SELECT * FROM risk_case WHERE case_id=$1", case_id

@@ -1,14 +1,18 @@
-"""案件工作台路由（API-W-02~07/17~19/22，SC-01/04/10 载体）"""
+"""案件工作台路由（API-W-02~07/17~19/22/28~30，SC-01/04/10/25~27 载体）"""
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from ..core.state_machine import CaseEvent, InvalidTransition
 from ..repositories import OptimisticLockError
-from ..schemas import DispositionIn, ReviewIn, VerifyIn
+from ..schemas import DispositionIn, ReopenIn, ReviewIn, VerifyIn
 from ..skills.aggregation import AggregationStateError
+from ..skills.case_governance import (AGING_HOURS_DEFAULT, aging_breach,
+                                      aging_hours, priority_tier)
 from ..skills.disposition import DispositionStateError
 from ..skills.investigation import InvestigationStateError
+from ..skills.narrative import build_case_narrative
 from ..skills.verification import VerificationStateError
 from .common import operator_from_header
 
@@ -22,6 +26,29 @@ async def list_cases(request: Request, status: str | None = None,
     """API-W-02：案件列表（真实读库，分页 + status/risk_min 过滤）"""
     total, items = await request.app.state.cases.list(status, risk_min, page, size)
     return {"total": total, "items": items}
+
+
+@router.get("/queue")
+async def case_queue(request: Request, size: int = Query(50, ge=1, le=200)):
+    """API-W-28：案件优先级队列（BA-BR-26，SC-25，US-E17）
+    告警积压治理：队列按风险分级（high/mid/low，边界复用 BA-BR-02/01）而非
+    立案时序排布，并富化 aging 滞留小时与超期标记（阈值经 br-26-aging-hours
+    热配置，Nacos 优先 sys_config 降级）——主管看板主动管理而非事后追责。"""
+    threshold = AGING_HOURS_DEFAULT
+    cfg = getattr(request.app.state, "config", None)
+    try:
+        threshold = int(cfg.values.get("br-26-aging-hours", AGING_HOURS_DEFAULT))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    now = datetime.now(timezone.utc)
+    items = []
+    for c in await request.app.state.cases.queue(size):
+        hours = aging_hours(
+            datetime.fromisoformat(c["updated_at"]), now) if c["updated_at"] else 0.0
+        items.append(c | {"priority_tier": priority_tier(c["risk_score"]),
+                          "aging_hours": hours,
+                          "aging_breach": aging_breach(hours, threshold)})
+    return {"threshold_hours": threshold, "items": items}
 
 
 @router.get("/{case_id}")
@@ -184,3 +211,47 @@ async def submit_review(request: Request, case_id: str, body: ReviewIn,
         raise HTTPException(409, detail={"code": e.code, "message": e.message})
     except OptimisticLockError as e:
         raise HTTPException(409, detail={"code": e.code, "message": str(e)})
+
+
+@router.post("/{case_id}/reopen")
+async def reopen_case(request: Request, case_id: str, body: ReopenIn,
+                      x_operator: str | None = Header(None)):
+    """API-W-29：归档复位（BA-BR-28，SC-27，US-E19）
+    自动关闭/归档案件的人工复位通道：ARCHIVED→MANUAL_REVIEW（human_only，
+    标准修订/误关补救），事由必填入审计；非归档案件复位 → 409 E-BAD-TRANSITION，
+    agent:/未授权角色 → 403/409 语义分层（api_guards + 状态机双防线）。"""
+    case = await request.app.state.cases.get(case_id)
+    if not case:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "未找到该案件，请核对案件编号"})
+    operator = operator_from_header(x_operator, "human:operator")
+    try:
+        return await request.app.state.cases.transition(
+            case_id, CaseEvent.CASE_REOPENED, operator, case["version"],
+            basis=f"归档复位：{body.basis}（BA-BR-28 人工复位通道）")
+    except InvalidTransition as e:
+        raise HTTPException(409, detail={"code": e.code, "message": e.message})
+    except OptimisticLockError as e:
+        raise HTTPException(409, detail={"code": e.code, "message": str(e)})
+
+
+# 叙事生成仅对已识别人类角色开放（同 kb/ask BA-BR-23 模式）：
+# DRAFT 待人工审校，生成可追责到人；agent:/未识别调用方一律 403
+NARRATIVE_ALLOWED_ROLES = {"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"}
+
+
+@router.post("/{case_id}/narrative")
+async def generate_narrative(request: Request, case_id: str,
+                             x_operator: str | None = Header(None)):
+    """API-W-30：案件叙事草稿（BA-BR-27，SC-26，US-E18，docs/13 D2 闭合）
+    以证据链为唯一素材装配五段叙事（引用 token 对齐防幻觉），产物 DRAFT
+    待人工审校定稿；生成行为留痕 audit narrative.generated。"""
+    operator = operator_from_header(x_operator, "")
+    role = operator[len("human:"):] if operator.startswith("human:") else operator
+    if role not in NARRATIVE_ALLOWED_ROLES:
+        raise HTTPException(403, detail={"code": "E-FORBIDDEN-ROLE",
+                                         "message": "叙事生成仅对人工角色开放（BA-BR-27，DRAFT 待人工审校）"})
+    try:
+        return await build_case_narrative(
+            request.app.state.pool, case_id, f"human:{role}")
+    except LookupError:
+        raise HTTPException(404, detail={"code": "E-NOT-FOUND", "message": "未找到该案件，请核对案件编号"})

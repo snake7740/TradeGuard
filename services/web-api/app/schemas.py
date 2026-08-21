@@ -36,6 +36,13 @@ class VerifyIn(BaseModel):
     exec_id: str = Field(..., description="待核验处置执行凭证（DA-T-06）")
 
 
+class ReopenIn(BaseModel):
+    """API-W-29 归档复位入参（BA-BR-28，SC-27，US-E19）
+    复位是人工决策（标准修订/误关补救），事由必填入审计，空理由不接受"""
+    basis: str = Field(..., min_length=5, max_length=500,
+                       description="复位事由（进入迁移 basis 与 audit_log，可追责到人）")
+
+
 class DispositionIn(BaseModel):
     """API-W-23 处置提交入参（US-E5-02，SC-02/07/10 载体）
     调查完成后的人工提交入口：高风险无凭证 → E-DISP-AUTH 建单转待审批。"""

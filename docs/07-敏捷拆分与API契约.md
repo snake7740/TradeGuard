@@ -192,8 +192,11 @@
 | API-W-25 | `/api/deadletter` | GET | LoopEngine DLQ 驻车清单（失败归宿可见性，parked_only 缺省 true） | US-E13/SC-19 |
 | API-W-26 | `/api/deadletter/{case_id}/retry` | POST | DLQ 人工复位放行（双重门控：角色白名单 + human_only，环不得自清） | US-E13/SC-19 |
 | API-W-27 | `/api/kb/ask` | POST | B 端知识问答（仅引用已发布知识，doc_id 引用对齐；未命中声明无先例；人工角色门 + kb.ask 留痕） | US-E14/SC-22 |
+| API-W-28 | `/api/cases/queue` | GET | 案件优先级队列（风险分级 high/mid/low 派生 + aging 滞留/超期富化，br-26-aging-hours 热配置；归档不入队） | US-E17/SC-25 |
+| API-W-29 | `/api/cases/{case_id}/reopen` | POST | 归档复位（ARCHIVED→MANUAL_REVIEW human_only，事由必填；仅值班员/策略管理员，agent: 穿透 409） | US-E19/SC-27 |
+| API-W-30 | `/api/cases/{case_id}/narrative` | POST | 案件叙事草稿（证据链唯一素材五段装配，引用 token 对齐防幻觉；DRAFT 待人审 + 生成留痕；人工角色门） | US-E18/SC-26 |
 
-> **增强路线执行记录**：US-E13 LoopEngine 环设施（2026-08-20~21，docs/14 v1.3）：DA-T-16/17 两表 + EventWorker 有限重试驻车 + 双轮有界环 + 慢环归因，API-W-25/26 双重人工门，SC-19/20 绿。US-E14 RAG 深化（2026-08-21，docs/14 v1.4）：复盘升级结构化案例分析（verification._retrospective 四段）+ API-W-27 B 端问答 × AA-AG-06 知识助手 soul，SC-21/22 绿。
+> **增强路线执行记录**：US-E13 LoopEngine 环设施（2026-08-20~21，docs/14 v1.3）：DA-T-16/17 两表 + EventWorker 有限重试驻车 + 双轮有界环 + 慢环归因，API-W-25/26 双重人工门，SC-19/20 绿。US-E14 RAG 深化（2026-08-21，docs/14 v1.4）：复盘升级结构化案例分析（verification._retrospective 四段）+ API-W-27 B 端问答 × AA-AG-06 知识助手 soul，SC-21/22 绿。US-E17~19 案件治理批次（2026-08-22，docs/14 v1.7，docs/09 v1.3 赛道对标三缺口闭合）：API-W-28 优先级队列（BA-BR-26）/API-W-30 叙事生成引用对齐（BA-BR-27，docs/13 D2）/API-W-29 归档复位（BA-BR-28），零新表零新态（1 条 human_only 迁移对 + 11-case-governance.sql 白名单/种子），SC-25~27 绿。
 
 ### 5.2 MCP 工具契约（API-M-x，Schema 见 openapi.yaml `x-mcp-tool`）
 

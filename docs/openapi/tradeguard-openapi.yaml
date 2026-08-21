@@ -127,6 +127,38 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/CaseSummary' }
 
+  /api/cases/queue:
+    get:
+      tags: [事件工作台]
+      operationId: caseQueue
+      summary: 案件优先级队列（API-W-28，BA-BR-26，SC-25，US-E17）
+      description: |
+        告警积压治理：非归档案件按风险优先而非立案时序排布（risk_score DESC +
+        updated_at ASC），富化优先级分级（high/mid/low，边界复用 BA-BR-02/01）与
+        aging 滞留小时/超期标记（阈值经 br-26-aging-hours 热配置，Nacos 优先
+        sys_config 降级）——主管看板主动管理而非事后追责。
+      parameters:
+        - { name: size, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 200 } }
+      responses:
+        '200':
+          description: 队列（分级/aging 富化）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  threshold_hours: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - { $ref: '#/components/schemas/CaseSummary' }
+                        - type: object
+                          properties:
+                            priority_tier: { type: string, enum: [high, mid, low] }
+                            aging_hours: { type: number }
+                            aging_breach: { type: boolean }
+
   /api/cases/{case_id}:
     get:
       tags: [事件工作台]
@@ -266,6 +298,60 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /api/cases/{case_id}/reopen:
+    post:
+      tags: [事件工作台]
+      operationId: reopenCase
+      summary: 归档复位（API-W-29，BA-BR-28，SC-27，US-E19）
+      description: |
+        自动关闭/归档案件的人工复位通道：ARCHIVED→MANUAL_REVIEW（human_only，
+        标准修订/误关补救），事由必填入审计。角色门：仅风控值班员/风控策略管理员
+        （越权 403 E-FORBIDDEN-ROLE）；agent: 穿透至状态机 human_only 守卫
+        409 E-HUMAN-ONLY（语义分层）；非归档案件复位 409 E-BAD-TRANSITION。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReopenRequest' }
+      responses:
+        '200':
+          description: 复位完成（转人工复核）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaseSummary' }
+        '403':
+          description: 角色无权（E-FORBIDDEN-ROLE）
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 业务门拒（E-HUMAN-ONLY/E-BAD-TRANSITION/E-VERSION-CONFLICT）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/cases/{case_id}/narrative:
+    post:
+      tags: [事件工作台]
+      operationId: generateNarrative
+      summary: 案件叙事草稿（API-W-30，BA-BR-27，SC-26，US-E18，docs/13 D2）
+      description: |
+        以证据链为唯一素材装配五段叙事（概况/信号/证据/处置/审批），引用 token
+        （SIG/EV/DSP/APR + id 前 8 位）对齐防幻觉：规则轨构造性恒通过，注入产出
+        未对齐降级规则轨（同 R-49 先例）；产物 DRAFT 待人工审校定稿，生成行为
+        留痕 audit narrative.generated。仅对已识别人工角色开放（agent:/未识别 403）。
+      parameters:
+        - { $ref: '#/components/parameters/CaseIdPath' }
+      responses:
+        '200':
+          description: 叙事草稿（DRAFT）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NarrativeDraft' }
+        '403':
+          description: 非人工角色拒绝（E-FORBIDDEN-ROLE）
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/cases/{case_id}/investigate:
     post:
@@ -1004,6 +1090,31 @@ components:
         conclusion: { type: string, enum: [release, block, escalate] }
         opinion: { type: string, minLength: 5 }
 
+    ReopenRequest:
+      type: object
+      required: [basis]
+      properties:
+        basis: { type: string, minLength: 5, maxLength: 500, description: 复位事由（入审计可追责） }
+
+    NarrativeDraft:
+      type: object
+      properties:
+        case_id: { type: string }
+        status: { type: string, enum: [DRAFT] }
+        track: { type: string, enum: [rule, llm] }
+        generated_at: { type: string, format: date-time }
+        citations:
+          type: array
+          items: { type: string, description: "引用 token：[SIG|EV|DSP|APR:<id前8位>]" }
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              heading: { type: string }
+              text: { type: string }
+              citations: { type: array, items: { type: string } }
+
     VerifyRequest:
       type: object
       required: [exec_id]
@@ -1141,7 +1252,7 @@ components:
                  DispositionSubmitted, DispositionExecuted, DispositionFailed,
                  RollbackToReview, VerificationPassed, VerificationFailed,
                  VerificationOverdue, RollbackExecuted, RollbackEscalated,
-                 ReviewConfirmed, ReviewDismissed, CaseArchived,
+                 ReviewConfirmed, ReviewDismissed, CaseReopened, CaseArchived,
                  E-INV-HYPOTHESIS, E-REVIEW-DEBATE, E-KB-DECAY, E-OUTCOME-FOLLOW,
                  E-WORKER-DLQ]
         case_id: { $ref: '#/components/schemas/CaseId' }

@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | DDD 战略设计 | 划定限界上下文与上下文映射，防 Agent/模块职责越界 | 7 个上下文 + 5 种映射关系 | [01 §10](./01-业务架构BA.md#10-ddd-战略设计限界上下文与上下文映射) |
 | DDD 战术设计 | 定义聚合、领域事件、不变量，作为代码模块与测试的设计依据 | 5 聚合 + 8 组领域事件（10 种事件类型） + 6 不变量 | [03 §9](./03-数据架构DA.md#9-ddd-战术设计聚合领域事件与不变量) |
-| BDD | 把业务规则写成 Given-When-Then 可执行验收场景，作为设计方案的行为规格、实现代码的验收标准 | SC-01～SC-24 场景目录 | 本文档 §2 |
+| BDD | 把业务规则写成 Given-When-Then 可执行验收场景，作为设计方案的行为规格、实现代码的验收标准 | SC-01～SC-27 场景目录 | 本文档 §2 |
 | TDD | 红-绿-重构循环实现 Skill/状态机/MCP 契约，测试金字塔守护闭环 | 测试金字塔 + 追溯矩阵 | 本文档 §3/§4 |
 
 对工程验收的价值：验收要求"端到端闭环证据"——BDD 场景即闭环的行为化证据，TDD 保证该证据可重复执行而非演示一次性脚本。
@@ -354,6 +354,53 @@ Scenario: SC-24b 特征命中路径豁免 stat 源
 
 映射：BA-BR-25，BA-BR-10，mcp-external-mock/server.py pyod_iforest/lof/ecod × planner.py stat 可选源（test_planner 分派/降级单测 / test_scenario_matrix SC-24 走活栈 AA-MCP-02）。
 
+### SC-25 优先级队列风险分级派生与 aging 留痕（缺口#2，API-W-28）
+
+```gherkin
+Feature: BA-BR-26 案件优先级队列治理
+Scenario: SC-25 队列按风险分级而非立案时序排布且 aging 超期留痕
+    Given 多案在办（含高分/低分/已归档案件）
+    When 主管取优先级队列（GET /api/cases/queue）
+    Then 高分案置顶且逐案富化 priority_tier（high/mid/low，边界复用 BR-02/01）与 aging_hours/aging_breach（阈值 br-26-aging-hours 热配置）
+    And 归档案件不入队（队列只呈现待办存量）
+```
+
+映射：BA-BR-26，repositories.CaseRepository.queue × skills/case_governance 纯函数（test_case_governance 分级/aging/队列排布单测 / test_scenario_matrix SC-25 走活栈 HTTP）。
+
+### SC-26 叙事生成引用对齐防幻觉与人审门（缺口#4，API-W-30，docs/13 D2 闭合）
+
+```gherkin
+Feature: BA-BR-27 案件叙事生成治理
+Scenario: SC-26 叙事草稿全引用对齐且生成留痕
+    Given 案件含风险信号与证据链
+    When 人工角色生成叙事（POST /api/cases/{id}/narrative）
+    Then 五段叙事（概况/信号/证据/处置/审批）status=DRAFT，引用 token 全落素材全集（构造性无据论断不可产生）
+    And 生成行为留痕 audit narrative.generated（track/段落/引用数可回放）
+Scenario: SC-26b 非人工角色拒绝
+    Given agent:/未识别调用方
+    When 生成叙事
+    Then 403 E-FORBIDDEN-ROLE（叙事可追责到人，同 BA-BR-23 模式）
+```
+
+映射：BA-BR-27，skills/narrative compose_narrative/verify_citations/build_case_narrative（test_case_governance 纯函数+双轨降级单测 / test_scenario_matrix SC-26 走活栈 HTTP）。
+
+### SC-27 可治理自动关闭标准留痕与人工复位通道（缺口#5，API-W-29）
+
+```gherkin
+Feature: BA-BR-28 可治理自动关闭
+Scenario: SC-27 标准内关闭留痕可复算、超限转调查、复位人工门
+    Given 零信号案件
+    When 涉案金额低于 br-28 标准上限聚合裁决
+    Then 降噪归档且 case.auto_closed 留痕带当时标准引用（signals/amount/config 源）可复算
+    When 热配置收紧标准使金额超限
+    Then 转调查不自动关闭（治理标准只收紧有通道）
+    When 值班员对归档案件复位（POST /api/cases/{id}/reopen，事由必填）
+    Then ARCHIVED→MANUAL_REVIEW 且 CaseReopened 迁移留痕
+    And 审批官越权 403 E-FORBIDDEN-ROLE；agent: 穿透至 human_only 守卫 409 E-HUMAN-ONLY（语义分层）
+```
+
+映射：BA-BR-28，aggregation.py noise 分支准入 × state_machine CASE_REOPENED × api_guards reopen 角色门（test_case_governance 准入/复位守卫单测 / test_scenario_matrix SC-27 走活栈 HTTP）。
+
 ---
 
 ## 3. TDD 测试金字塔
@@ -363,7 +410,7 @@ Scenario: SC-24b 特征命中路径豁免 stat 源
 | 单元测试 | 降噪合并算法、风险评分加权、velocity 频次统计（BA-BR-14）、状态机迁移（DA-INV-01）、幂等键判定（DA-INV-03）、证据链校验（DA-INV-04） | Pytest；纯函数优先，无外部依赖 | ≥60% 行覆盖（核心域模块） |
 | 契约测试 | AA-MCP-01/02 工具 Schema 校验、错误码表、重试与降级行为；领域事件 Schema（03 §9.2） | Pytest + JSON Schema 校验 | 每个 MCP 工具 ≥2 用例（成功/失败） |
 | 集成测试 | 事件发布-订阅端到端（进程内总线必达 + RocketMQ 尽力而为，03 §9.2）、PolarDB 权限矩阵（03 §6，DA-INV-05）、RAG 检索匹配与引用对齐 | docker compose 活栈测试环境（先起栈后 pytest） | 覆盖全部 26 事件名的发布侧语义（含 E-WORKER-DLQ 驻车告知） |
-| 场景测试（E2E） | SC-01～SC-24 全量，经 compose 活栈真实链路执行（Sprint 8 实现修订：pytest 场景矩阵 `tests/test_scenario_matrix.py` 承载断言，demo_playbook 以真实 HTTP + MCP 复现同源场景，未采用 Matrix 房间断言） | pytest + 活栈 HTTP/MCP 探针 | 23/23 业务场景 + SC-18 角色门控通过为验收线 |
+| 场景测试（E2E） | SC-01～SC-27 全量，经 compose 活栈真实链路执行（Sprint 8 实现修订：pytest 场景矩阵 `tests/test_scenario_matrix.py` 承载断言，demo_playbook 以真实 HTTP + MCP 复现同源场景，未采用 Matrix 房断言） | pytest + 活栈 HTTP/MCP 探针 | SC-01~SC-27 全场景通过 + SC-18 角色门控为验收线 |
 | 评估测试 | BA-KPI-01~05 离线评估（响应时效/召回率/误报率/人工介入率/留痕完整率） | `scripts/kpi_report.py` 双范围（全量/演示）分列判定，落盘 docs/reports/ | 固化于仓库，可复现 |
 
 **先测后码原则**：Skill 与状态机代码必须先有失败测试（红）再实现（绿）；LLM 相关断言采用"行为断言"（输出结构、引用 doc_id 存在性、审批准入触发）而非文本精确匹配，规避 LLM 不确定性。
@@ -398,8 +445,11 @@ Scenario: SC-24b 特征命中路径豁免 stat 源
 | SC-22 | BR-23 | —（引用守护为端点约束） | 场景 | CL-06/07 |
 | SC-23 | BR-24/BR-10 | —（仅线索不裁决，同 INV-07 精神） | 单元+场景（活栈 MCP） | CL-02/06 |
 | SC-24 | BR-25/BR-10 | —（仅建议不裁决，同 INV-07 精神） | 单元+场景（活栈 MCP） | CL-02/06 |
+| SC-25 | BR-26 | —（队列为读面治理，aging 阈值热配置） | 单元+场景（活栈 HTTP） | CL-02/06 |
+| SC-26 | BR-27 | INV-06（出站定稿人工门延伸：DRAFT 不替代上报文书） | 单元+场景（活栈 HTTP） | CL-06/07 |
+| SC-27 | BR-28 | INV-01（白名单同步 ARCHIVED→MANUAL_REVIEW） | 单元+场景（活栈 HTTP） | CL-02/06/07 |
 
-**完备性声明**：25 条 BA 规则中，阈值类规则 BR-06 由评分单元测试覆盖，BR-05 高频异常规则由专项测试（tests/test_br05_high_freq.py）覆盖触发/未触发/阈值可配置三个分支，BR-12 数据保留为运维策略不在测试范围；其余规则均有场景或单元级测试承载（BR-22 环治理由 test_loop_engine 14 例 + SC-19/20 承载，BR-23 问答治理由 SC-21/22 + test_verification 结构化复盘单测承载，BR-24 企业资质外部源由 SC-23 + test_planner 分派单测承载，BR-25 统计建议线由 SC-24 + test_planner 分派/降级单测承载）；9 条 DA 不变量 100% 有测试映射。
+**完备性声明**：28 条 BA 规则中，阈值类规则 BR-06 由评分单元测试覆盖，BR-05 高频异常规则由专项测试（tests/test_br05_high_freq.py）覆盖触发/未触发/阈值可配置三个分支，BR-12 数据保留为运维策略不在测试范围；其余规则均有场景或单元级测试承载（BR-22 环治理由 test_loop_engine 14 例 + SC-19/20 承载，BR-23 问答治理由 SC-21/22 + test_verification 结构化复盘单测承载，BR-24 企业资质外部源由 SC-23 + test_planner 分派单测承载，BR-25 统计建议线由 SC-24 + test_planner 分派/降级单测承载，BR-26 优先级队列/BR-27 叙事治理/BR-28 可治理自动关闭由 SC-25~27 + test_case_governance 11 例承载）；9 条 DA 不变量 100% 有测试映射。
 
 ---
 

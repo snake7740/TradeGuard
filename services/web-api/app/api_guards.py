@@ -12,7 +12,8 @@ target=api，操作者取 X-Operator 头（人机边界，02 §3.3），异常�
 角色边界强制（A0：03 §6 权限矩阵的 API 层落地）：X-Operator 不再仅作审计
 标识，而是端点级 RBAC 的一等执法对象——按路径前缀白名单×角色集合强制拦截，
 越权一律 403 并留痕 api.forbidden。规则：
-  * /cases/*/review：仅风控审批官；/approvals*/decide、/config*：审批官或策略管理员；
+  * /cases/*/review：仅风控审批官；/cases/*/reopen：值班员或策略管理员（BA-BR-28）；
+    /approvals*/decide、/config*：审批官或策略管理员；
     /kb/applications/*/publish|reject：仅策略管理员（对齐 02-roles.sql tg_web 授权面）；
   * 已知人类角色越权人工环节写路径 → 403 E-FORBIDDEN-ROLE；
     agent: 自声明穿透至端点 human_only 守卫 → 409 E-HUMAN-ONLY（语义分层）；
@@ -44,6 +45,10 @@ KNOWN_ACTOR_PREFIXES = ("human:", "agent:", "system:")
 PATH_ROLE_RULES = (
     (re.compile(r"^/api/cases/[^/]+/review$"),
      {"风控审批官"}),
+    # 归档复位为人工主导的案件治理操作（BA-BR-28）：值班员主案件运营、
+    # 策略管理员主标准修订；agent: 穿透至端点 human_only 守卫 409 E-HUMAN-ONLY
+    (re.compile(r"^/api/cases/[^/]+/reopen$"),
+     {"风控值班员", "风控策略管理员"}),
     (re.compile(r"^/api/kb/applications/[^/]+/(publish|reject)$"),
      {"风控策略管理员"}),
     (re.compile(r"^/api/approvals/[^/]+/decide$"),
@@ -58,7 +63,7 @@ PATH_ROLE_RULES = (
 # 人工环节写路径：已识别人类角色越权直接 403；agent: 自声明不在此拦截，
 # 穿透至端点 human_only 守卫返回 409 E-HUMAN-ONLY（语义分层：403=角色无权，
 # 409=业务门拒绝，与 07-case-actor-gate 行为对齐）
-HUMAN_ONLY_WRITE = re.compile(r"^/api/(cases/[^/]+/review"
+HUMAN_ONLY_WRITE = re.compile(r"^/api/(cases/[^/]+/(review|reopen)"
                               r"|approvals/[^/]+/decide"
                               r"|kb/applications/[^/]+/(publish|reject))$")
 
