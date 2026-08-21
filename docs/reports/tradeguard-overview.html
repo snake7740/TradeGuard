@@ -489,7 +489,7 @@
         <div class="meta">
           覆盖风控决策完整闭环 ｜ 5 Agent 黄金岗位协同（AgentTeams）｜ 5 Skill
           自包含技能包 ｜ 文档体系 docs/00~14<br />
-          自动化测试 322 例全绿（30 文件实链路）｜ 五维度终评 89/100 ｜
+          自动化测试 322 例全绿（30 文件实链路）｜ 五维度终评 89/100（2026-08-21 复评 96）｜
           三个典型业务场景 + SC-01~24 BDD 矩阵 ｜ 展示日期 2026-08-19<br />
           <b style="color: #e8c98a"
             >本材料所有结论均来自真实运行，而非仅停留在方案推演。</b
@@ -527,7 +527,7 @@
             <h4>四、质量与验证<span class="toc-chip">P18–P21</span></h4>
             <p>
               BDD·DDD·TDD 验证体系（SC-01~24 追溯矩阵）→ 质量保障（322 例 +
-              五道 CI 门禁）→ 运行效果与六维 KPI → 五维度终评（66 → 89）
+              五道 CI 门禁）→ 运行效果与六维 KPI → 五维度终评（66 → 89，复评 96）
             </p>
           </div>
           <div class="card">
@@ -1926,7 +1926,7 @@
       <!-- ============ P21 四(4/4) 五维度终评 ============ -->
       <section class="slide">
         <div class="kicker">四、质量与验证 · 4/4</div>
-        <h2 class="title">五维度终评：66 → 89（新智基座 Agent Infra 标准）</h2>
+        <h2 class="title">五维度终评：66 → 89 → 复评 96（新智基座 Agent Infra 标准）</h2>
         <div class="subtitle">
           承接上两页：BDD 矩阵全绿 + KPI 双口径之后，外部标准尺怎么看——每项给分挂可复现证据，扣分指名缺口；负结果不粉饰
         </div>
@@ -1943,46 +1943,46 @@
             <td>25%</td>
             <td>16</td>
             <td><b>22</b></td>
-            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~22 BDD 矩阵</td>
+            <td>card-fraud 全闭环；device-guard 第二场景复用（5/5 绿）；ULB 28 万笔回放；SC-01~24 BDD 矩阵</td>
           </tr>
           <tr>
             <td><b>2 协同能力</b></td>
             <td>25%</td>
             <td>15</td>
-            <td><b>23</b></td>
-            <td>5 岗位 + ACL；LLM 规划-反思；R-47 互审（14 例）；R-49 动态分派（8 例）；KPI-06 记忆进化</td>
+            <td><b>25</b></td>
+            <td>5 岗位 + ACL；LLM 规划-反思；R-47 互审；R-49 动态分派；B3 并行假设编排 + G4-3 LangGraph 第三方实测三项全过（2026-08-21 复评 23→25）</td>
           </tr>
           <tr>
             <td><b>3 Skill 能力</b></td>
             <td>25%</td>
             <td>14</td>
-            <td><b>22</b></td>
-            <td>5 包自包含 frontmatter；CI 零漂移门禁；运行时注册表 GET /api/skills；降级一等公民</td>
+            <td><b>24</b></td>
+            <td>5 包自包含 frontmatter；CI 零漂移门禁；运行时注册表；skill_install.py 可安装发布端到端 5/5 绿（复评 22→24；外部组织复用案例维持披露）</td>
           </tr>
           <tr>
             <td><b>4 工程质量</b></td>
             <td>20%</td>
             <td>16</td>
-            <td><b>18</b></td>
-            <td>315 例全绿（实链路）；CI 五道门禁 + 实质缺陷修复；R-37 安全纵深；压测 + 备份演练</td>
+            <td><b>20</b></td>
+            <td>322 例全绿（实链路）；soak 60min 119,385 请求零错误无泄漏；覆盖率门禁 --cov-fail-under=70 线上全绿实证（Actions run 32501628392，2026-08-21）；R-37 安全纵深（复评 18→20）</td>
           </tr>
           <tr>
             <td><b>5 开源开放</b></td>
             <td>5%</td>
             <td>5</td>
-            <td><b>4</b></td>
-            <td>Apache-2.0 / README / CONTRIBUTING / CHANGELOG / OpenAPI 3.0 / 数据集溯源；未公开推送 -1</td>
+            <td><b>5</b></td>
+            <td>Apache-2.0 / README / CONTRIBUTING / CHANGELOG / OpenAPI 3.0 / 数据集溯源；已公开推送（复评 4→5）</td>
           </tr>
           <tr>
             <td><b>合计</b></td>
             <td>100%</td>
             <td>66</td>
-            <td><b>89</b></td>
-            <td>六批改造（p1~p5）逐项对照见 docs/12 §3；距 90 差 1 分 = git push 公开仓库</td>
+            <td><b>96</b></td>
+            <td>终评 89（2026-08-18 快照）→ 复评 96（2026-08-21，可闭合缺口逐项补齐，覆盖率门禁线上全绿实证，证据见 docs/12 追加注记）</td>
           </tr>
         </table>
         <div class="foot">
-          <span>完整评分与证据链见 docs/12-新智基座五维度终评.md（2026-08-18 评估）</span
+          <span>完整评分与证据链见 docs/12-新智基座五维度终评.md（2026-08-18 终评 + 2026-08-21 复评注记）</span
           ><span>21</span>
         </div>
       </section>
@@ -2201,8 +2201,8 @@
             <p>自动化测试全绿<br />（30 文件实链路）</p>
           </div>
           <div class="card" style="text-align: center">
-            <div class="num">89/100</div>
-            <p>五维度终评<br />（66 → 89，证据可复现）</p>
+            <div class="num">96/100</div>
+            <p>五维度复评<br />（66 → 89 → 96，证据可复现）</p>
           </div>
           <div class="card" style="text-align: center">
             <div class="num">3 + 24</div>
