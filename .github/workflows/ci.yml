@@ -77,7 +77,9 @@ jobs:
       - name: 初始化 schema（db/init 幂等迁移，含 02-roles 幂等建 tg_web/tg_app）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-          for f in db/init/0*.sql; do
+          # 全量 glob：旧 0*.sql 漏掉 10-case-source.sql（source_type 列）致线上
+          # 49 failed 实证（2026-08-21）；字典序 01~10 顺序天然正确。
+          for f in db/init/*.sql; do
             echo "== $f =="
             psql "postgresql://postgres:tradeguard_dev@localhost:5433/tradeguard" -v ON_ERROR_STOP=1 -q -f "$f"
           done

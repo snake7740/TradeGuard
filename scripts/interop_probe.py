@@ -14,12 +14,21 @@ MCP 端点消费，验证三件事：
 用法（隔离环境，勿用项目 .venv）：
   .venv-interop\\Scripts\\python.exe scripts\\interop_probe.py > interop_probe.log
 退出码：0 = 三项全过；1 = 任一失败。
+
+环境坑（2026-08-21 实证）：httpx/mcp 客户端默认 trust_env，会把 loopback
+请求交给系统代理（本机 7078），代理转发回环返 502 假象；运行前须设
+NO_PROXY=127.0.0.1,localhost（或清理 HTTP(S)_PROXY）。
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+
+# loopback 绝不走代理（见文件头环境坑）：先于任何 httpx 导入生效
+os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
+os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import END, START, StateGraph
@@ -30,6 +39,15 @@ from typing_extensions import TypedDict
 CORE_URL = "http://127.0.0.1:8101/mcp"
 EXTERNAL_URL = "http://127.0.0.1:8102/mcp"
 SUBJECT = "interop-probe-subject-0001"
+
+
+def _text_of(out) -> str:
+    """适配器返回形态归一：content list（[{type:text,text:...}]）或裸字符串。"""
+    if isinstance(out, str):
+        return out
+    if isinstance(out, list) and out and isinstance(out[0], dict):
+        return str(out[0].get("text", ""))
+    return str(out)
 
 
 class ProbeState(TypedDict, total=False):
@@ -56,8 +74,8 @@ async def main() -> int:
     # 2. 消费：LangGraph 单节点跑只读调查工具
     async def investigate(state: ProbeState) -> ProbeState:
         tool = by_name["query_related_graph"]
-        state["graph_result"] = await tool.ainvoke(
-            {"account_hash": SUBJECT, "hops": 2})
+        state["graph_result"] = _text_of(await tool.ainvoke(
+            {"account_hash": SUBJECT, "hops": 2}))
         return state
 
     builder = StateGraph(ProbeState)
@@ -78,12 +96,12 @@ async def main() -> int:
 
     # 3. 治理边界：无 query_reason 的外部源调用应被事由门禁拦截
     async def gate_probe(state: ProbeState) -> ProbeState:
-        ext = by_name.get("query_credit_report")
+        ext = by_name.get("query_credit")
         if ext is None:
-            state["reason_gate_result"] = "SKIP: query_credit_report 未装载"
+            state["reason_gate_result"] = "SKIP: query_credit 未装载"
             return state
-        state["reason_gate_result"] = await ext.ainvoke(
-            {"account_hash": SUBJECT, "query_reason": ""})
+        state["reason_gate_result"] = _text_of(await ext.ainvoke(
+            {"subject_id": SUBJECT, "query_reason": ""}))
         return state
 
     b2 = StateGraph(ProbeState)
@@ -97,7 +115,7 @@ async def main() -> int:
     elif "E-REASON-REQUIRED" not in gate_out:
         failures.append(f"治理：空事由未被拦截（期望 E-REASON-REQUIRED）：{gate_out[:120]}")
 
-    print("结论：" + ("三项全过 ✓" if not failures else "失败 → " + "；".join(failures)))
+    print("结论：" + ("三项全过 [OK]" if not failures else "失败 → " + "；".join(failures)))
     return 0 if not failures else 1
 
 
