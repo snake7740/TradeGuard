@@ -490,7 +490,7 @@
           覆盖风控决策完整闭环 ｜ 5 Agent 黄金岗位协同（AgentTeams）｜ 5 Skill
           自包含技能包 ｜ 文档体系 docs/00~14<br />
           自动化测试 339 例全绿（31 文件实链路）｜ 五维度终评 89/100（2026-08-21 复评 96）｜
-          三个典型业务场景 + SC-01~27 BDD 矩阵 ｜ 展示日期 2026-08-19<br />
+          三个典型业务场景 + SC-01~27 BDD 矩阵 ｜ 展示日期 2026-08-22<br />
           <b style="color: #e8c98a"
             >本材料所有结论均来自真实运行，而非仅停留在方案推演。</b
           >
@@ -510,40 +510,40 @@
             <p>行业背景与核心痛点 → 行业现状与三类方案局限 → 方案定位与三条设计主线</p>
           </div>
           <div class="card">
-            <h4>二、业务设计<span class="toc-chip">P6–P10</span></h4>
+            <h4>二、业务设计<span class="toc-chip">P6–P11</span></h4>
             <p>
               业务能力地图（七项能力）→ 核心业务对象（17 表）→ 端到端流程与风险分级
-              → 业务规则（完整 24 条）→ 角色与人机边界
+              → 业务规则（完整 28 条）→ 角色与人机边界
             </p>
           </div>
           <div class="card">
-            <h4>三、架构与落地<span class="toc-chip">P11–P17</span></h4>
+            <h4>三、架构与落地<span class="toc-chip">P12–P18</span></h4>
             <p>
-              多 Agent 协同 → 能力层（5 Skill + 16 MCP 工具）→ LLM
+              多 Agent 协同 → 能力层（5 Skill + 19 MCP 工具）→ LLM
               增强与确定性降级 → 技术栈 → 部署拓扑 → 数据流 → 状态机
             </p>
           </div>
           <div class="card">
-            <h4>四、质量与验证<span class="toc-chip">P18–P21</span></h4>
+            <h4>四、质量与验证<span class="toc-chip">P19–P22</span></h4>
             <p>
               BDD·DDD·TDD 验证体系（SC-01~27 追溯矩阵）→ 质量保障（339 例 +
               五道 CI 门禁）→ 运行效果与六维 KPI → 五维度终评（66 → 89，复评 96）
             </p>
           </div>
           <div class="card">
-            <h4>五、场景演示<span class="toc-chip">P22–P25</span></h4>
+            <h4>五、场景演示<span class="toc-chip">P23–P26</span></h4>
             <p>
               启动与体验 → 场景一 低风险全自动 → 场景二 高风险人机协同 →
               场景三 误报申诉回滚
             </p>
           </div>
           <div class="card">
-            <h4>六、总结<span class="toc-chip">P26</span></h4>
+            <h4>六、总结<span class="toc-chip">P27</span></h4>
             <p>真实运行的可信声明 → 诚实披露的局限 → 下一步（开源推送闭合 90 分）</p>
           </div>
         </div>
         <div class="foot">
-          <span>TradeGuard · 方案展示 · 全 26 页</span><span>02</span>
+          <span>TradeGuard · 方案展示 · 全 27 页</span><span>02</span>
         </div>
       </section>
 
@@ -565,7 +565,7 @@
               同联系方式）2 跳扩展 + 弱连通分量团伙发现，跨账户关联自动还原。
             </div>
             <div class="proof">
-              <b>闭环验证：</b>场景二调查定性「跑分」团伙（P24）· 团伙发现毫秒级（P26）
+              <b>闭环验证：</b>场景二调查定性「跑分」团伙（P24）· 团伙发现毫秒级（P27）
             </div>
           </div>
           <div class="card">
@@ -578,7 +578,7 @@
               + 加权评分，自动产出 0-100 风险分（BA-BR-14）。
             </div>
             <div class="proof">
-              <b>闭环验证：</b>低风险响应 0.0 分钟（KPI-01，P20）· 场景一全自动零人工（P23）
+              <b>闭环验证：</b>低风险响应 0.0 分钟（KPI-01，P21）· 场景一全自动零人工（P23）
             </div>
           </div>
           <div class="card">
@@ -591,7 +591,7 @@
               12 态状态机 + 处置后核验三态 + 只增不改审计日志。
             </div>
             <div class="proof">
-              <b>闭环验证：</b>留痕 100%（KPI-05，P20）· 误报自动回滚（P25）·
+              <b>闭环验证：</b>留痕 100%（KPI-05，P21）· 误报自动回滚（P26）·
               未批准冻结不可执行（P24）
             </div>
           </div>
@@ -601,7 +601,7 @@
           <p>
             以
             <b>多 Agent 协同</b
-            >替代「人工告警流水线」：低风险事件自动处置、高风险事件证据化调查、全部处置动作合规可追溯——把风控人员从重复劳动中解放出来，聚焦真正需要判断的高风险案件。对策机制详见第三部分（P11-17），闭环数字见第四部分（P18-21），三个场景实证见第五部分（P22-25）。
+            >替代「人工告警流水线」：低风险事件自动处置、高风险事件证据化调查、全部处置动作合规可追溯——把风控人员从重复劳动中解放出来，聚焦真正需要判断的高风险案件。对策机制详见第三部分（P12-18），闭环数字见第四部分（P19-22），三个场景实证见第五部分（P23-26）。
           </p>
         </div>
         <div class="foot">
@@ -674,7 +674,7 @@
               的完整链路。每一次处置都有核验，每一次误判都回流为知识，系统越用越准。
             </p>
             <p style="margin-top: 8px; font-size: 12px; font-weight: 600; color: #0e7490">
-              机制落点：BA-CAP-01~07 按阶段编排能力（P06）· 12 态状态机承载流转（P17）
+              机制落点：BA-CAP-01~07 按阶段编排能力（P06）· 12 态状态机承载流转（P18）
             </p>
           </div>
           <div class="card">
@@ -684,7 +684,7 @@
               负责建议与执行低风险动作，账户冻结、大额处置必须经过人工审批——让自动化「敢用、可控」。
             </p>
             <p style="margin-top: 8px; font-size: 12px; font-weight: 600; color: #0e7490">
-              机制落点：三通道分流 BA-BR-01/02（P08）· human_only 迁移门（P17）· 接口级角色门控（P10）
+              机制落点：三通道分流 BA-BR-01/02（P08）· human_only 迁移门（P18）· 接口级角色门控（P10）
             </p>
           </div>
           <div class="card">
@@ -695,7 +695,7 @@
               Key，系统照常闭环运行（规则同构降级），LLM 是「加分项」而非「前提」。
             </p>
             <p style="margin-top: 8px; font-size: 12px; font-weight: 600; color: #0e7490">
-              机制落点：规则内核 = 纯函数 + DB 触发器双守护（P09/P17）· LLM 五点全有规则同构降级（P13）
+              机制落点：规则内核 = 纯函数 + DB 触发器双守护（P09/P18）· LLM 五点全有规则同构降级（P14）
             </p>
           </div>
         </div>
@@ -718,7 +718,7 @@
         <h2 class="title">业务能力地图：七项能力构成风控中枢</h2>
         <div class="subtitle">
           承接第一部分五阶段闭环：把它展开为七项可落地的业务能力（BA-CAP-01~07，docs/01
-          §4），编号后续可追溯到 Skill（P12）与场景（P18）
+          §4），编号后续可追溯到 Skill（P13）与场景（P19）
         </div>
         <table>
           <tr>
@@ -738,8 +738,8 @@
           <tr>
             <td><b>BA-CAP-02</b> 风险事件管理</td>
             <td>全程</td>
-            <td>状态流转 / 时效监控</td>
-            <td>每个案件有清晰的生命周期与时效约束（12 态，P17）</td>
+            <td>状态流转 / 时效监控 / 案件治理</td>
+            <td>每个案件有清晰的生命周期与时效约束（12 态，P17）；含优先级队列、可治理自动关闭与归档复位（BR-26/28 · SC-25/27）</td>
           </tr>
           <tr>
             <td><b>BA-CAP-03</b> 风险信号聚合</td>
@@ -915,7 +915,7 @@
           <div class="card">
             <h4><span class="stage-tag green">低通道</span>　BA-BR-01 · 分 &lt; 40 且 &lt; 5,000 元</h4>
             <p>
-              自动处置：系统自动放行或拦截，决策依据写审计，全程无人工（免审批单，SC-01）。效果：响应 0.0 分钟（KPI-01），场景一实证零人工（P23）。
+              自动处置：系统自动放行或拦截，决策依据写审计，全程无人工（免审批单，SC-01）。效果：响应 0.0 分钟（KPI-01），场景一实证零人工（P24）。
             </p>
           </div>
           <div class="card">
@@ -928,7 +928,7 @@
           <div class="card">
             <h4><span class="stage-tag red">高通道</span>　BA-BR-02 · ≥ 70</h4>
             <p>
-              深度调查 + 强制人工审批：批准才执行（DA-INV-02）；驳回回退人工复核且禁止再入自动通道（BA-BR-07，SC-03）。效果：未批准冻结不可执行（场景二 P24）。
+              深度调查 + 强制人工审批：批准才执行（DA-INV-02）；驳回回退人工复核且禁止再入自动通道（BA-BR-07，SC-03）。效果：未批准冻结不可执行（场景二 P25）。
             </p>
           </div>
         </div>
@@ -937,19 +937,19 @@
         </div>
       </section>
 
-      <!-- ============ P09 二(4/5) 业务规则（完整 24 条） ============ -->
+      <!-- ============ P09 二(4/5) 业务规则（完整 28 条） ============ -->
       <section class="slide">
         <div class="kicker">二、业务设计 · 4/5</div>
         <h2 class="title">业务规则：完整 28 条（BA-BR-01 ~ BA-BR-28）</h2>
         <div class="subtitle">
-          每条规则末列标注守护它的 BDD 场景或不变量（追溯矩阵见 P18）——28 条规则无一条悬空；7 条经 Nacos 动态可调，变化无需改代码；BR-15~28 为增强路线图（docs/14）与案件治理赛道对标（docs/09 §8）扩展
+          每条规则末列标注守护它的 BDD 场景或不变量（追溯矩阵见 P19）——28 条规则无一条悬空；7 条经 Nacos 动态可调，变化无需改代码；BR-15~28 为增强路线图（docs/14）与案件治理赛道对标（docs/09 §8）扩展
         </div>
         <table class="compact">
           <tr>
             <th style="width: 82px">编号</th>
             <th>规则内容</th>
             <th style="width: 84px">生效方式</th>
-            <th style="width: 108px">守护（P18）</th>
+            <th style="width: 108px">守护（P19）</th>
           </tr>
           <tr>
             <td><b>BA-BR-01</b></td>
@@ -1121,7 +1121,7 @@
           </tr>
         </table>
         <div class="foot">
-          <span>规则全集与配置位置见 docs/01 §5 · 守护映射见 docs/06 §4 追溯矩阵（P18）· 动态阈值经 Nacos 下发即时生效</span
+          <span>规则全集与配置位置见 docs/01 §5 · 守护映射见 docs/06 §4 追溯矩阵（P19）· 动态阈值经 Nacos 下发即时生效</span
           ><span>09</span>
         </div>
       </section>
@@ -1219,13 +1219,78 @@
           </p>
         </div>
         <div class="foot">
-          <span>低通道全自动路径见场景一（P23）· 四角色完整审批流见场景二（P24）</span><span>10</span>
+          <span>低通道全自动路径见场景一（P24）· 四角色完整审批流见场景二（P25）</span><span>10</span>
         </div>
       </section>
 
-      <!-- ============ P11 三(1/7) 多 Agent 协同 ============ -->
+      <!-- ============ P11 二(6/6) 案件治理（赛道对标三缺口闭合） ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 1/7</div>
+        <div class="kicker">二、业务设计 · 6/6</div>
+        <h2 class="title">案件治理：赛道对标三缺口闭合（BR-26~28 · SC-25~27）</h2>
+        <div class="subtitle">
+          docs/09 §8 赛道八条最佳实践对表识别三缺口——优先级队列 / 叙事引用对齐 /
+          可治理自动关闭；零新表零新态闭合，每项落到规则、场景与端点
+        </div>
+        <table>
+          <tr>
+            <th style="width: 150px">治理能力</th>
+            <th>解决的业务问题与机制</th>
+            <th style="width: 190px">规则 · 场景 · 端点</th>
+          </tr>
+          <tr>
+            <td><b>优先级队列</b></td>
+            <td>
+              主管不再按立案时序翻案件：非归档案件按风险优先排布（risk_score
+              DESC + 同档滞留最久置顶），high/mid/low 分级复用 BR-01/02
+              边界派生；aging 超期阈值经 br-26-aging-hours 热配置，成为主管看板口径
+            </td>
+            <td>BR-26 · SC-25 · API-W-28<br />GET /api/cases/queue</td>
+          </tr>
+          <tr>
+            <td><b>叙事引用对齐</b></td>
+            <td>
+              案件叙事防虚构：草稿仅可引用证据链/信号/处置/审批既有素材（token
+              词法对齐，构造性防幻觉），未对齐产出降级规则轨；DRAFT
+              待人工审校不得直接入证据链，生成留痕可追责
+            </td>
+            <td>BR-27 · SC-26 · API-W-30<br />POST /api/cases/{id}/narrative</td>
+          </tr>
+          <tr>
+            <td><b>可治理自动关闭</b></td>
+            <td>
+              零信号小额案件自动关闭不再失控：金额上限经
+              br-28-auto-close-max-amount 热配置，关闭留痕带当时标准引用可复算；归档后仍可人工复位（ARCHIVED→MANUAL_REVIEW，事由必填，human_only），关闭与复活两端皆可治理
+            </td>
+            <td>BR-28 · SC-27 · API-W-29<br />POST /api/cases/{id}/reopen</td>
+          </tr>
+        </table>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; margin-top: 10px">
+          <div class="card">
+            <h4>零新表零新态的克制设计</h4>
+            <p>
+              三项能力不新增数据表、不新增状态机态：复用 risk_case 读面、noise
+              通道与既有 12 态；新增迁移仅一条归档复位分支（db/init
+              11-case-governance 同步触发器白名单），架构复杂度零膨胀。
+            </p>
+          </div>
+          <div class="card">
+            <h4>验收证据</h4>
+            <p>
+              test_case_governance 11 例 + SC-25~27 场景矩阵 3 例全绿（计入 339
+              例基线）；状态机对账基线同步抬升 22 迁移 / 7 条 human_only
+              入口；openapi 32 路径契约同步。
+            </p>
+          </div>
+        </div>
+        <div class="foot">
+          <span>赛道对标决策见 docs/09 §8 · 实现明细见 docs/14 v1.7 US-E17~19 · 规则全文见 docs/01 §5 BR-26~28</span
+          ><span>11</span>
+        </div>
+      </section>
+
+      <!-- ============ P12 三(1/8) 多 Agent 协同 ============ -->
+      <section class="slide">
+        <div class="kicker">三、架构与落地 · 1/8</div>
         <h2 class="title">多 Agent 协同：5 个黄金岗位，一岗一职</h2>
         <div class="subtitle">
           承接第二章：七项能力（BA-CAP-01~07）由 5 个岗位承载——AG-02~05
@@ -1297,13 +1362,13 @@
         </table>
         <div class="foot">
           <span>协同设计见 docs/02 §3；互审/分派测试见 tests/test_cross_review.py、test_dynamic_dispatch.py</span
-          ><span>11</span>
+          ><span>12</span>
         </div>
       </section>
 
-      <!-- ============ P12 三(2/7) 能力层 ============ -->
+      <!-- ============ P13 三(2/8) 能力层 ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 2/7</div>
+        <div class="kicker">三、架构与落地 · 2/8</div>
         <h2 class="title">能力层：5 个 Skill 包 + 2 个 MCP（19 工具）</h2>
         <div class="subtitle">
           承接上页岗位分工：每个 Skill 承载一项 BA-CAP 能力（能力→岗位→技能三层对齐）；Skill
@@ -1381,17 +1446,17 @@
           </div>
         </div>
         <div class="foot">
-          <span>16 个工具均有契约编号，与 OpenAPI 同源；调度协议见 skills/SKILL-DISPATCH.md</span
-          ><span>12</span>
+          <span>19 个工具均有契约编号，与 OpenAPI 同源；调度协议见 skills/SKILL-DISPATCH.md</span
+          ><span>13</span>
         </div>
       </section>
 
-      <!-- ============ P13 三(3/7) LLM 增强与确定性降级 ============ -->
+      <!-- ============ P14 三(3/8) LLM 增强与确定性降级 ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 3/7</div>
+        <div class="kicker">三、架构与落地 · 3/8</div>
         <h2 class="title">LLM 增强 × 确定性打底：建议性增强，无决策权</h2>
         <div class="subtitle">
-          P11 三个协同机制（规划-反思 / 互审 / 分派）中 LLM 承担什么、失败怎么办——五个增强点全部「规则同构降级」：无 Key / 调用失败时规则内核接管，闭环不断
+          P12 三个协同机制（规划-反思 / 互审 / 分派）中 LLM 承担什么、失败怎么办——五个增强点全部「规则同构降级」：无 Key / 调用失败时规则内核接管，闭环不断
         </div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 12px">
           <div class="card">
@@ -1439,13 +1504,13 @@
         </div>
         <div class="foot">
           <span>人机边界与 LLM 权限声明见 docs/02 §3.3；降级矩阵见 tests/test_pipeline.py</span
-          ><span>13</span>
+          ><span>14</span>
         </div>
       </section>
 
-      <!-- ============ P14 三(4/7) 技术栈 ============ -->
+      <!-- ============ P15 三(4/8) 技术栈 ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 4/7</div>
+        <div class="kicker">三、架构与落地 · 4/8</div>
         <h2 class="title">技术栈：每项都有明确的职责与替换路径</h2>
         <div class="subtitle">
           不是并列的组件清单：入口、应用、协同、数据、事件五个平面各司其职，选型遵循三条原则
@@ -1464,7 +1529,7 @@
           <tr>
             <td><b>FastAPI</b></td>
             <td>后端框架</td>
-            <td>状态机 + 5 Skill 内核 + 25 REST 路径</td>
+            <td>状态机 + 5 Skill 内核 + 32 REST 路径（含案件治理 queue/reopen/narrative）</td>
           </tr>
           <tr>
             <td><b>Vue 3 + Element Plus</b></td>
@@ -1512,7 +1577,7 @@
               桥接业务库，LLM 故障不传染业务主链路 → 数据面 <b>PostgreSQL</b>
               业务 / 向量 / 审计一体三用，少一个组件就少一类故障 → 事件面
               <b>RocketMQ</b> 异步流转 + <b>Nacos</b>
-              阈值热更（与 DB 轮询双通道，降级实测 P15）。
+              阈值热更（与 DB 轮询双通道，降级实测 P16）。
             </p>
           </div>
           <div class="card">
@@ -1526,13 +1591,13 @@
           </div>
         </div>
         <div class="foot">
-          <span>完整选型与替换成本见 docs/04 §2</span><span>14</span>
+          <span>完整选型与替换成本见 docs/04 §2</span><span>15</span>
         </div>
       </section>
 
-      <!-- ============ P15 三(5/7) 部署拓扑 ============ -->
+      <!-- ============ P16 三(5/8) 部署拓扑 ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 5/7</div>
+        <div class="kicker">三、架构与落地 · 5/8</div>
         <h2 class="title">部署拓扑：一套 Compose 栈 + AgentTeams 独立栈</h2>
         <div class="subtitle">
           中间件与自研服务编排为一套，多 Agent 协同按官方方式独立部署
@@ -1567,13 +1632,13 @@
         </div>
         <div class="foot">
           <span>部署细节见 docs/04 §3；一键启动脚本 scripts/start_all.py</span
-          ><span>15</span>
+          ><span>16</span>
         </div>
       </section>
 
-      <!-- ============ P16 三(6/7) 数据流 ============ -->
+      <!-- ============ P17 三(6/8) 数据流 ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 6/7</div>
+        <div class="kicker">三、架构与落地 · 6/8</div>
         <h2 class="title">数据流：四条链路各司其职</h2>
         <div class="subtitle">
           P08 端到端流程的技术落地视角：业务闭环、门户流量、Agent 协同、观测上报，全部真实连通
@@ -1615,22 +1680,22 @@
           <h4>一个刻意取舍</h4>
           <p>
             web-api 到 MCP
-            内核保持直连——处置是状态机的关键路径，不额外耦合网关这一单点。三个
-            MCP 已注册为网关服务源，生产形态按需加路由即可。
+            内核保持直连——处置是状态机的关键路径，不额外耦合网关这一单点。三个自研服务（web-api
+            + 两个 MCP）已注册为网关服务源，生产形态按需加路由即可。
           </p>
         </div>
         <div class="foot">
-          <span>数据流细节见 docs/04 §3/§5/§10.1</span><span>16</span>
+          <span>数据流细节见 docs/04 §3/§5/§10.1</span><span>17</span>
         </div>
       </section>
 
-      <!-- ============ P17 三(7/7) 状态机 ============ -->
+      <!-- ============ P18 三(7/8) 状态机 ============ -->
       <section class="slide">
-        <div class="kicker">三、架构与落地 · 7/7</div>
+        <div class="kicker">三、架构与落地 · 7/8</div>
         <h2 class="title">事件驱动闭环与 12 态状态机（DA-INV-01）</h2>
         <div class="subtitle">
-          P08 端到端流程的技术内核：12 个状态全部展开（主线 9 + 分支 3），21
-          条迁移白名单化，每条分支各守护一条业务规则
+          P08 端到端流程的技术内核：12 个状态全部展开（主线 9 + 分支 3），22
+          条迁移白名单化（含归档复位 human_only 通道），每条分支各守护一条业务规则
         </div>
         <div class="flow" style="font-size: 10.5px">
           <div class="fbox">立案<br />REGISTERED</div>
@@ -1660,7 +1725,7 @@
           <tr>
             <td><b>低通道捷径</b></td>
             <td>AGGREGATING →（免审批单直接提交放行）→ DISPOSING</td>
-            <td>BA-BR-01 · SC-01 · 场景一 D1（P23）</td>
+            <td>BA-BR-01 · SC-01 · 场景一 D1（P24）</td>
           </tr>
           <tr>
             <td><b>驳回回滚</b></td>
@@ -1680,7 +1745,7 @@
           <tr>
             <td><b>复核双出口</b></td>
             <td>MANUAL_REVIEW →（人确认）PENDING_APPROVAL ／（人排除）ARCHIVED</td>
-            <td>SC-10 · 场景二尾段（P24）</td>
+            <td>SC-10 · 场景二尾段（P25）</td>
           </tr>
           <tr>
             <td><b>归档复位</b></td>
@@ -1707,16 +1772,16 @@
         </div>
         <div class="foot">
           <span>状态机见 app/core/state_machine.py · docs/03 §9.2 · tests/test_scenario_matrix.py</span
-          ><span>17</span>
+          ><span>18</span>
         </div>
       </section>
 
-      <!-- ============ P18 四(1/4) BDD·DDD·TDD 工程验证体系 ============ -->
+      <!-- ============ P19 四(1/4) BDD·DDD·TDD 工程验证体系 ============ -->
       <section class="slide">
         <div class="kicker">四、质量与验证 · 1/4</div>
         <h2 class="title">BDD · DDD · TDD：规格、设计与测试互锁</h2>
         <div class="subtitle">
-          承接前三部分：24 条规则（P09）、17 表与 9 条不变量（P07/P17）、5 Skill（P12）如何互锁？追溯矩阵是粘合剂——每条规则有场景守护，每个场景有测试承载
+          承接前三部分：28 条规则（P09）、17 表与 9 条不变量（P07/P18）、5 Skill（P13）如何互锁？追溯矩阵是粘合剂——每条规则有场景守护，每个场景有测试承载
         </div>
         <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px">
           <table class="compact">
@@ -1777,7 +1842,7 @@
               <p>
                 先测后码（红-绿-重构）：单元（降噪/评分/velocity/状态机/幂等）→
                 契约（MCP Schema/错误码/降级）→ 集成（活栈事件/权限矩阵/RAG）→
-                场景 E2E（SC-01~27 真实链路）→ 评估（KPI 落盘可复现，P20）。
+                场景 E2E（SC-01~27 真实链路）→ 评估（KPI 落盘可复现，P21）。
               </p>
             </div>
           </div>
@@ -1785,19 +1850,19 @@
         <div class="card" style="margin-top: 12px">
           <h4>完备性声明（docs/06 §4）与「演示即测试复现」</h4>
           <p>
-            24 条规则中 BR-06 由评分单元测试、BR-05 由专项三分支测试（test_br05_high_freq.py）承载、BR-12
+            28 条规则中 BR-06 由评分单元测试、BR-05 由专项三分支测试（test_br05_high_freq.py）承载、BR-12
             为运维策略不在测试范围、BR-22 环治理由 test_loop_engine 14 例 + SC-19/20
-            承载、BR-23 问答治理由 SC-21/22 + 结构化复盘单测承载、BR-24 企业资质治理由 SC-23 + 分派单测承载，其余全部由左表场景守护；9 条不变量 100%
+            承载、BR-23 问答治理由 SC-21/22 + 结构化复盘单测承载、BR-24 企业资质治理由 SC-23 + 分派单测承载、BR-26~28 案件治理由 SC-25~27 + test_case_governance 11 例承载，其余全部由左表场景守护；9 条不变量 100%
             有测试映射。演示剧本 D1~D3 与场景矩阵同源（同一契约与断言），第五部分三场景即本表
             SC-01 / SC-02+08 / SC-03+07 的真人操作回放。
           </p>
         </div>
         <div class="foot">
-          <span>场景目录与追溯矩阵见 docs/06 §2/§4 · 聚合与事件目录见 docs/03 §9 · 全仓追溯见 docs/05</span><span>18</span>
+          <span>场景目录与追溯矩阵见 docs/06 §2/§4 · 聚合与事件目录见 docs/03 §9 · 全仓追溯见 docs/05</span><span>19</span>
         </div>
       </section>
 
-      <!-- ============ P19 四(2/4) 质量保障体系 ============ -->
+      <!-- ============ P20 四(2/4) 质量保障体系 ============ -->
       <section class="slide">
         <div class="kicker">四、质量与验证 · 2/4</div>
         <h2 class="title">质量保障：五道 CI 门禁 + 全量实链路回归</h2>
@@ -1865,19 +1930,20 @@
             </td>
           </tr>
           <tr>
-            <td><b>诚实标注</b></td>
+            <td><b>线上实证</b></td>
             <td>
-              CI 本地全绿；仓库未推送，Actions 线上零运行——线上实证待推送，如实标注不冒充
+              仓库已公开推送，GitHub Actions 线上 31 文件 339 例全绿（含覆盖率门禁
+              --cov-fail-under=70 线上实证），线上与本地基线一致，非仅本地绿
             </td>
           </tr>
         </table>
         <div class="foot">
           <span>.github/workflows/ci.yml · scripts/skill_pack_validate.py · scripts/run_full_batches.ps1</span
-          ><span>19</span>
+          ><span>20</span>
         </div>
       </section>
 
-      <!-- ============ P20 四(3/4) KPI 运行效果 ============ -->
+      <!-- ============ P21 四(3/4) KPI 运行效果 ============ -->
       <section class="slide">
         <div class="kicker">四、质量与验证 · 3/4</div>
         <h2 class="title">运行效果：六维 KPI，双口径分别判定</h2>
@@ -1946,11 +2012,11 @@
         </div>
         <div class="foot">
           <span>docs/reports/kpi-report.md（周期落盘可复现）· 数据集溯源 DOI 10.5281/zenodo.7395559 + md5</span
-          ><span>20</span>
+          ><span>21</span>
         </div>
       </section>
 
-      <!-- ============ P21 四(4/4) 五维度终评 ============ -->
+      <!-- ============ P22 四(4/4) 五维度终评 ============ -->
       <section class="slide">
         <div class="kicker">四、质量与验证 · 4/4</div>
         <h2 class="title">五维度终评：66 → 89 → 复评 96（新智基座 Agent Infra 标准）</h2>
@@ -2010,11 +2076,11 @@
         </table>
         <div class="foot">
           <span>完整评分与证据链见 docs/12-新智基座五维度终评.md（2026-08-18 终评 + 2026-08-21 复评注记）</span
-          ><span>21</span>
+          ><span>22</span>
         </div>
       </section>
 
-      <!-- ============ P22 五(1/4) 启动与体验 ============ -->
+      <!-- ============ P23 五(1/4) 启动与体验 ============ -->
       <section class="slide">
         <div class="kicker">五、场景演示 · 1/4</div>
         <h2 class="title">启动与体验：一条命令，四个角色</h2>
@@ -2069,16 +2135,16 @@
         </div>
         <div class="foot">
           <span>完整操作序列见 README 操作指引与 demo_playbook.py</span
-          ><span>22</span>
+          ><span>23</span>
         </div>
       </section>
 
-      <!-- ============ P23 五(2/4) 场景一 ============ -->
+      <!-- ============ P24 五(2/4) 场景一 ============ -->
       <section class="slide">
         <div class="kicker">五、场景演示 · 2/4</div>
         <h2 class="title">场景一 · 低风险自动处置（全自动，零人工）</h2>
         <div class="subtitle">
-          剧本 D1（demo_playbook）· 回放 SC-01 低风险自动放行：立案之后无人推动，事件工作器沿低通道捷径（P17）推进到「已处置」
+          剧本 D1（demo_playbook）· 回放 SC-01 低风险自动放行：立案之后无人推动，事件工作器沿低通道捷径（P18）推进到「已处置」
         </div>
         <table>
           <tr>
@@ -2124,11 +2190,11 @@
         </div>
         <div class="foot">
           <span>验证命令 scripts/demo_playbook.py · 状态路径 AGGREGATING→DISPOSING→DISPOSED（BA-BR-01 低通道免审批单）· KPI-01: 0.0 分</span
-          ><span>23</span>
+          ><span>24</span>
         </div>
       </section>
 
-      <!-- ============ P24 五(3/4) 场景二 ============ -->
+      <!-- ============ P25 五(3/4) 场景二 ============ -->
       <section class="slide">
         <div class="kicker">五、场景演示 · 3/4</div>
         <h2 class="title">场景二 · 高风险调查 + 人工审批（人机协同）</h2>
@@ -2170,11 +2236,11 @@
           </div>
         </div>
         <div class="foot">
-          <span>人机边界实证：没有批准，冻结不可执行（BA-BR-02/03 · DA-INV-02/04 双重约束）</span><span>24</span>
+          <span>人机边界实证：没有批准，冻结不可执行（BA-BR-02/03 · DA-INV-02/04 双重约束）</span><span>25</span>
         </div>
       </section>
 
-      <!-- ============ P25 五(4/4) 场景三 ============ -->
+      <!-- ============ P26 五(4/4) 场景三 ============ -->
       <section class="slide">
         <div class="kicker">五、场景演示 · 4/4</div>
         <h2 class="title">场景三 · 误报申诉回滚（闭环纠错）</h2>
@@ -2213,11 +2279,11 @@
           </div>
         </div>
         <div class="foot">
-          <span>纠错能力见 AA-SK-04 核验三分支 · KPI-03 误报 0% 即闭环纠错口径</span><span>25</span>
+          <span>纠错能力见 AA-SK-04 核验三分支 · KPI-03 误报 0% 即闭环纠错口径</span><span>26</span>
         </div>
       </section>
 
-      <!-- ============ P26 六 总结 ============ -->
+      <!-- ============ P27 六 总结 ============ -->
       <section class="slide">
         <div class="kicker">六、总结</div>
         <h2 class="title">总结：结论来自真实运行，局限如实披露</h2>
@@ -2232,7 +2298,7 @@
             <p>五维度复评<br />（66 → 89 → 96，证据可复现）</p>
           </div>
           <div class="card" style="text-align: center">
-            <div class="num">3 + 24</div>
+            <div class="num">3 + 27</div>
             <p>三个典型演示场景<br />+ SC-01~27 BDD 矩阵全绿</p>
           </div>
           <div class="card" style="text-align: center">
@@ -2271,23 +2337,22 @@
           </tr>
         </table>
         <div class="card" style="margin-top: 12px">
-          <h4>下一步</h4>
+          <h4>已完成与下一步</h4>
           <p>
-            距 90 分差 1 分，闭合路径明确：<b>git push
-            公开仓库</b>（origin 已配置，Apache-2.0 / README / CONTRIBUTING /
-            CHANGELOG 全部就绪；secrets 已确认 gitignore）。可选加固：覆盖率
-            fail 线（+0.5）、主体级公开数据集（+1~2）。
+            开源推送已闭合：仓库公开（Apache-2.0 / README / CONTRIBUTING /
+            CHANGELOG 齐备，secrets 已确认 gitignore），GitHub Actions 线上 CI
+            339 例全绿实证；案件治理三缺口（BR-26~28）同批次闭合。可选加固：主体级公开数据集（+1~2）、soak 时长扩展。
           </p>
         </div>
         <div class="foot">
           <span>证据文件：docs/reports/kpi-report.md · docs/11 负结果披露 · docs/12 五维度终评 · docs/05 评审记录</span
-          ><span>26</span>
+          ><span>27</span>
         </div>
       </section>
     </div>
     <!-- /stage -->
 
-    <div id="counter">1 / 26</div>
+    <div id="counter">1 / 27</div>
     <div id="nav">
       <button onclick="go(-1)" title="上一页">‹</button>
       <button onclick="go(1)" title="下一页">›</button>
