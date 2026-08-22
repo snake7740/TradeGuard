@@ -275,13 +275,16 @@ async def execute_disposition(case_id: str, action: str, amount: float | None,
                     return json.dumps({"code": "E-DISP-AUTH",
                                        "message": "高风险处置缺审批凭证，已拒绝并转审批（BA-BR-02）"})
                 approval_ref = approved["approval_id"]
-        elif score >= mid_line and action != "release":
-            # C2：中风险段 40-69 非 release 无凭证 → 拒自动处置（与 web 层守卫对齐）
+        elif score >= mid_line:
+            # C2：中风险段 40-69 无凭证一律拒（含 release，与 web 层守卫逐字对齐：
+            # BA-BR-01「一律转人工复核，不得自动处置」）——堵纵深缺口：
+            # AgentTeams worker 经 mcporter 直调本工具不得绕过 web 层放行中风险 release；
+            # 核验回滚的反向 release 携凭证走 C1 逆动作对豁免，不受影响
             await conn.execute(
                 """INSERT INTO audit_log (log_id, actor, action, target, basis, trace_id)
                    VALUES ($1, 'AA-AG-04', 'disposition.refused_scope', $2, $3, $4)""",
                 uuid.uuid4().hex, case_id,
-                f"risk_score={score} action={action} 中风险禁止无凭证自动处置（BA-BR-01 分段，C2）",
+                f"risk_score={score} action={action} 中风险禁止任何无凭证自动处置（BA-BR-01 分段，C2）",
                 case["trace_id"])
             return json.dumps({"code": "E-DISP-SCOPE",
                                "message": "中风险处置须经人工复核/审批通道（BA-BR-01 分段，SC-10）"})

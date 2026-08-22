@@ -32,7 +32,7 @@ depth-limit: 重试退避 0.3s/1s 共 2 次，确定性错误码不重试
 
 ## 确定性执行步骤
 
-1. **门控**：decision_type ∈ {冻结,拦截,降额} 且无 approval_ref → 直接 `E-DISP-AUTH`（SC-02 前半段）；中风险段（40≤score<70）无凭证非 release 处置编排层与 mcp-core 双层拒绝 `E-DISP-SCOPE`，仅审计留痕（BA-BR-01，SC-10）；70 分线经 sys_config 双端同源（SC-06）；
+1. **门控**：decision_type ∈ {冻结,拦截,降额} 且无 approval_ref → 直接 `E-DISP-AUTH`（SC-02 前半段）；中风险段（40≤score<70）无凭证**任何处置动作（含 release）**编排层与 mcp-core 双层拒绝 `E-DISP-SCOPE`，仅审计留痕（BA-BR-01「一律转人工复核，不得自动处置」，SC-10；核验回滚反向 release 携凭证走逆动作对豁免）；70 分线经 sys_config 双端同源（SC-06）；
 2. **建单**：编排层收 E-DISP-AUTH → **AG-01 合规互审（R-47）**：读案件证据链，对 AG-04 处置建议做证据充分性/处置恰当性/过度处置风险审查（LLM 优先，降级规则分档：空证据→escalate、单薄+重处置→concerns、≥2 条→pass），verdict 并入审批单 opinion + case_evidence（source_ref=`AA-AG-01:cross-review`，claim+source_ref 幂等）+ audit `disposition.reviewed`，只建议不决策、不阻断建单（02 §3.3 人机边界）→ API-M-11 `create_approval_request` 建审批工单（DA-T-07，requested_action/requested_amount 随单写入，案件不存在→E-NOT-FOUND）+ 案转 PENDING_APPROVAL；
 3. **幂等**：idempotency_key 命中 DA-T-06 唯一约束 → 返回首次凭证不重复执行（DA-INV-03，SC-07）；批准执行的幂等键 = `case_id:action:approval_id`；重试遇 E-IDEMPOTENT-CONFLICT 按成功处理（route=executed，exec_id 取首次结果）；
 4. **执行**：先转 DISPOSING → mcp-core 同事务写 disposition_record（submitted→executed，receipt 含 approval_ref/action/amount，SC-02 审批与凭证关联落库）→ 成功 DISPOSED；approval_ref 验真含逆动作对（批准冻结即含解冻纠错授权，DA-INV-03 延伸，供 AA-SK-04 反向处置复用）；

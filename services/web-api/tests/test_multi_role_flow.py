@@ -350,3 +350,18 @@ def test_role_boundary_enforcement_at_api_gate(client):
     rows = _fetch("""SELECT count(*) AS c FROM audit_log
                      WHERE action='api.unknown_actor' AND basis LIKE '%/api/config%'""")
     assert rows[0]["c"] >= 1, "未识别角色访问白名单端点须留痕"
+
+
+def test_rbac_central_covers_narrative_and_ask():
+    """叙事生成/知识问答的角色门收编入中央 RBAC（A0：端点级 RBAC 一等执法对象）：
+    PATH_ROLE_RULES 须覆盖 /narrative 与 /kb/ask，且角色集合与端点常量单源
+    （ALL_HUMAN_ROLES），权限矩阵中央可审计、防双源漂移（BA-BR-27/23）"""
+    from app.api.cases import NARRATIVE_ALLOWED_ROLES
+    from app.api.kb import ASK_ALLOWED_ROLES
+    from app.api_guards import ALL_HUMAN_ROLES, PATH_ROLE_RULES
+
+    rules = {p.pattern: allowed for p, allowed in PATH_ROLE_RULES}
+    assert rules.get(r"^/api/cases/[^/]+/narrative$") == ALL_HUMAN_ROLES
+    assert rules.get(r"^/api/kb/ask$") == ALL_HUMAN_ROLES
+    assert NARRATIVE_ALLOWED_ROLES == ALL_HUMAN_ROLES
+    assert ASK_ALLOWED_ROLES == ALL_HUMAN_ROLES

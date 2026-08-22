@@ -489,7 +489,7 @@
         <div class="meta">
           覆盖案件治理完整闭环（赛道八条最佳实践完整集合）｜ 5 Agent 黄金岗位协同（AgentTeams）｜ 5 Skill
           自包含技能包 ｜ 文档体系 docs/00~14<br />
-          自动化测试 339 例全绿（31 文件实链路）｜ 五维度终评 89/100（2026-08-21 复评 96）｜
+          自动化测试 341 例全绿（31 文件实链路）｜ 五维度终评 89/100（2026-08-21 复评 96）｜
           三个典型业务场景 + SC-01~27 BDD 矩阵 ｜ 展示日期 2026-08-22<br />
           <b style="color: #e8c98a"
             >本材料所有结论均来自真实运行，而非仅停留在方案推演。</b
@@ -526,7 +526,7 @@
           <div class="card">
             <h4>四、质量与验证<span class="toc-chip">P19–P22</span></h4>
             <p>
-              BDD·DDD·TDD 验证体系（SC-01~27 追溯矩阵）→ 质量保障（339 例 +
+              BDD·DDD·TDD 验证体系（SC-01~27 追溯矩阵）→ 质量保障（341 例 +
               五道 CI 门禁）→ 运行效果与六维 KPI → 五维度终评（66 → 89，复评 96）
             </p>
           </div>
@@ -712,7 +712,7 @@
         <div class="card" style="margin-top: 14px">
           <h4>可验证性承诺</h4>
           <p>
-            设计不停留在纸面：339 例自动化测试（真实数据库 + 双 MCP 实链路）、SC-01~27
+            设计不停留在纸面：341 例自动化测试（真实数据库 + 双 MCP 实链路）、SC-01~27
             BDD 场景矩阵、案件治理赛道八条最佳实践完整集合（五条已对齐 + 三缺口闭合，P11）、ULB
             公开数据集 284,807 笔回放、六维 KPI 周期落盘——第四部分逐项给出证据。
           </p>
@@ -1286,7 +1286,7 @@
           <div class="card">
             <h4>验收证据</h4>
             <p>
-              test_case_governance 11 例 + SC-25~27 场景矩阵 3 例全绿（计入 339
+              test_case_governance 11 例 + SC-25~27 场景矩阵 3 例全绿（计入 341
               例基线）；状态机对账基线同步抬升 22 迁移 / 7 条 human_only
               入口；openapi 32 路径契约同步。
             </p>
@@ -1881,7 +1881,7 @@
         </div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px">
           <div class="card" style="text-align: center">
-            <div class="num">339</div>
+            <div class="num">341</div>
             <p>自动化测试全绿<br />（31 文件 · PG + 双 MCP 实链路）</p>
           </div>
           <div class="card" style="text-align: center">
@@ -1905,7 +1905,7 @@
           <tr>
             <td><b>全量实链路回归</b></td>
             <td>
-              31 文件 339 例：PG16/pgvector :5433 + 双 MCP :8101/:8102
+              31 文件 341 例：PG16/pgvector :5433 + 双 MCP :8101/:8102
               真实服务 + RocketMQ 降级矩阵；宿主 Docker
               当夜随机崩溃 4 次，以文件粒度断点续跑 + 崩溃自动恢复的分批监督脚本跑完全绿（工程韧性实证）
             </td>
@@ -1929,7 +1929,8 @@
             <td><b>安全纵深 R-37</b></td>
             <td>
               常量时间比较 / CORS 白名单 / 回环绑定 / Host 污染防护 / gitleaks +
-              三角色权限矩阵（02-roles.sql）
+              三角色权限矩阵（02-roles.sql）；28 规则×代码实现逐条对账，中风险
+              release 跨层纵深缺口闭合 + narrative/ask 角色门收编中央 RBAC（2026-08-22）
             </td>
           </tr>
           <tr>
@@ -1942,7 +1943,7 @@
           <tr>
             <td><b>线上实证</b></td>
             <td>
-              仓库已公开推送，GitHub Actions 线上 31 文件 339 例全绿（含覆盖率门禁
+              仓库已公开推送，GitHub Actions 线上 31 文件 341 例全绿（含覆盖率门禁
               --cov-fail-under=70 线上实证），线上与本地基线一致，非仅本地绿
             </td>
           </tr>
@@ -2300,7 +2301,7 @@
         <div class="subtitle">「下载即完整启动、结论即真实运行」是本方案的可信基线</div>
         <div class="grid" style="grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px">
           <div class="card" style="text-align: center">
-            <div class="num">339</div>
+            <div class="num">341</div>
             <p>自动化测试全绿<br />（31 文件实链路）</p>
           </div>
           <div class="card" style="text-align: center">
@@ -2355,7 +2356,7 @@
           <p>
             开源推送已闭合：仓库公开（Apache-2.0 / README / CONTRIBUTING /
             CHANGELOG 齐备，secrets 已确认 gitignore），GitHub Actions 线上 CI
-            339 例全绿实证；案件治理三缺口（BR-26~28）同批次闭合。可选加固：主体级公开数据集（+1~2）、soak 时长扩展。
+            341 例全绿实证；案件治理三缺口（BR-26~28）同批次闭合。可选加固：主体级公开数据集（+1~2）、soak 时长扩展。
           </p>
         </div>
         <div class="foot">

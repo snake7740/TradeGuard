@@ -7,7 +7,7 @@ TradeGuard · 交易风控中枢：AI 多 Agent 金融风控系统，五阶段�
 ## 目录结构
 
 ```
-services/web-api/          FastAPI 后端（API-W-01~30）：app/ 核心域 + skills/ 四内核 + tests/（339 例，2026-08-22 全量回归实证）
+services/web-api/          FastAPI 后端（API-W-01~30）：app/ 核心域 + skills/ 四内核 + tests/（341 例，2026-08-22 全量回归实证）
 services/mcp-core/         业务库 MCP（:8101，API-M 12 工具，处置执行唯一通道）
 services/mcp-external-mock/ 外部源模拟 MCP（:8102，征信/舆情/投诉/企业资质四契约源 + pyod 统计离群三算法（iforest/lof/ecod），共 7 工具，确定性播种；企业资质双轨：有厂商凭据走真实源，降级 mock）
 services/data-generator/   合成数据（PaySim 式分布，爆发簇近 1h 可触发 velocity）
@@ -27,7 +27,7 @@ scripts/                   start_all / demo_playbook / kpi_report / nacos_regist
 ```bash
 .venv/Scripts/python scripts/start_all.py               # 一键启动+数据通路自证（首选）：.env 凭证自举→拉起全栈→真实探活→数据就位（空库先读 db/export）→端到端取证核心 19 项，全绿 exit 0
 docker compose up -d --build          # 起全栈（postgres/rocketmq/nacos/higress/studio/mcp×2/web×2）
-.venv/Scripts/python -m pytest services/web-api/tests   # 全量回归（31 文件 339 例，约 40 分钟；需先起栈）
+.venv/Scripts/python -m pytest services/web-api/tests   # 全量回归（31 文件 341 例，约 40 分钟；需先起栈）
 .venv/Scripts/python scripts/demo_playbook.py           # 演示=测试复现，D1~D3 三个场景，目标 3/3
 .venv/Scripts/python scripts/kpi_report.py              # KPI 报告重生成（全量/演示范围分列判定）
 cd web-portal && npm run build                          # 前端构建

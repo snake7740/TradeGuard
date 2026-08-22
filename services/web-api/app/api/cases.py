@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
+from ..api_guards import ALL_HUMAN_ROLES
 from ..core.state_machine import CaseEvent, InvalidTransition
 from ..repositories import OptimisticLockError
 from ..schemas import DispositionIn, ReopenIn, ReviewIn, VerifyIn
@@ -235,8 +236,9 @@ async def reopen_case(request: Request, case_id: str, body: ReopenIn,
 
 
 # 叙事生成仅对已识别人类角色开放（同 kb/ask BA-BR-23 模式）：
-# DRAFT 待人工审校，生成可追责到人；agent:/未识别调用方一律 403
-NARRATIVE_ALLOWED_ROLES = {"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"}
+# DRAFT 待人工审校，生成可追责到人；agent:/未识别调用方一律 403。
+# 角色集合与中央 RBAC（api_guards.PATH_ROLE_RULES）同源，防双源漂移
+NARRATIVE_ALLOWED_ROLES = ALL_HUMAN_ROLES
 
 
 @router.post("/{case_id}/narrative")

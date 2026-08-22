@@ -15,6 +15,7 @@ target=api，操作者取 X-Operator 头（人机边界，02 §3.3），异常�
   * /cases/*/review：仅风控审批官；/cases/*/reopen：值班员或策略管理员（BA-BR-28）；
     /approvals*/decide、/config*：审批官或策略管理员；
     /kb/applications/*/publish|reject：仅策略管理员（对齐 02-roles.sql tg_web 授权面）；
+    /cases/*/narrative、/kb/ask：全部已识别人类角色（BA-BR-27/23，agent:/未识别仍由端点人工门 403）；
   * 已知人类角色越权人工环节写路径 → 403 E-FORBIDDEN-ROLE；
     agent: 自声明穿透至端点 human_only 守卫 → 409 E-HUMAN-ONLY（语义分层）；
   * 未识别角色（无合法前缀/未编码角色名）放行并留痕 api.unknown_actor，
@@ -40,6 +41,8 @@ EXEMPT_PATHS = ("/api/health",)   # R-37：SSE 纳入鉴权（门户 nginx 注�
 
 # ---- 端点级角色门控（A0：03 §6 权限矩阵 × 01 §6 角色旅程的 API 层落地）----
 KNOWN_ACTOR_PREFIXES = ("human:", "agent:", "system:")
+# 已识别人类角色全集（与 web-portal role.js / _actor_role 同源）
+ALL_HUMAN_ROLES = frozenset({"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"})
 # 前缀 → 允许角色集合（中文角色名与 web-portal role.js 同源；审批官兼系统阈值
 # 配置权，与 02-roles.sql tg_web 的 sys_config UPDATE 授权对齐）
 PATH_ROLE_RULES = (
@@ -59,6 +62,13 @@ PATH_ROLE_RULES = (
     # 策略管理员兼环治理；agent: 穿透至端点 human_only 守卫 409 E-HUMAN-ONLY
     (re.compile(r"^/api/deadletter/[^/]+/retry$"),
      {"风控值班员", "风控策略管理员"}),
+    # 叙事生成（BA-BR-27）与知识问答（BA-BR-23）：对全部已识别人类角色开放，
+    # 收编入中央 RBAC 与端点 NARRATIVE_ALLOWED_ROLES/ASK_ALLOWED_ROLES 同源，
+    # 权限矩阵单源可审计；agent:/未识别调用方仍由端点人工门 403（语义分层不变）
+    (re.compile(r"^/api/cases/[^/]+/narrative$"),
+     ALL_HUMAN_ROLES),
+    (re.compile(r"^/api/kb/ask$"),
+     ALL_HUMAN_ROLES),
 )
 # 人工环节写路径：已识别人类角色越权直接 403；agent: 自声明不在此拦截，
 # 穿透至端点 human_only 守卫返回 409 E-HUMAN-ONLY（语义分层：403=角色无权，
@@ -91,7 +101,7 @@ def _actor_role(actor: str):
         return False, None
     if decoded.startswith("human:"):
         decoded = decoded[len("human:"):]
-    if decoded in {"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"}:
+    if decoded in ALL_HUMAN_ROLES:
         return True, decoded
     return False, None
 

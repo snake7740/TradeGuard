@@ -3,10 +3,12 @@
 
 经真实 CoreClient→mcp-core(:8101) 实链路验证：
   C1 凭证严格验真（伪造/跨案/逆动作对豁免）
-  C2 高风险 ROLLBACK 态 release 豁免、中风险段非 release 拒绝
+  C2 高风险 ROLLBACK 态 release 豁免、中风险段无凭证任何动作拒绝（含 release，纵深缺口闭合）
   C3 query_disposition_result / create_approval_request 存在性（E-NOT-FOUND）
 """
 import uuid
+
+import pytest
 
 from app.core.state_machine import CaseEvent
 from app.skills.mcp_adapters import CoreClient
@@ -109,13 +111,16 @@ async def test_c2_high_risk_release_no_rollback_state_refused(case_repo):
     assert out["code"] == "E-DISP-AUTH"
 
 
-async def test_c2_mid_risk_non_release_refused(case_repo):
-    """中风险段（40-69）非 release 无凭证 → E-DISP-SCOPE（mcp-core 层直验）"""
+@pytest.mark.parametrize("action", ["block", "release"])
+async def test_c2_mid_risk_no_approval_any_action_refused(action, case_repo):
+    """中风险段（40-69）无凭证任何动作（含 release）→ E-DISP-SCOPE（mcp-core 层直验）：
+    纵深缺口闭合——AgentTeams worker 经 mcporter 直调本工具不得绕过 web 层
+    放行中风险 release，与 BA-BR-01「一律转人工复核」逐字同源"""
     repo, _ = case_repo
     core = CoreClient(MCP_CORE_URL)
     case_id = await _case(repo, score=55)
     await _to_investigating(repo, case_id)
-    out = await core.execute_disposition(case_id, "block", None, f"{case_id}:mid-block")
+    out = await core.execute_disposition(case_id, action, None, f"{case_id}:mid-{action}")
     assert out["code"] == "E-DISP-SCOPE"
 
 

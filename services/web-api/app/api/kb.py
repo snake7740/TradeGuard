@@ -4,6 +4,7 @@ from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..api_guards import ALL_HUMAN_ROLES
 from ..schemas import KbAskIn, KbPublishIn
 from ..skills.knowledge import ask_kb, publish_and_index
 from .common import operator_from_header
@@ -11,8 +12,9 @@ from .common import operator_from_header
 router = APIRouter(prefix="/api/kb", tags=["knowledge-base"])
 
 # AA-AG-06 知识助手的 B 端服务面（SC-22）：问答仅对已识别人类角色开放，
-# 问答记录可追责到人（BA-BR-23）；agent:/未识别调用方一律 403
-ASK_ALLOWED_ROLES = {"风控值班员", "风控审批官", "合规审计员", "风控策略管理员"}
+# 问答记录可追责到人（BA-BR-23）；agent:/未识别调用方一律 403。
+# 角色集合与中央 RBAC（api_guards.PATH_ROLE_RULES）同源，防双源漂移
+ASK_ALLOWED_ROLES = ALL_HUMAN_ROLES
 
 
 def _operator(request: Request, body: KbPublishIn) -> str:
